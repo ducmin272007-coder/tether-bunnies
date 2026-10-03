@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#ffd6e7">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="format-detection" content="telephone=no">
+  <title>Tether Bunnies: Co-op Chaos &amp; Solo Campaign</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&family=Press+Start+2P&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <!-- ============ STARTUP LOBBY & MODE SELECTION ============ -->
+  <div id="lobby">
+    <div class="card">
+      <div class="logo">
+        <span class="logo-bunnies">🐰🥕🐰</span>
+        <h1>Tether<br>Bunnies</h1>
+        <div class="subtitle">CO-OP CHAOS &bull; HARDCORE CAMPAIGN</div>
+      </div>
+
+      <!-- VIEW 1: INITIAL MODE SELECTION (SOLO VS CO-OP) -->
+      <div id="modeSelectView">
+        <div class="mode-select-title">CHOOSE GAME MODE</div>
+        
+        <button id="btnSolo" class="btn btn-mode btn-solo">
+          <div class="mode-icon">🌟</div>
+          <div class="mode-info">
+            <div class="mode-name">SOLO CAMPAIGN</div>
+            <div class="mode-desc">Singleplayer &bull; Fast Parkour &bull; No Tether &bull; 100% Offline</div>
+          </div>
+        </button>
+
+        <button id="btnCoop" class="btn btn-mode btn-coop">
+          <div class="mode-icon">🤝</div>
+          <div class="mode-info">
+            <div class="mode-name">CO-OP WITH FRIENDS</div>
+            <div class="mode-desc">2-4 Players &bull; Elastic Rope &bull; Head Stacking Towers</div>
+          </div>
+        </button>
+
+        <div class="shop-trigger-row">
+          <button id="lobbyShopBtn" class="btn btn-shop">🛍️ Bunny Boutique &bull; 🪙 <span id="lobbyCoins">0</span></button>
+        </div>
+
+        <div class="howto">
+          <div><b>A / D</b> or <b>← →</b> run &nbsp;&bull;&nbsp; <b>W / ↑ / Space</b> jump</div>
+          <div class="tiny">Mobile smartphones &amp; PCs can join and play together seamlessly!</div>
+        </div>
+      </div>
+
+      <!-- VIEW 2: CO-OP ROOM LOBBY (CREATE / JOIN) -->
+      <div id="coopLobbyView" class="hidden">
+        <div class="coop-header">
+          <button id="btnBackToModes" class="btn-back" title="Back to mode selection">← Back</button>
+          <div class="coop-title">CO-OP MULTIPLAYER</div>
+        </div>
+
+        <label class="field">
+          <span>Your Bunny Name</span>
+          <input id="nameInput" type="text" maxlength="12" placeholder="Bunny" autocomplete="off" spellcheck="false">
+        </label>
+
+        <button id="createBtn" class="btn btn-primary">✨ Create Co-op Room</button>
+
+        <div class="divider"><span>or join with 4-letter code</span></div>
+
+        <div class="join-row">
+          <input id="codeInput" type="text" maxlength="4" placeholder="HOPP" autocomplete="off" spellcheck="false">
+          <button id="joinBtn" class="btn btn-secondary">Join</button>
+        </div>
+
+        <div id="lobbyMsg" class="lobby-msg"></div>
+
+        <div class="howto">
+          <div>Elastic rope connects all players together!</div>
+          <div>Stack on each other's heads to reach high platforms and grab the golden 🔑!</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ BUNNY BOUTIQUE SHOP MODAL ============ -->
+  <div id="shopModal" class="shop-modal hidden">
+    <div class="shop-card">
+      <div class="shop-header">
+        <div class="shop-title">🥕 BUNNY BOUTIQUE</div>
+        <div class="shop-balance">🪙 <span id="shopCoins">0</span> Coins</div>
+        <button id="shopCloseBtn" class="shop-close" title="Close Shop">&times;</button>
+      </div>
+
+      <div class="shop-section-title">SKINS (SAVED TO BROWSER)</div>
+      <div class="shop-grid">
+        <div class="shop-item" data-skin="classic">
+          <div class="skin-preview preview-classic">🐰</div>
+          <div class="skin-name">Classic Pink</div>
+          <div class="skin-price">FREE</div>
+          <button class="skin-btn" data-action="classic">Equipped</button>
+        </div>
+        <div class="shop-item" data-skin="ninja">
+          <div class="skin-preview preview-ninja">🥷</div>
+          <div class="skin-name">Cyber Ninja</div>
+          <div class="skin-price">🪙 20 Coins</div>
+          <button class="skin-btn" data-action="ninja">Buy</button>
+        </div>
+        <div class="shop-item" data-skin="king">
+          <div class="skin-preview preview-king">👑</div>
+          <div class="skin-name">King Bunny</div>
+          <div class="skin-price">🪙 40 Coins</div>
+          <button class="skin-btn" data-action="king">Buy</button>
+        </div>
+        <div class="shop-item" data-skin="slime">
+          <div class="skin-preview preview-slime">✨</div>
+          <div class="skin-name">Golden Slime</div>
+          <div class="skin-price">🪙 60 Coins</div>
+          <button class="skin-btn" data-action="slime">Buy</button>
+        </div>
+      </div>
+
+      <div class="shop-section-title">POTIONS &amp; BUFFS</div>
+      <div class="shop-grid buffs-grid">
+        <div class="shop-item buff-item" data-buff="doublejump">
+          <div class="skin-preview">🦘</div>
+          <div class="skin-name">Double Jump</div>
+          <div class="skin-desc">Allows 1 extra mid-air hop</div>
+          <div class="skin-price">🪙 10 Coins</div>
+          <button class="skin-btn" id="buyDoubleJumpBtn">Buy Potion</button>
+        </div>
+        <div class="shop-item buff-item" data-buff="shield">
+          <div class="skin-preview">🛡️</div>
+          <div class="skin-name">Bubble Shield</div>
+          <div class="skin-desc">Absorbs 1 hazard hit without dying</div>
+          <div class="skin-price">🪙 15 Coins</div>
+          <button class="skin-btn" id="buyShieldBtn">Buy Shield</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ IN-GAME HUD ============ -->
+  <div id="hud" class="hidden">
+    <div class="hud-left">
+      <div class="chip" id="roomChip">
+        <span class="chip-label">ROOM</span>
+        <span id="roomCode" class="chip-code">----</span>
+        <button id="copyBtn" class="chip-btn" title="Copy invite link">🔗 Copy link</button>
+      </div>
+      <div class="chip" id="lvChip">
+        <span id="modeBadge" class="mode-badge">SOLO</span>
+        <span class="chip-sep">&bull;</span>
+        <span id="lvName">Level 1</span>
+        <span class="chip-sep">&bull;</span>
+        <span id="keyStat" class="key-stat">🔑 ✗</span>
+        <span class="chip-sep">&bull;</span>
+        <span id="deaths">💥 0</span>
+        <span class="chip-sep">&bull;</span>
+        <span id="hudCoins" class="hud-coins">🪙 0</span>
+        <span class="chip-sep">&bull;</span>
+        <span id="ping" class="ping good">Local</span>
+      </div>
+      <div id="playerList" class="player-list"></div>
+    </div>
+    <div class="hud-right">
+      <div id="buffBadge" class="buff-badge hidden" title="Active Buff"></div>
+      <button id="hudShopBtn" class="icon-btn" title="Open Bunny Shop">🛍️</button>
+      <button id="botBtn" class="chip-btn hidden" title="Toggle practice bot (T)">Practice bot (T)</button>
+      <button id="fsBtn" class="icon-btn" title="Fullscreen">⛶</button>
+      <select id="lvSelect" title="Choose level"></select>
+      <button id="restartBtn" class="icon-btn" title="Restart level (R)">↻</button>
+      <button id="muteBtn" class="icon-btn" title="Mute (M)">🔊</button>
+      <button id="menuBtn" class="icon-btn" title="Exit to Menu">🏠</button>
+    </div>
+  </div>
+
+  <div id="banner" class="banner"></div>
+  <div id="toast" class="toast"></div>
+
+  <!-- ============ FINALE ESCAPE CARD ============ -->
+  <div id="final" class="final hidden">
+    <div class="final-card">
+      <div class="final-title">YOU ESCAPED!</div>
+      <div id="finalSub" class="final-sub">All 15 levels cleared &mdash; legendary bunny! 🎉</div>
+      <div class="final-sub small">Restarting from level 1…</div>
+    </div>
+  </div>
+
+  <!-- ============ MOBILE ON-SCREEN TOUCH CONTROLS ============ -->
+  <div id="touch" class="touch hidden">
+    <div class="dpad">
+      <button id="tLeft" class="tbtn" data-k="l">◀</button>
+      <button id="tRight" class="tbtn" data-k="r">▶</button>
+    </div>
+    <div class="touch-actions">
+      <button id="tBuff" class="tbtn tbuff hidden" data-k="b" title="Use Buff">🛡️</button>
+      <button id="tJump" class="tbtn tjump" data-k="j">▲<br>JUMP</button>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/vendor/matter.js"></script>
+  <script src="game.js"></script>
+</body>
+</html>
