@@ -39,6 +39,7 @@ const VIEW_H = 720;                // logical visible height
 const VIEW_MIN_W = 760;            // logical minimum visible width (portrait phones)
 const SEND_MS = 50;                // 20 Hz position packets
 const SKIN_PRICE = { ninja: 20, king: 40, slime: 60 };
+let PARTY_N = 4;   // v11: party size locked by the host at level start / restart
 
 // ============================================================================
 // v8 ADDITIONS  --  skin tiers, diamonds, temporary buffs, guest/admin roles
@@ -347,6 +348,7 @@ class LB {
     this.solids = []; this.spikes = []; this.crumbles = []; this.springs = []; this.crushers = [];
     this.boulders = []; this.sweepers = []; this.plates = []; this.gates = []; this.ropes = [];
     this.stalactites = []; this.meteors = []; this.risers = []; this.h = WORLD_H; this.wj = false;
+    this.traps = []; this.exitOv = null;
     this.coins = []; this.flags = []; this.key = null;
     this.spawn = [80, GY - PH];
   }
@@ -364,8 +366,8 @@ class LB {
       const tooClose = cleanFlags.some(cf => Math.hypot(cf.x - f.x, cf.y - f.y) < 650);
       if (!tooClose) cleanFlags.push({ x: f.x, y: f.y, on: false });
     }
-    return {
-      name: this.name, hint: this.hint, hue: this.hue, coop: this.coop,
+    const lv = {
+      name: this.name, hint: this.hint, hue: this.hue, coop: this.coop, traps: this.traps,
       w: this.x, h: this.h, wj: this.wj, stalactites: this.stalactites, meteors: this.meteors, risers: this.risers, spawn: this.spawn,
       solids: this.solids, spikes: this.spikes, crumbles: this.crumbles, springs: this.springs,
       crushers: this.crushers, boulders: this.boulders, sweepers: this.sweepers,
@@ -373,8 +375,10 @@ class LB {
       coins: this.coins.map((c, i) => ({ x: c.x, y: c.y, id: i })),
       flags: cleanFlags,
       key: this.key || { x: this.x - (keyBack || 520), y: this.gy - (keyUp || 56) },
-      exit: { x: this.x - 150, y: this.gy - 74, w: 54, h: 74 },
+      exit: this.exitOv ? Object.assign({}, this.exitOv) : { x: this.x - 150, y: this.gy - 74, w: 54, h: 74 },
     };
+    if (G.mode === 'party') scaleHazards(lv, partyN());
+    return lv;
   }
 }
 
@@ -528,27 +532,18 @@ seg.ice = function (b, n, o) {
 // HARDCORE ANTI-SOLO: Dual simultaneous plates
 seg.coopDualHold = function (b, dist, o) {
   o = o || {};
+  // BOTH plates sit BEFORE the gate (the old layout put plate 2 behind the closed gate = unreachable = soft-lock).
+  // Two players stand on the two plates at the same time, the gate opens, then both sprint through
+  // (each plate keeps the gate powered for a few seconds after you step off).
+  const gapP = Math.min(dist, 320);
   const x0 = b.ground(dist + 520);
   const p1 = 'p' + (b.pid++), p2 = 'p' + (b.pid++);
-  b.plates.push({ id: p1, x: x0 + 80, y: b.gy - 10, w: 60, h: 10, hold: 0, t: 0, on: false });
-  b.plates.push({ id: p2, x: x0 + dist + 120, y: b.gy - 10, w: 60, h: 10, hold: 0, t: 0, on: false });
-  b.gates.push({ x: x0 + Math.floor(dist / 2) + 80, y: b.gy - 340, w: 28, h: 340, ctrl: [p1, p2], mode: 'all', open: false, inv: false });
-  b.coin(x0 + Math.floor(dist / 2) + 94, b.gy - 60);
+  const px2 = x0 + 80 + gapP;
+  b.plates.push({ id: p1, x: x0 + 80, y: b.gy - 10, w: 60, h: 10, hold: 3, t: 0, on: false });
+  b.plates.push({ id: p2, x: px2, y: b.gy - 10, w: 60, h: 10, hold: 3, t: 0, on: false });
+  b.gates.push({ x: px2 + 60 + 190, y: b.gy - 340, w: 28, h: 340, ctrl: [p1, p2], mode: 'all', open: false, inv: false });
+  b.coin(px2 + 60 + 190 + 120, b.gy - 60);
   if (o.flag) b.flag(x0 + 40);
-  return x0;
-};
-
-// HARDCORE ANTI-SOLO: tall cliff requiring bunny stacking
-seg.partyStackCliff = function (b, cliffH) {
-  cliffH = cliffH || 250;
-  const x0 = b.ground(520);
-  const lowGy = b.gy, wallX = x0 + 520;
-  b.step(cliffH);
-  const x1 = b.ground(520);
-  const pid = 'p' + (b.pid++);
-  b.plates.push({ id: pid, x: x1 + 60, y: b.gy - 10, w: 60, h: 10, hold: 0, t: 0, on: false });
-  b.gates.push({ x: wallX - 140, y: lowGy - cliffH * 0.5, w: 140, h: cliffH * 0.5, ctrl: [pid], mode: 'any', open: false, inv: true });
-  b.coin(x1 + 90, b.gy - 80);
   return x0;
 };
 
@@ -615,7 +610,20 @@ function buildTower(o) {
       },
     };
     for (const r of o.rooms) rooms[r[0]](r[1], r[2] || {});
-    ledge(85, 540, W / 2, {});
+    // Summit ledge: must NOT hang over the ledge below it (head-bonk = stuck). Add a stepping ledge if needed,
+    // then start the summit 56px inside the previous ledge's edge so there is always standing room beside its face.
+    {
+      const FW = 540;
+      const okR = (c) => c.x0 + 56 <= W - 60 - FW, okL = (c) => c.x1 - 56 - FW >= 60;
+      let guard = 0;
+      while ((cur.x1 - cur.x0 < 140 || (!okR(cur) && !okL(cur))) && guard++ < 3) {
+        ledge(85, 150, cur.cx < W / 2 ? 235 : W - 235, {});
+      }
+      const pc = (cur.x0 + cur.x1) / 2;
+      const fx = (okR(cur) && (!okL(cur) || pc < W / 2)) ? cur.x0 + 56 : cur.x1 - 56 - FW;
+      b.solids.push([fx, cur.y - 85, FW, 20]);
+      cur = { x0: fx, x1: fx + FW, y: cur.y - 85, cx: fx + FW / 2 };
+    }
     const sx = cur.x0, sy = cur.y;
     b.springs.push({ x: sx + 70, y: sy - 14, w: 56, h: 14, power: 17.5, sq: 0 });
     b.key = { x: sx + 98, y: sy - 215 };
@@ -631,6 +639,192 @@ function buildTower(o) {
   const probe = make(6000);
   return make(probe._ext + 60 + 330);
 }
+
+
+// ============================================================================
+// v11  PARTY SCALING + TROLL-TRAP SEGMENTS
+// ============================================================================
+const partyN = () => Math.max(1, Math.min(10, PARTY_N | 0));
+const hazardK = (n) => 0.75 + 0.025 * Math.max(1, Math.min(10, n | 0));
+// tallest wall a stack of N bunnies can still clear (head-boosted jump 165 - 25 safety, +36 per extra bunny, stack capped at 4)
+const cliffCap = (n) => 36 * (Math.min(n, 4) - 1) + 165 - 25;
+
+function scaleHazards(lv, n) {
+  const f = hazardK(n);
+  lv.hz = f; lv.pn = n;
+  (lv.boulders || []).forEach((q) => { q.speed *= f; });
+  (lv.crushers || []).forEach((q) => { q.period /= f; });
+  (lv.meteors || []).forEach((q) => { q.period /= f; });
+  (lv.sweepers || []).forEach((q) => { q.speed *= f; });
+  (lv.risers || []).forEach((q) => { q.speed *= f; });
+  (lv.traps || []).forEach((t) => { if (t.k === 'arena') t.hz = f; });
+}
+
+// N = 1: a plain staircase replaces the stacking wall so a lone bunny can still finish
+seg.partyStairs = function (b, H) {
+  const n = Math.max(2, Math.ceil(H / 66));
+  const rise = Math.round(H / n);
+  const x0 = b.ground(420);
+  for (let i = 0; i < n; i++) { b.step(rise); b.ground(i === n - 1 ? 560 : 170); }
+  b.coin(b.x - 470, b.gy - 80);
+  return x0;
+};
+
+// Wall that needs a bunny tower. Height auto-shrinks with the party size; one bunny on top presses the plate, which raises stairs for everyone else.
+seg.partyStackCliff = function (b, cliffH) {
+  const n = partyN();
+  const H = Math.max(60, Math.min(cliffH || 170, cliffCap(n)));
+  if (n <= 1) return seg.partyStairs(b, H);
+  const x0 = b.ground(560);
+  const lowGy = b.gy, wallX = x0 + 560;
+  b.step(H);
+  const x1 = b.ground(560);
+  const pid = 'p' + (b.pid++);
+  b.plates.push({ id: pid, x: x1 + 60, y: b.gy - 10, w: 60, h: 10, hold: 0, t: 0, on: false });
+  const s1 = Math.round(H / 3), s2 = Math.round(2 * H / 3);
+  b.gates.push({ x: wallX - 190, y: lowGy - s1, w: 100, h: s1, ctrl: [pid], mode: 'any', open: false, inv: true });
+  b.gates.push({ x: wallX - 90, y: lowGy - s2, w: 90, h: s2, ctrl: [pid], mode: 'any', open: false, inv: true });
+  b.coin(x1 + 90, b.gy - 80);
+  return x0;
+};
+
+// min(req, N) pressure plates that must be powered together (mode 'count'); hold time grows for tiny parties
+seg.partyPlates = function (b, req, o) {
+  o = o || {};
+  const n = partyN();
+  const k = Math.max(1, Math.min(req || 2, n));
+  const hold = (o.hold || 3.5) + (n <= 2 ? 1.5 : 0) + (k > 4 ? 0.5 : 0);
+  const pitch = 84, lead = 90, tail = 220;
+  const x0 = b.ground(lead + k * pitch + tail + 220);
+  const ids = [];
+  for (let i = 0; i < k; i++) {
+    const id = 'p' + (b.pid++); ids.push(id);
+    b.plates.push({ id, x: x0 + lead + i * pitch, y: b.gy - 10, w: 60, h: 10, hold, t: 0, on: false });
+  }
+  const gx = x0 + lead + k * pitch + tail;
+  b.gates.push({ x: gx, y: b.gy - 340, w: 28, h: 340, ctrl: ids, mode: 'count', need: k, open: false, inv: false });
+  b.coin(gx + 120, b.gy - 60);
+  if (o.flag) b.flag(x0 + 40);
+  return x0;
+};
+
+// three plates on three storeys
+seg.partyTierPlates = function (b, o) {
+  o = o || {};
+  const n = partyN();
+  const k = Math.max(1, Math.min(3, n));
+  const hold = (o.hold || 5) + (n <= 2 ? 1.5 : 0);
+  const x0 = b.ground(900);
+  const ids = [];
+  const tier = [[80, 0], [220, -80], [380, -160]];
+  for (let i = 0; i < k; i++) {
+    const id = 'p' + (b.pid++); ids.push(id);
+    const [dx, dy] = tier[i];
+    if (dy !== 0) b.solids.push([x0 + dx - 20, b.gy + dy, 100, 18]);
+    b.plates.push({ id, x: x0 + dx, y: b.gy + dy - 10, w: 60, h: 10, hold, t: 0, on: false });
+  }
+  b.gates.push({ x: x0 + 620, y: b.gy - 340, w: 30, h: 340, ctrl: ids, mode: 'count', need: k, open: false, inv: false });
+  b.coin(x0 + 410, b.gy - 220);
+  if (o.flag) b.flag(x0 + 40);
+  return x0;
+};
+
+// TROLL 1 - invisible spikes that only punish a mid-air jump or turning back, never plain walking
+seg.antiBaitSpikes = function (b, len, o) {
+  o = o || {};
+  len = Math.max(560, len || 720);
+  const x0 = b.ground(len);
+  const idx = b.traps.length;
+  for (let gx = x0 + 170; gx + 64 <= x0 + len - 110; gx += 128) {
+    b.spikes.push({ x: gx, y: b.gy - 24, w: 64, h: 24, dir: 'up', hid: true, bt: idx, ph: 0, live: false });
+  }
+  b.traps.push({ k: 'bait', zx0: x0 + 120, zx1: x0 + len - 40, gy: b.gy, st: 0, t: 0 });
+  (o.coins || []).forEach(([dx, dy]) => b.coin(x0 + dx, b.gy + dy));
+  if (o.flag) b.flag(x0 + 40);
+  return x0;
+};
+
+// TROLL 2 - a row of plates, only one is real; the fakes drop stalactites or reverse LEFT/RIGHT for 3 s
+seg.fakePlates = function (b, n, o) {
+  o = o || {};
+  n = Math.max(3, Math.min(n || 4, 6));
+  const pitch = 150, lead = 120, tail = 230, hold = 4.5;
+  const x0 = b.ground(lead + n * pitch + tail + 200);
+  const idx = b.traps.length;
+  const real = 1 + ((n + idx + Math.floor(x0 / 100)) % (n - 1));
+  const rid = 'p' + (b.pid++);
+  const fakes = [];
+  for (let i = 0; i < n; i++) {
+    const px = x0 + lead + i * pitch, py = b.gy - 10;
+    if (i === real) b.plates.push({ id: rid, x: px, y: py, w: 60, h: 10, hold, t: 0, on: false });
+    else fakes.push({ x: px, y: py, w: 60, h: 10, hold: 0, t: 0, on: false, pr: false, used: false, v: ((i + idx) % 2 === 0) ? 'stalac' : 'rev' });
+  }
+  const gx = x0 + lead + n * pitch + tail;
+  b.gates.push({ x: gx, y: b.gy - 340, w: 28, h: 340, ctrl: [rid], mode: 'any', open: false, inv: false });
+  b.traps.push({ k: 'fake', plates: fakes });
+  b.coin(gx + 120, b.gy - 60);
+  if (o.flag) b.flag(x0 + 40);
+  return x0;
+};
+
+// TROLL 3 - both doors lock, free-bouncing saws for 12-15 s. High shelves are the safe spots (stack up, or use the spring when N <= 2).
+seg.sawArena = function (b, duration, count, o) {
+  o = o || {};
+  const n = partyN();
+  duration = Math.max(12, Math.min(15, duration || 13));
+  const cnt = Math.max(2, Math.min(4, count || 3, 2 + Math.floor((n - 1) / 3)));
+  const LEAD = 120, RW = 900, TAIL = 120, SH = 168;
+  const x0 = b.ground(LEAD + RW + TAIL);
+  const ax0 = x0 + LEAD, ax1 = ax0 + RW, gy = b.gy, ceilY = gy - 440;
+  const idx = b.traps.length;
+  b.flag(x0 + 40);
+  b.gates.push({ x: ax0 - 26, y: ceilY, w: 26, h: 440, ctrl: [], mode: 'any', open: false, inv: false, tr: idx, role: 'in' });
+  b.gates.push({ x: ax1, y: ceilY, w: 26, h: 440, ctrl: [], mode: 'any', open: false, inv: false, tr: idx, role: 'out' });
+  b.solids.push([ax0 - 26, ceilY - 40, RW + 52, 40]);
+  b.solids.push([ax0, gy - SH, 160, 18]);
+  b.solids.push([ax1 - 160, gy - SH, 160, 18]);
+  if (n <= 2) b.springs.push({ x: ax0 + 196, y: gy - 14, w: 56, h: 14, power: 17.5, sq: 0 });
+  const saws = [];
+  for (let j = 0; j < cnt; j++) {
+    const sd = 7.7 * j + 3.3 * idx + 0.013 * x0;
+    saws.push({ r: 26, sx: +(2.1 + 1.5 * hash1(sd)).toFixed(2), sy: +(1.2 + 1.1 * hash1(sd + 9.1)).toFixed(2), ox: +(hash1(sd + 3.3) * 4).toFixed(2), oy: +(hash1(sd + 5.5) * 4).toFixed(2) });
+  }
+  b.traps.push({ k: 'arena', x0: ax0, x1: ax1, gy, ceilY, trig: ax0 + 220, dur: duration, saws, hz: 1, st: 0, t0: 0, empty: 0, shelfH: SH });
+  b.coin(ax0 + 80, gy - SH - 50); b.coin(ax1 - 80, gy - SH - 50);
+  return x0;
+};
+
+// TROLL 4 - the exit door runs away (or sinks and re-emerges across a spike pit) the moment a bunny gets within 120 px,
+// unless the secret button on the high ledge was pressed first. MUST be the last segment of a level.
+seg.trollDoor = function (b, o) {
+  o = o || {};
+  const mode = o.mode === 'sink' ? 'sink' : 'run';
+  const x0 = b.ground(860);
+  const gy = b.gy;
+  b.key = { x: x0 + 300, y: gy - 56 };
+  b.flag(x0 + 40);
+  b.solids.push([x0 + 70, gy - 88, 104, 18]);
+  const btn = { x: x0 + 100, y: gy - 88 - 10, w: 44, h: 10 };
+  b.coin(x0 + 122, gy - 88 - 52);
+  const decoy = { x: x0 + 690, y: gy - 74, w: 54, h: 74 };
+  const GAP = 120;
+  const hops = [[-34, 170], [-80, 140], [-30, 140], [-78, 160], [-40, 320]];
+  let cx = b.x;
+  b.spikes.push({ x: cx, y: WORLD_H - 34, w: hops.reduce((s, h) => s + h[1] + GAP, 0), h: 34, dir: 'up' });
+  let lastTop = gy, lastX = cx;
+  hops.forEach(([dy, w], i) => {
+    cx += GAP;
+    b.solids.push([cx, gy + dy, w, 20]);
+    if (i === 0) b.flags.push({ x: cx + 85, y: gy + dy });
+    if (i === 1 || i === 3) b.coin(cx + w / 2, gy + dy - 56);
+    lastTop = gy + dy; lastX = cx; cx += w;
+  });
+  const dest = { x: lastX + 210, y: lastTop - 74 };
+  b.x = cx + 80;
+  b.exitOv = decoy;
+  b.traps.push({ k: 'door', mode, btn, ex0: decoy.x, ey0: decoy.y, dx: dest.x, dy: dest.y, st: 0, t: 0, dur: mode === 'sink' ? 1.5 : 1.3 });
+  return x0;
+};
 
 const LEVELS = { solo: [], coop: [], party: [] };
 const S = LEVELS.solo, C = LEVELS.coop, PTY = LEVELS.party;
@@ -939,14 +1133,7 @@ C.push(() => {
 PTY.push(() => {
   const b = new LB('Bunny Tower 101', 'Nhảy lên đầu đồng đội để xếp tháp thỏ leo lên vách cao dẫm nút hạ cầu!', 140, false);
   seg.run(b, 720, { flag: true, coins: [[360, -60]] });
-  const x0 = b.ground(420);
-  const wallX = x0 + 420;
-  b.step(160);
-  const x1 = b.ground(520);
-  const pId = 'p' + (b.pid++);
-  b.plates.push({ id: pId, x: x1 + 60, y: b.gy - 10, w: 60, h: 10, hold: 0, t: 0, on: false });
-  b.gates.push({ x: wallX - 140, y: b.gy + 60, w: 140, h: 20, ctrl: [pId], mode: 'any', open: false, inv: true });
-  b.coin(x1 + 90, b.gy - 70);
+  seg.partyStackCliff(b, 160);
   seg.run(b, 500, { flag: true });
   seg.fakes(b, 3, { coins: [1] });
   seg.run(b, 800, { coins: [[300, -60]] });
@@ -958,12 +1145,7 @@ PTY.push(() => {
   seg.run(b, 600, { flag: true });
   b.gap(120);
   seg.run(b, 340, { flag: true });
-  const x0 = b.ground(700);
-  const a = 'p' + (b.pid++), c = 'p' + (b.pid++);
-  b.plates.push({ id: a, x: x0 + 100, y: b.gy - 10, w: 60, h: 10, hold: 0, t: 0, on: false });
-  b.plates.push({ id: c, x: x0 + 250, y: b.gy - 10, w: 60, h: 10, hold: 3, t: 0, on: false });
-  b.gates.push({ x: x0 + 440, y: b.gy - 340, w: 30, h: 340, ctrl: [a, c], mode: 'all', open: false, inv: false });
-  b.coin(x0 + 335, b.gy - 80);
+  seg.partyPlates(b, 2, { hold: 3 });
   seg.run(b, 400, { flag: true, spikes: [[180, 60]] });
   seg.fakes(b, 4, { coins: [2] });
   seg.run(b, 800);
@@ -973,15 +1155,7 @@ PTY.push(() => {
 PTY.push(() => {
   const b = new LB('Công Tắc Tam Trọng', '3 công tắc ở 3 tầng, mỗi công tắc giữ 5 giây sau khi rời. Chạm đủ cả 3 rồi lao qua cửa sắt!', 210, false);
   seg.run(b, 640, { flag: true });
-  const x0 = b.ground(800);
-  const p1 = 'p' + (b.pid++), p2 = 'p' + (b.pid++), p3 = 'p' + (b.pid++);
-  b.plates.push({ id: p1, x: x0 + 80, y: b.gy - 10, w: 60, h: 10, hold: 5, t: 0, on: false });
-  b.solids.push([x0 + 200, b.gy - 80, 100, 18]);
-  b.plates.push({ id: p2, x: x0 + 220, y: b.gy - 90, w: 60, h: 10, hold: 5, t: 0, on: false });
-  b.solids.push([x0 + 360, b.gy - 160, 100, 18]);
-  b.plates.push({ id: p3, x: x0 + 380, y: b.gy - 170, w: 60, h: 10, hold: 5, t: 0, on: false });
-  b.gates.push({ x: x0 + 600, y: b.gy - 340, w: 30, h: 340, ctrl: [p1, p2, p3], mode: 'all', open: false, inv: false });
-  b.coin(x0 + 410, b.gy - 220);
+  seg.partyTierPlates(b, { hold: 5 });
   seg.run(b, 400, { flag: true });
   seg.crushers(b, 3, { spacing: 240, coins: [1] });
   seg.run(b, 800);
@@ -991,15 +1165,7 @@ PTY.push(() => {
 PTY.push(() => {
   const b = new LB('Vách Núi 3 Tầng', 'Vách núi cao 175px! Phải xếp chồng 3-4 bạn thỏ thành tháp sống để với tới đỉnh!', 280, false);
   seg.run(b, 620, { flag: true });
-  const x0 = b.ground(460);
-  const wallX = x0 + 460;
-  b.step(175);
-  const x1 = b.ground(600);
-  const pId = 'p' + (b.pid++);
-  b.plates.push({ id: pId, x: x1 + 80, y: b.gy - 10, w: 60, h: 10, hold: 0, t: 0, on: false });
-  b.gates.push({ x: wallX - 160, y: b.gy + 115, w: 160, h: 20, ctrl: [pId], mode: 'any', open: false, inv: true });
-  b.gates.push({ x: wallX - 80, y: b.gy + 55, w: 80, h: 20, ctrl: [pId], mode: 'any', open: false, inv: true });
-  b.coin(x1 + 110, b.gy - 80);
+  seg.partyStackCliff(b, 175);
   seg.run(b, 500, { flag: true });
   seg.boulders(b, 800, { specs: [[60, 740, 3.2, 0]], plats: [[340, -100, 120]], coins: [[400, -170]] });
   seg.run(b, 800);
@@ -1024,13 +1190,7 @@ PTY.push(() => {
   seg.chaser(b, 110, 5.0);
   seg.run(b, 600, { flag: true });
   seg.fakes(b, 4, { coins: [1] });
-  const x0 = b.ground(440);
-  const wallX = x0 + 440;
-  b.step(170);
-  const x1 = b.ground(500);
-  const pId = 'p' + (b.pid++);
-  b.plates.push({ id: pId, x: x1 + 60, y: b.gy - 10, w: 60, h: 10, hold: 0, t: 0, on: false });
-  b.gates.push({ x: wallX - 140, y: b.gy + 85, w: 140, h: 20, ctrl: [pId], mode: 'any', open: false, inv: true });
+  seg.partyStackCliff(b, 170);
   seg.crushers(b, 3, { spacing: 240, period: 2.7, coins: [1], flag: true });
   seg.boulders(b, 850, { specs: [[60, 800, 3.5, 0]], plats: [[320, -100, 110]], coins: [[370, -170]] });
   seg.fakes(b, 5, { real: [1, 4], dys: [-10, -70, -30, -90, -50] });
@@ -1195,17 +1355,35 @@ const TOWERS = [
     ['CHAOS APOCALYPSE', 'The final Party stage. 10 players, maximum stacking, total teamwork.', 340]
   ];
 
+  // v11: every stage mixes the scaling segments (stack wall / pressure plates / tiers) with the troll traps.
+  const blocks = [
+    (b, j) => seg.partyStackCliff(b, 225 + (j % 4) * 15),
+    (b, j) => seg.partyPlates(b, 2 + (j % 3), { hold: 3.5 }),
+    (b, j) => seg.partyTierPlates(b, { hold: 5 }),
+    (b, j) => seg.antiBaitSpikes(b, 760, { flag: true, coins: [[300, -95], [520, -100]] }),
+    (b, j) => seg.fakePlates(b, 4 + (j % 3), { flag: true }),
+  ];
+  const TROLL_DOOR = { 6: 'sink', 12: 'run', 18: 'sink' };     // j -> mode (door is always the last segment)
+  const ARENA = { 2: [13, 3], 8: [14, 3], 14: [15, 4] };       // j -> [seconds, saws]
+  const drop = (b) => { if (b.gy < 560) b.step(-(GY - b.gy)); };   // walk back down to the base height so ceilings stay inside the world
   for (let i = 6; i < 25; i++) {
     const meta = partyTitles[i - 6];
+    const j = i - 6;
     PTY.push(() => {
       const b = new LB(meta[0], meta[1], meta[2], false);
       seg.run(b, 680, { flag: true, coins: [[340, -60]] });
-      seg.partyStackCliff(b, 250);
+      const kA = j % 5, kB = (j * 2 + 1) % 5 === kA ? (kA + 2) % 5 : (j * 2 + 1) % 5;
+      blocks[kA](b, j);
+      drop(b);
       if (i % 2 === 0) seg.fakes(b, 4, { coins: [2] });
       else b.gap(140);
-      seg.partyStackCliff(b, 270);
+      seg.run(b, 420, { flag: true });
+      if (ARENA[j]) { drop(b); seg.sawArena(b, ARENA[j][0], ARENA[j][1]); drop(b); seg.run(b, 380, { flag: true }); }
+      blocks[kB](b, j);
+      drop(b);
       if (i > 12) seg.crushers(b, 3, { spacing: 250, period: 2.8, coins: [1], flag: true });
       if (i > 16) seg.boulders(b, 850, { specs: [[60, 800, 3.6, 0]], plats: [[350, -100, 110]], flag: true });
+      if (TROLL_DOOR[j]) { drop(b); seg.run(b, 300, { flag: true }); seg.trollDoor(b, { mode: TROLL_DOOR[j] }); return b.finish(0, 0); }
       seg.run(b, 800, { coins: [[400, -60]] });
       return b.finish(500, 56);
     });
@@ -1230,14 +1408,7 @@ function generateRandomLevel(mode, seed) {
     seg.run(b, 450, { flag: true, spikes: [[200, 60]] });
   }
   if (isParty) {
-    const x0 = b.ground(420);
-    const wallX = x0 + 420;
-    b.step(160);
-    const x1 = b.ground(500);
-    const pId = 'p' + (b.pid++);
-    b.plates.push({ id: pId, x: x1 + 60, y: b.gy - 10, w: 60, h: 10, hold: 0, t: 0, on: false });
-    b.gates.push({ x: wallX - 130, y: b.gy + 60, w: 130, h: 20, ctrl: [pId], mode: 'any', open: false, inv: true });
-    b.coin(x1 + 80, b.gy - 60);
+    seg.partyStackCliff(b, 160);
     seg.run(b, 400, { flag: true });
   } else {
     seg.springWall(b, { h: 190 });
@@ -1325,6 +1496,7 @@ function keyPos() {
 }
 
 function loadLevel(idx, customLevelObj) {
+  if (!customLevelObj && G.mode === 'party' && isHostSlot()) { PARTY_N = Math.max(1, Math.min(10, presentCount())); }
   if (customLevelObj) {
     G.customData = JSON.stringify(customLevelObj);
     G.L = customLevelObj;
@@ -1340,6 +1512,8 @@ function loadLevel(idx, customLevelObj) {
   L.stalactites.forEach((q) => { q.st = 0; q.t = 0; q.fy = 0; q.vy = 0; q.gnd = undefined; });
   L.meteors.forEach((f) => { f.exK = -1; });
   L.risers.forEach((r) => { if (r.y0 === undefined) r.y0 = r.y; r.y = r.y0; r.cy = r.y0; });
+  L.traps = L.traps || [];
+  resetTraps(L);
   L.sweepers.forEach((q) => { if (q._x0 === undefined) q._x0 = q.x; q.x = q._x0; q.cx = q.x; });
   if (G.mode !== 'solo' && !L._sharp) { L._sharp = 1; L.boulders.forEach((q) => { q.speed *= 1.12; }); L.crushers.forEach((q) => { q.period *= 0.92; }); }
   if (!L.skyTheme) {
@@ -1373,6 +1547,10 @@ function loadLevel(idx, customLevelObj) {
   refreshBuffUI();
   showBanner((G.lvIdx >= 0 ? 'LEVEL ' + (G.lvIdx + 1) + ': ' : '') + L.name.toUpperCase(), L.hint);
   const sel = $('lvSelect'); if (sel && G.lvIdx >= 0) sel.value = String(G.lvIdx);
+  ensureRadarBtn();
+  G.teamView = false;
+  if (G.mode === 'party') hostLock();
+  updateDiffBadge();
 }
 
 function nowMs() { return (typeof performance !== 'undefined' ? performance.now() : Date.now()); }
@@ -1409,6 +1587,290 @@ function pingPong(x0, x1, speed, off, lt) {
   return x0 + (m < D ? m : 2 * D - m);
 }
 
+
+// ============================================================================
+// v11  PARTY HUD / TRAP RUNTIME / TEAM RADAR
+// ============================================================================
+const bunnyColor = (slot) => { const sk = G.skins[slot]; return (SKIN_PAL[sk] && SKIN_PAL[sk].body) || (sk === 'slime' ? '#ffd24d' : COLORS[slot % COLORS.length]); };
+const presentCount = () => (G.mode === 'party' || G.mode === 'coop') ? 1 + G.remotes.size : 1;
+
+function updateDiffBadge() {
+  let el = $('diffBadge');
+  if (!el) {
+    const chip = $('lvChip'), mb = $('modeBadge');
+    if (!chip || !mb) return;
+    el = document.createElement('span'); el.id = 'diffBadge'; el.className = 'diff-badge hidden';
+    chip.insertBefore(el, mb.nextSibling);
+  }
+  const rb = $('radarBtn');
+  if (rb) rb.classList.toggle('hidden', G.mode !== 'party');
+  if (G.mode !== 'party') { el.classList.add('hidden'); return; }
+  const n = partyN(), pres = presentCount();
+  el.classList.remove('hidden');
+  el.textContent = 'Độ khó: x' + n + ' người' + (pres !== n ? ' ⚠' : '');
+  el.title = pres !== n ? 'Đang có ' + pres + ' người nhưng màn được chốt cho ' + n + ' người. Chủ phòng bấm R để chốt lại.' : '';
+  el.classList.toggle('warn', pres !== n);
+}
+
+// host fixes N when a level starts / restarts and tells everybody
+function hostLock() {
+  if (G.mode !== 'party' || !isHostSlot()) return;
+  PARTY_N = Math.max(1, Math.min(10, presentCount()));
+  netEv({ t: 'pcount', n: PARTY_N, lv: G.lvIdx });
+}
+
+function ensureRadarBtn() {
+  if ($('radarBtn')) return;
+  const host = document.querySelector('#touch .touch-actions') || $('touch');
+  if (!host) return;
+  const b = document.createElement('button');
+  b.id = 'radarBtn'; b.className = 'tbtn radar-btn hidden'; b.dataset.k = 'tv'; b.textContent = '📡';
+  b.title = 'Giữ để xem toàn đội (PC: giữ Tab)';
+  host.appendChild(b);
+}
+
+function sawPos(t, j, tt) {
+  const s = t.saws[j], hz = t.hz || 1;
+  return {
+    x: pingPong(t.x0 + s.r + 4, t.x1 - s.r - 4, s.sx * hz, s.ox, tt),
+    y: pingPong(t.gy - 112, t.gy - s.r, s.sy * hz, s.oy, tt),
+  };
+}
+
+function resetTraps(L) {
+  L.stalactites = (L.stalactites || []).filter((q) => !q.dyn);
+  for (const t of L.traps || []) {
+    t.st = 0; t.t = 0; t.t0 = 0; t.empty = 0; t._sp = null;
+    if (t.k === 'fake') t.plates.forEach((f) => { f.used = false; f.pr = false; f.on = false; });
+    if (t.k === 'door') { const e = L.exit; e.x = t.ex0; e.y = t.ey0; e.lock = true; e.hide = false; e.clipY = undefined; e.legs = false; t.btnDown = false; }
+  }
+  (L.spikes || []).forEach((s) => { if (s.bt !== undefined) { s.hid = true; s.live = false; s.ph = 0; } });
+}
+
+function trapSend(i, a, v) {
+  trapAct(i, a, v, G.myslot);
+  if (isNet()) netEv({ t: 'trap', i, a, v: v === undefined ? 0 : v });
+}
+
+function trapAct(i, a, v, who) {
+  const L = G.L; if (!L || !L.traps) return;
+  const t = L.traps[i]; if (!t) return;
+  const mine = who === G.myslot, nm = G.names[who] || 'Đồng đội';
+  if (t.k === 'bait') {
+    if (a === 'fire' && t.st === 0) {
+      t.st = 1; t.t = 0.42; Snd.shake(); G.shake = Math.max(G.shake, 3);
+      toast(v === 1 ? '🪤 ' + nm + ' quay đầu đi lùi — gai trồi lên!' : '🪤 ' + nm + ' nhảy giữa không trung — gai phóng lên!');
+    }
+  } else if (t.k === 'fake') {
+    const f = t.plates[v | 0];
+    if (a === 'hit' && f && !f.used) {
+      f.used = true; Snd.plate(true); G.shake = Math.max(G.shake, 7);
+      if (f.v === 'stalac') {
+        for (let q = 0; q < 3; q++) L.stalactites.push({ x: f.x + 30 + q * 80, y: f.y + 10 - 320, w: 34, h: 66, st: 1, t: 0.5 + q * 0.08, fy: 0, vy: 0, dyn: true });
+        toast('⚠️ Nút phản bội! Trần nhà rung chuyển — thạch nhũ rơi!');
+      } else if (mine) { G.me.rev = 3; toast('🔄 Nút phản bội! Trái/Phải bị đảo ngược 3 giây!'); }
+    }
+  } else if (t.k === 'door') {
+    const e = L.exit;
+    if (a === 'flee' && t.st === 0) { t.st = 1; t.t = 0; Snd.shake(); G.shake = Math.max(G.shake, 6); toast('🚪💨 Cửa thoát mọc chân chạy mất!'); }
+    else if (a === 'fix') {
+      if (t.st === 0) { t.st = 3; e.lock = false; e.x = t.ex0; e.y = t.ey0; Snd.key(); sparkle(e.x + e.w / 2, e.y + e.h / 2, 18, 1.4, '#ffd43b'); toast('🔓 Cửa thoát đã bị khóa chặt tại chỗ!'); }
+    }
+  } else if (t.k === 'arena') {
+    if (a === 'fire' && t.st === 0) { t.st = 1; t.t0 = +v || G.lt; t.empty = 0; Snd.shake(); G.shake = Math.max(G.shake, 6); toast('🪚 Cổng đóng! Né cưa ' + t.dur + 's hoặc leo lên góc trần!'); }
+    else if (a === 'done' && t.st === 1) { t.st = 2; Snd.gate(true); toast('✅ Cửa mở! Sống sót qua phòng cưa!'); }
+    else if (a === 'reset' && t.st === 1) { t.st = 0; t.empty = 0; toast('💀 Cả đội gục — phòng cưa reset!'); }
+  }
+}
+
+function trapGateOpen(g) {
+  const t = G.L.traps[g.tr]; if (!t) return true;
+  const want = g.role === 'in' ? (t.st !== 1) : (t.st === 2);
+  if (!want && g.act) {
+    for (const b of allBodies()) if (rectsOverlap(b.x - 6, b.y - 6, PW + 12, PH + 12, g.x, g.y, g.w, g.h)) return true;
+  }
+  return want;
+}
+
+function updateTraps(bodies) {
+  const L = G.L, me = G.me;
+  const tr = L.traps; if (!tr || !tr.length) return;
+  const host = isHostSlot();
+  for (let i = 0; i < tr.length; i++) {
+    const t = tr[i];
+    if (t.k === 'bait') {
+      const sp = t._sp || (t._sp = L.spikes.filter((s) => s.bt === i));
+      if (t.st === 0) {
+        if (!me.dead && !G.won) {
+          const cx = me.x + PW / 2, feet = me.y + PH;
+          const inside = cx > t.zx0 && cx < t.zx1 && Math.abs(feet - t.gy) < 170;
+          if (inside) {
+            const bt = (me.bt = me.bt || {});
+            const s = (bt[i] = bt[i] || { armed: false, maxX: cx });
+            const grounded = me.onGround && Math.abs(feet - t.gy) < 4;
+            if (grounded) { s.armed = true; if (cx > s.maxX) s.maxX = cx; }
+            else if (s.armed && feet < t.gy - 16) trapSend(i, 'fire', 0);
+            if (t.st === 0 && grounded && s.armed && me.vx < -1.4 && cx < s.maxX - 60) trapSend(i, 'fire', 1);
+          } else if (me.bt && me.bt[i]) { me.bt[i].armed = false; me.bt[i].maxX = cx; }
+        }
+      } else if (t.st === 1) {
+        t.t -= STEP; sp.forEach((s) => { s.hid = false; s.ph = clamp(1 - t.t / 0.42, 0, 1) * 0.3; });
+        if (t.t <= 0) { t.st = 2; t.t = 1.7; sp.forEach((s) => { s.live = true; }); Snd.slam(); }
+      } else if (t.st === 2) {
+        t.t -= STEP; sp.forEach((s) => { s.ph = Math.min(1, s.ph + 0.3); });
+        if (t.t <= 0) { t.st = 3; t.t = 0.45; sp.forEach((s) => { s.live = false; }); }
+      } else if (t.st === 3) {
+        t.t -= STEP; sp.forEach((s) => { s.ph = Math.max(0, t.t / 0.45); });
+        if (t.t <= 0) { t.st = 4; t.t = 1.0; sp.forEach((s) => { s.hid = true; s.ph = 0; }); }
+      } else { t.t -= STEP; if (t.t <= 0) t.st = 0; }
+    } else if (t.k === 'fake') {
+      for (let j = 0; j < t.plates.length; j++) {
+        const f = t.plates[j];
+        let pr = false;
+        for (const b of bodies) if (standsOn(b, f)) { pr = true; break; }
+        f.pr = pr; f.on = pr;
+        if (!f.used && !me.dead && !G.won && standsOn(me, f)) trapSend(i, 'hit', j);
+      }
+    } else if (t.k === 'door') {
+      const e = L.exit;
+      let down = false;
+      for (const b of bodies) if (standsOn(b, t.btn)) { down = true; break; }
+      if (down && !t.btnDown) Snd.plate(true);
+      t.btnDown = down;
+      if (t.st === 0) {
+        e.lock = true;
+        if (!me.dead && !G.won) {
+          if (standsOn(me, t.btn)) trapSend(i, 'fix', 0);
+          else if (Math.hypot(me.x + PW / 2 - (e.x + e.w / 2), me.y + PH / 2 - (e.y + e.h / 2)) < 120) trapSend(i, 'flee', 0);
+        }
+      } else if (t.st === 1) {
+        t.t += STEP; const u = clamp(t.t / t.dur, 0, 1);
+        e.lock = true;
+        if (t.mode === 'run') {
+          const k = u * u * (3 - 2 * u);
+          e.x = lerp(t.ex0, t.dx, k);
+          e.y = lerp(t.ey0, t.dy, k) - Math.abs(Math.sin(u * Math.PI * 7)) * 46 * Math.sin(u * Math.PI);
+          e.legs = true;
+        } else if (u < 0.4) { e.x = t.ex0; e.y = t.ey0 + e.h * (u / 0.4); e.clipY = t.ey0 + e.h; e.hide = false; }
+        else if (u < 0.6) { e.hide = true; e.x = t.dx; e.y = t.dy + e.h; }
+        else { const k = (u - 0.6) / 0.4; e.hide = false; e.x = t.dx; e.y = t.dy + e.h * (1 - k); e.clipY = t.dy + e.h; }
+        if (u >= 1) {
+          t.st = 2; e.x = t.dx; e.y = t.dy; e.lock = false; e.legs = false; e.hide = false; e.clipY = undefined;
+          puff(e.x + e.w / 2, e.y + e.h, 14, '#fff', 1.6);
+        }
+      }
+    } else if (t.k === 'arena') {
+      if (t.st === 0) {
+        if (!me.dead && !G.won) {
+          const cx = me.x + PW / 2;
+          if (cx > t.trig && cx < t.x1 - 120 && me.onGround && Math.abs(me.y + PH - t.gy) < 4) trapSend(i, 'fire', G.lt);
+        }
+      } else if (t.st === 1) {
+        const tt = G.lt - t.t0;
+        if (host) {
+          let inside = 0;
+          for (const b of bodies) {
+            if (b.dead) continue;
+            const cx = b.x + PW / 2;
+            if (cx > t.x0 - 10 && cx < t.x1 + 10 && b.y + PH > t.gy - 240 && b.y < t.gy + 10) inside++;
+          }
+          if (tt > 1.2 && inside === 0) t.empty += STEP; else t.empty = 0;
+          if (t.empty > 1.0) trapSend(i, 'reset', 0);
+          else if (tt >= t.dur) trapSend(i, 'done', 0);
+        }
+      }
+    }
+  }
+  // dynamic (fake-plate) stalactites vanish once they have landed and rested
+  for (let q = L.stalactites.length - 1; q >= 0; q--) if (L.stalactites[q].dyn && L.stalactites[q].gone) L.stalactites.splice(q, 1);
+}
+
+// ---- team radar: off-screen arrows (screen space) --------------------------
+function drawOffscreenRadar() {
+  if (G.mode !== 'party' || !G.remotes.size || !G.me) return;
+  const cam = G.cam, sc = cam.sc || 1;
+  const W = cw, Hh = ch, pad = 34, top = 74;
+  const hw = W / 2, hh = (Hh + top) / 2, cyc = top + (Hh - top) / 2;
+  const mp = ipos(G.me);
+  for (const r of G.remotes.values()) {
+    if (r.dead) continue;
+    const rp = ipos(r);
+    const sx = (rp.x + PW / 2 - cam.x) * sc, sy = (rp.y + PH / 2 - cam.y) * sc;
+    if (sx >= pad && sx <= W - pad && sy >= top && sy <= Hh - pad) continue;
+    const dx = sx - W / 2, dy = sy - cyc;
+    const k = Math.min((hw - pad) / Math.max(1e-3, Math.abs(dx)), ((Hh - top) / 2 - pad) / Math.max(1e-3, Math.abs(dy)));
+    const ax = W / 2 + dx * k, ay = cyc + dy * k;
+    const ang = Math.atan2(dy, dx);
+    const dist = Math.round(Math.hypot(rp.x - mp.x, rp.y - mp.y));
+    const col = bunnyColor(r.slot);
+    ctx.save();
+    ctx.translate(ax, ay); ctx.rotate(ang);
+    ctx.fillStyle = col; ctx.strokeStyle = '#2b1442'; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.moveTo(15, 0); ctx.lineTo(-9, -9); ctx.lineTo(-4, 0); ctx.lineTo(-9, 9); ctx.closePath();
+    ctx.fill(); ctx.stroke();
+    ctx.restore();
+    ctx.save();
+    ctx.font = '700 11px sans-serif'; ctx.textAlign = 'center';
+    const label = (G.names[r.slot] || 'Bunny') + ' · ' + dist + 'px';
+    const ly = ay + (ay < cyc ? 24 : -14), lx = clamp(ax, 60, W - 60);
+    ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.75)'; ctx.fillStyle = '#fff';
+    ctx.strokeText(label, lx, ly); ctx.fillText(label, lx, ly);
+    ctx.restore();
+  }
+}
+
+// floating "wait for the squad" text over the exit (world space, no camera movement)
+function drawExitWait() {
+  if (G.mode !== 'party' || !G.keyGot || G.won || !G.me || G.me.dead) return;
+  const e = G.L.exit, me = G.me;
+  if (e.hide || !G.remotes.size) return;
+  if (!rectsOverlap(me.x - 50, me.y - 50, PW + 100, PH + 100, e.x, e.y, e.w, e.h)) return;
+  let at = 1, tot = 1, far = false;
+  for (const r of G.remotes.values()) {
+    tot++;
+    if (!r.dead && rectsOverlap(r.x, r.y, PW, PH, e.x - 14, e.y - 14, e.w + 28, e.h + 28)) at++;
+    else if (Math.hypot(r.x - e.x, r.y - e.y) > 1500) far = true;
+  }
+  if (!far || at >= tot) return;
+  const txt = 'Đợi đồng đội (' + at + '/' + tot + ')';
+  ctx.save();
+  ctx.font = '800 16px sans-serif'; ctx.textAlign = 'center';
+  const bob = Math.sin(G.lt * 4) * 3, x = e.x + e.w / 2, y = e.y - 70 + bob;
+  ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(30,10,50,.85)'; ctx.fillStyle = '#ffe066';
+  ctx.strokeText(txt, x, y); ctx.fillText(txt, x, y);
+  ctx.restore();
+}
+
+function drawSaw(x, y, r, t) {
+  ctx.save(); ctx.translate(x, y); ctx.rotate(t * 9);
+  ctx.fillStyle = '#cfd8dc'; ctx.strokeStyle = '#37474f'; ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  const teeth = 12;
+  for (let i = 0; i < teeth * 2; i++) {
+    const a = i / (teeth * 2) * Math.PI * 2, rr2 = i % 2 ? r * 0.78 : r + 3;
+    if (i === 0) ctx.moveTo(Math.cos(a) * rr2, Math.sin(a) * rr2); else ctx.lineTo(Math.cos(a) * rr2, Math.sin(a) * rr2);
+  }
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#b71c1c'; ctx.beginPath(); ctx.arc(0, 0, r * 0.28, 0, 6.3); ctx.fill();
+  ctx.restore();
+}
+
+function drawTraps(L) {
+  for (const t of (L.traps || [])) {
+    if (t.k === 'fake') for (const f of t.plates) drawPlate(f);
+    else if (t.k === 'arena' && t.st === 1) {
+      const tt = G.lt - t.t0;
+      ctx.save(); ctx.fillStyle = 'rgba(255,60,60,' + (0.15 + 0.1 * Math.sin(G.lt * 8)) + ')';
+      ctx.fillRect(t.x0, t.ceilY, t.x1 - t.x0, t.gy - t.ceilY); ctx.restore();
+      for (let j = 0; j < t.saws.length; j++) { const p = sawPos(t, j, tt); drawSaw(p.x, p.y, t.saws[j].r, G.lt); }
+      ctx.save(); ctx.font = '800 15px sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#fff'; ctx.strokeStyle = 'rgba(0,0,0,.8)'; ctx.lineWidth = 3;
+      const left = Math.max(0, Math.ceil(t.dur - tt));
+      ctx.strokeText('⏱ ' + left + 's', (t.x0 + t.x1) / 2, t.ceilY + 28); ctx.fillText('⏱ ' + left + 's', (t.x0 + t.x1) / 2, t.ceilY + 28);
+      ctx.restore();
+    }
+  }
+}
+
 function updateWorld() {
   const L = G.L, me = G.me;
   G.lt += STEP;
@@ -1426,7 +1888,9 @@ function updateWorld() {
 
   for (const g of L.gates) {
     let act;
-    if (g.mode === 'all') act = g.ctrl.every((id) => L.plates.find((p) => p.id === id).on);
+    if (g.tr !== undefined) act = trapGateOpen(g);
+    else if (g.mode === 'all') act = g.ctrl.every((id) => L.plates.find((p) => p.id === id).on);
+    else if (g.mode === 'count') act = g.ctrl.filter((id) => L.plates.find((p) => p.id === id).on).length >= Math.min(g.need || g.ctrl.length, g.ctrl.length);
     else act = g.ctrl.some((id) => L.plates.find((p) => p.id === id).on);
     if (act !== g.act) Snd.gate(act);
     g.act = act;
@@ -1462,6 +1926,7 @@ function updateWorld() {
   for (const r of (L.risers || [])) r.cy = r.y - r.speed * Math.max(0, G.lt - r.delay);
   updateStalactites(bodies);
   updateMeteors();
+  updateTraps(bodies);
 
   L.ropes.forEach((R, i) => {
     let holder = -1, hb = null;
@@ -1529,6 +1994,7 @@ function collectKey(send, slot) {
 function exitCheck() {
   if (G.won || !G.keyGot) return;
   const e = G.L.exit, me = G.me;
+  if (e.lock || e.hide) return;                       // v11 troll door: still running / sunk / not fixed
   if (!rectsOverlap(me.x, me.y, PW, PH, e.x, e.y, e.w, e.h)) return;
   if (G.mode !== 'solo') {
     const t = nowMs();
@@ -1573,7 +2039,7 @@ function advanceAfterWin() {
   if (next < list.length) {
     if (G.mode !== 'solo') {
       G.finalShown = true;
-      if (isHostSlot()) { netEv({ t: 'lvl', n: next }); loadLevel(next); }
+      if (isHostSlot()) { loadLevel(next); netEv({ t: 'lvl', n: next }); }
       else setTimeout(() => { if (G.won && G.lvIdx === next - 1) { loadLevel(next); } }, 2500);
     } else { G.finalShown = true; loadLevel(next); }
   } else {
@@ -1621,7 +2087,7 @@ function respawn() {
   const P = G.me, L = G.L;
   const rx = P.cp.x, ry = P.cp.y;
   rewindHunters(P);
-  P.x = rx; P.y = ry; P.vx = P.vy = 0; P.dead = false;
+  P.x = rx; P.y = ry; P.vx = P.vy = 0; P.dead = false; P.rev = 0;
   P.inv = curPassive === 'rebirth' ? 5 : 2.5; // 2.5s invulnerability (5s with Phoenix passive)
   if (curPassive === 'guard' && !P.shield) { P.shield = true; refreshBuffUI(); }
   P.tetherGrace = 3.5; // 3.5s zero-tether pull on respawn!
@@ -1738,7 +2204,13 @@ function hazardCheck(P) {
   const L = G.L;
   const hx = P.x + 4, hy = P.y + 5, hw = PW - 8, hh = PH - 8;
   for (const s of L.spikes) {
-    const sy = s.dir === 'up' ? s.y + 7 : s.y, sh = s.h - 7;
+    if (s.hid) continue;
+    let sy = s.dir === 'up' ? s.y + 7 : s.y, sh = s.h - 7;
+    if (s.bt !== undefined) {                       // v11 bait spikes: only deadly once launched, hit-box follows the rise
+      if (!s.live) continue;
+      const k = clamp(s.ph, 0, 1); sy = s.y + s.h * (1 - k) + 7; sh = s.h * k - 7;
+      if (sh <= 0) continue;
+    }
     if (rectsOverlap(hx, hy, hw, hh, s.x + 3, sy, s.w - 6, sh)) return 'spikes';
   }
   for (const c of L.crushers) if (rectsOverlap(hx, hy, hw, hh, c.x + 2, c.cb - c.h, c.w - 4, c.h)) return 'crusher';
@@ -1754,6 +2226,11 @@ function hazardCheck(P) {
     const m = meteorAt(f, G.lt);
     if (m.fly) { if (circleHitsRect(m.x, m.y, 15, hx, hy, hw, hh)) return 'meteor'; }
     else if (m.age - m.T < 0.3 && circleHitsRect(m.ix, f.gy - 10, 42, hx, hy, hw, hh)) return 'meteor';
+  }
+  for (const t of (L.traps || [])) {
+    if (t.k !== 'arena' || t.st !== 1) continue;
+    const tt = G.lt - t.t0;
+    for (let j = 0; j < t.saws.length; j++) { const p = sawPos(t, j, tt); if (circleHitsRect(p.x, p.y, t.saws[j].r - 3, hx, hy, hw, hh)) return 'saw'; }
   }
   if (P.y > (L.h || WORLD_H) + 90) return 'fall';
   return null;
@@ -1780,7 +2257,8 @@ function stepPlayer() {
     }
   }
   if (G.won) { P.vx *= 0.8; }
-  const ax = G.won ? 0 : (input.r ? 1 : 0) - (input.l ? 1 : 0);
+  let ax = G.won ? 0 : (input.r ? 1 : 0) - (input.l ? 1 : 0);
+  if (P.rev > 0) { P.rev -= STEP; ax = -ax; }          // v11 fake plate: LEFT/RIGHT swapped
 
   if (input.j && !P.jPrev && !G.won) P.jbuf = 7;
   P.jPrev = input.j;
@@ -1972,6 +2450,7 @@ function ensureSocket() {
 function netEv(o) {
   if (!isNet() || !socket || !socket.connected) return;
   o.lv = G.lvIdx;
+  if (G.mode === 'party') o.pn = PARTY_N;
   socket.emit('ev', o);
 }
 
@@ -1992,7 +2471,15 @@ function onPositions(arr) {
 function onNetEv(e) {
   if (!e || !G.inGame || !isNet()) return;
   switch (e.t) {
+    case 'pcount':
+      PARTY_N = Math.max(1, Math.min(10, e.n | 0));
+      updateDiffBadge();
+      break;
+    case 'trap':
+      if (e.lv === G.lvIdx) trapAct(e.i, e.a, e.v, e.s);
+      break;
     case 'lvl':
+      if (e.pn) PARTY_N = Math.max(1, Math.min(10, e.pn | 0));
       loadLevel(e.n);
       break;
     case 'cp':
@@ -2004,6 +2491,7 @@ function onNetEv(e) {
       }
       break;
     case 'restart':
+      if (e.pn) PARTY_N = Math.max(1, Math.min(10, e.pn | 0));
       restartLevel();
       toast('🔄 Chủ phòng đã khởi động lại màn!');
       break;
@@ -2056,6 +2544,13 @@ function onRoster(r) {
   }
   updatePlayerList();
   if (G.inGame && G.remotes.size > prevCount && G.keyGot) netEv({ t: 'keyst', v: 1 });
+  if (G.inGame && G.mode === 'party') {
+    // someone joined right at the start of a level: host re-locks N so the difficulty matches the real squad size
+    if (isHostSlot() && G.remotes.size > prevCount && !G.keyGot && G.levelTime < 15 && G.me && G.L && G.me.x < G.L.spawn[0] + 320 && presentCount() !== PARTY_N) {
+      restartLevel(); netEv({ t: 'restart' }); toast('🔄 Có người vào phòng — màn được chốt lại cho ' + PARTY_N + ' người!');
+    }
+    updateDiffBadge();
+  }
 }
 
 function updatePlayerList() {
@@ -2239,6 +2734,7 @@ function myNameValue() {
 function enterCoop(res, creator) {
   G.mode = (res.mode === 'party' || (!res.mode && G.lobbyMode === 'party')) ? 'party' : 'coop'; G.myslot = res.slot; G.code = res.code; G.myName = myNameValue();
   G.remotes.clear(); G.hostSlot = res.host !== undefined ? res.host : res.slot;
+  if (res.pn) PARTY_N = Math.max(1, Math.min(10, res.pn | 0));
   setText('roomCode', res.code);
   try { history.replaceState(null, '', location.pathname + '?room=' + res.code); } catch (e) {}
   beginGame(G.mode, creator ? 0 : (res.lv | 0));
@@ -2302,8 +2798,8 @@ function changeLevel(n) {
   if (isNet() && !isHostSlot()) { toast('⚠️ Chỉ Chủ phòng mới có quyền Reset!'); rebuildLevelSelect(); return; }
   if (n < 0) { restartLevel(); if (isNet()) netEv({ t: 'restart' }); return; }
   if (n + 1 > Save.unlocked(G.mode)) { toast('🔒 Locked - beat the previous level first'); rebuildLevelSelect(); return; }
-  if (isNet()) netEv({ t: 'lvl', n });
-  loadLevel(n);
+  loadLevel(n);                                   // host builds first (locks party N) ...
+  if (isNet()) netEv({ t: 'lvl', n });            // ... then tells everybody, event carries pn
 }
 
 
@@ -2315,18 +2811,19 @@ window.addEventListener('keydown', (e) => {
   Snd.init();
   if (e.ctrlKey && e.shiftKey && e.altKey && e.code === 'KeyA') { e.preventDefault(); openAdminEntry(); return; }
   if (BUFF_KEYS[e.code] && G.inGame) { if (!e.repeat && G.me) useBuff(BUFF_KEYS[e.code]); e.preventDefault(); return; }
+  if (e.code === 'Tab' && G.inGame && G.mode === 'party') { G.teamView = true; e.preventDefault(); return; }
   const k = KEYMAP[e.code];
   if (k && G.inGame) { kb[k] = true; recompute(); e.preventDefault(); }
   else if (e.code === 'KeyR' && !e.repeat && G.inGame) changeLevel(G.lvIdx < 0 ? -1 : G.lvIdx);
   else if (e.code === 'KeyM' && !e.repeat) $('muteBtn').click();
 });
-window.addEventListener('keyup', (e) => { const k = KEYMAP[e.code]; if (k) { kb[k] = false; recompute(); } });
-window.addEventListener('blur', () => { kb.l = kb.r = kb.j = kb.b = kb.d = false; tc.l = tc.r = tc.j = tc.b = tc.d = false; recompute(); });
+window.addEventListener('keyup', (e) => { if (e.code === 'Tab') { G.teamView = false; if (G.inGame && G.mode === 'party') e.preventDefault(); } const k = KEYMAP[e.code]; if (k) { kb[k] = false; recompute(); } });
+window.addEventListener('blur', () => { G.teamView = false; kb.l = kb.r = kb.j = kb.b = kb.d = false; tc.l = tc.r = tc.j = tc.b = tc.d = false; recompute(); });
 
 const touchBtns = [...document.querySelectorAll('.tbtn')];
 let touchBuffDown = new Set();
 function updateTouch(touches) {
-  const act = { l: false, r: false, j: false, b: false };
+  const act = { l: false, r: false, j: false, b: false, tv: false };
   const cur = new Set();
   for (const t of touches) {
     const el = document.elementFromPoint(t.clientX, t.clientY);
@@ -2337,6 +2834,8 @@ function updateTouch(touches) {
   cur.forEach((id) => { if (!touchBuffDown.has(id)) useBuff(id); });
   touchBuffDown = cur;
   tc.l = act.l; tc.r = act.r; tc.j = act.j; tc.b = act.b;
+  G.teamView = !!act.tv && G.mode === 'party';
+  const rbn = $('radarBtn'); if (rbn) rbn.classList.toggle('down', !!act.tv);
   recompute();
 }
 
@@ -2353,6 +2852,10 @@ touchBtns.forEach((btn) => {
   btn.addEventListener('mousedown', (e) => { e.preventDefault(); tc[k] = true; btn.classList.add('down'); recompute(); });
   ['mouseup', 'mouseleave'].forEach((n) => btn.addEventListener(n, () => { tc[k] = false; btn.classList.remove('down'); recompute(); }));
 });
+(function bindRadarMouse() {   // desktop click-and-hold on the dynamic radar button
+  document.addEventListener('mousedown', (e) => { if (e.target && e.target.id === 'radarBtn') { G.teamView = true; e.preventDefault(); } });
+  document.addEventListener('mouseup', () => { G.teamView = false; });
+})();
 
 ['gesturestart', 'gesturechange', 'gestureend'].forEach((n) => document.addEventListener(n, (e) => e.preventDefault()));
 document.addEventListener('touchmove', (e) => {
@@ -2382,26 +2885,39 @@ function updateCamera(dt) {
   const sc0 = baseScale();
   const mp = ipos(me);
   let fx = mp.x + PW / 2, fy = mp.y + PH / 2, spread = 0;
-  if (isNet() && G.remotes.size) {
+  const tv = G.mode === 'party' && !!G.teamView && G.remotes.size > 0;
+  // CO-OP keeps the old "pull towards the group" camera. PARTY is 100% self-follow so the front runner is never held back.
+  if (G.mode === 'coop' && G.remotes.size) {
     let sx = 0, sy = 0, n = 0;
     for (const r of G.remotes.values()) { if (r.dead) continue; const rp = ipos(r); sx += rp.x + PW / 2; sy += rp.y + PH / 2; n++; spread = Math.max(spread, Math.hypot(rp.x - mp.x, rp.y - mp.y)); }
     if (n) { fx = lerp(fx, sx / n, 0.35); fy = lerp(fy, sy / n, 0.35); }
   }
-  const tz = isNet() ? clamp(1 - (spread - 420) / 1700, G.mode === 'party' ? 0.6 : 0.78, 1) : 1;
-  cam.z += (tz - cam.z) * (1 - Math.exp(-dt * 2.5));
+  let tz = 1;
+  if (tv) {                                            // hold Tab / radar button: fit the whole squad on screen
+    let x0 = mp.x, x1 = mp.x + PW, y0 = mp.y, y1 = mp.y + PH;
+    for (const r of G.remotes.values()) { if (r.dead) continue; const rp = ipos(r); x0 = Math.min(x0, rp.x); x1 = Math.max(x1, rp.x + PW); y0 = Math.min(y0, rp.y); y1 = Math.max(y1, rp.y + PH); }
+    tz = clamp(Math.min(cw / (x1 - x0 + 420), ch / (y1 - y0 + 360)) / sc0, 0.28, 1);
+    fx = (x0 + x1) / 2; fy = (y0 + y1) / 2;
+  } else if (G.mode === 'coop' && G.remotes.size) tz = clamp(1 - (spread - 420) / 1700, 0.78, 1);
+  cam.z += (tz - cam.z) * (1 - Math.exp(-dt * (tv ? 6 : 2.5)));
   const sc = sc0 * cam.z;
   const vw = cw / sc, vh = ch / sc;
   const look = clamp(me.vx * 14, -90, 90);
-  let tx = fx + look - vw / 2;
-  let ty = fy - vh * 0.56;
-  tx = clamp(tx, mp.x + PW / 2 - vw * 0.78, mp.x + PW / 2 - vw * 0.22);
-  ty = clamp(ty, mp.y + PH / 2 - vh * 0.85, mp.y + PH / 2 - vh * 0.15);
+  let tx, ty;
+  if (tv) { tx = fx - vw / 2; ty = fy - vh / 2; }
+  else {
+    tx = fx + look - vw / 2;
+    ty = fy - vh * 0.56;
+    tx = clamp(tx, mp.x + PW / 2 - vw * 0.78, mp.x + PW / 2 - vw * 0.22);
+    ty = clamp(ty, mp.y + PH / 2 - vh * 0.85, mp.y + PH / 2 - vh * 0.15);
+  }
   tx = L.w <= vw ? (L.w - vw) / 2 : clamp(tx, 0, L.w - vw);
   ty = L.h <= vh ? (L.h - vh) / 2 : clamp(ty, 0, L.h - vh);
   if (cam.snap) { cam.x = tx; cam.y = ty; cam.snap = false; }
   else {
-    cam.x += (tx - cam.x) * (1 - Math.exp(-dt * 5.5));
-    cam.y += (ty - cam.y) * (1 - Math.exp(-dt * 4.2));
+    const kx = tv ? 8 : 5.5, ky = tv ? 8 : 4.2;
+    cam.x += (tx - cam.x) * (1 - Math.exp(-dt * kx));
+    cam.y += (ty - cam.y) * (1 - Math.exp(-dt * ky));
   }
   cam.sc = sc; cam.vw = vw; cam.vh = vh;
 }
@@ -2617,6 +3133,17 @@ function drawCrumble(c) {
 }
 
 function drawSpikes(s) {
+  if (s.hid) return;
+  if (s.bt !== undefined) {                                    // bait spikes erupt from the floor
+    const k = clamp(s.ph, 0, 1);
+    ctx.save(); ctx.beginPath(); ctx.rect(s.x - 2, s.y - 4, s.w + 4, s.h + 4); ctx.clip();
+    ctx.translate(0, s.h * (1 - k) + 1);
+    drawSpikesRaw(s); ctx.restore(); return;
+  }
+  drawSpikesRaw(s);
+}
+
+function drawSpikesRaw(s) {
   const n = Math.max(1, Math.round(s.w / 22)), tw = s.w / n;
   ctx.fillStyle = '#cfd8dc'; ctx.strokeStyle = '#546e7a'; ctx.lineWidth = 2;
   for (let i = 0; i < n; i++) {
@@ -2714,7 +3241,7 @@ function updateStalactites(bodies) {
         debris(s.x - 8, s.gnd - 8, s.w + 16, 8, 12, '#8d7b73'); puff(s.x + s.w / 2, s.gnd, 8, '#d7ccc8', 1.4);
         G.shake = Math.max(G.shake, 4); Snd.crumble();
       }
-    } else { s.t -= STEP; if (s.t <= 0) { s.st = 0; s.fy = 0; s.vy = 0; } }
+    } else { s.t -= STEP; if (s.t <= 0) { s.st = 0; s.fy = 0; s.vy = 0; if (s.dyn) s.gone = true; } }
   }
 }
 
@@ -2800,6 +3327,23 @@ function drawKeyIcon(x, y, t) {
 }
 
 function drawExit(L) {
+  const e = L.exit; if (e.hide) return;
+  ctx.save();
+  if (e.clipY !== undefined) { ctx.beginPath(); ctx.rect(e.x - 70, e.y - 140, e.w + 140, e.clipY - (e.y - 140)); ctx.clip(); }
+  drawExitBody(L);
+  if (e.legs) {
+    const ph = G.lt * 26, cx = e.x + e.w / 2;
+    ctx.strokeStyle = '#3e2723'; ctx.lineWidth = 5; ctx.lineCap = 'round';
+    for (let k = -1; k <= 1; k += 2) {
+      const sw = Math.sin(ph + (k > 0 ? Math.PI : 0)) * 9;
+      ctx.beginPath(); ctx.moveTo(cx + k * 12, e.y + e.h); ctx.lineTo(cx + k * 12 + sw, e.y + e.h + 14); ctx.stroke();
+      ctx.fillStyle = '#3e2723'; ctx.beginPath(); ctx.ellipse(cx + k * 12 + sw + 3, e.y + e.h + 15, 7, 3.5, 0, 0, 6.3); ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
+function drawExitBody(L) {
   const e = L.exit, open = G.keyGot, t = G.lt, cx = e.x + e.w / 2, cy = e.y + e.h / 2;
   if (open) {
     ctx.save(); ctx.globalCompositeOperation = 'lighter';
@@ -3263,10 +3807,12 @@ function render(dt) {
   for (const s of L.springs) if (vis(s.x, s.w)) drawSpring(s);
   for (const f of L.flags) if (vis(f.x, 40)) drawFlag(f);
   drawExit(L);
+  drawExitWait();
   L.ropes.forEach((R, i) => { if (vis(R.ax - 300, 600)) drawRope(R, i); });
   for (const c of L.crushers) if (vis(c.x, c.w)) drawCrusher(c, crusherBottom(c, ltR));
   for (const q of (L.stalactites || [])) if (vis(q.x - 20, q.w + 40)) drawStalactite(q);
   for (const s of L.spikes) if (vis(s.x, s.w)) drawSpikes(s);
+  drawTraps(L);
   drawMeteors(cam);
   for (const b of L.boulders) if (vis(b.x0 - 60, b.x1 - b.x0 + 120)) { const bx = pingPong(b.x0, b.x1, b.speed, b.off, ltR); drawBoulder(b, bx, b.rot + (bx - b.cx) / b.r); }
   for (const c of L.coins) if (vis(c.x - 20, 40)) drawCoin(c);
@@ -3292,6 +3838,8 @@ function render(dt) {
   for (const rs of (L.risers || [])) drawRiser(rs, cam);
   drawParts();
   drawEnvFX();
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  drawOffscreenRadar();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   const vg = ctx.createRadialGradient(canvas.width / 2, canvas.height / 2, Math.min(canvas.width, canvas.height) * 0.45, canvas.width / 2, canvas.height / 2, Math.max(canvas.width, canvas.height) * 0.78);
   vg.addColorStop(0, 'rgba(70,20,80,0)'); vg.addColorStop(1, 'rgba(70,20,80,.22)');
