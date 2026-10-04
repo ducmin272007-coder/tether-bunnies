@@ -528,19 +528,26 @@ seg.ice = function (b, n, o) {
 // HARDCORE ANTI-SOLO: Dual simultaneous plates
 seg.coopDualHold = function (b, dist, o) {
   o = o || {};
+  // BOTH plates sit BEFORE the gate (the old layout put plate 2 behind the closed gate = unreachable = soft-lock).
+  // Two players stand on the two plates at the same time, the gate opens, then both sprint through
+  // (each plate keeps the gate powered for a few seconds after you step off).
+  const gapP = Math.min(dist, 320);
   const x0 = b.ground(dist + 520);
   const p1 = 'p' + (b.pid++), p2 = 'p' + (b.pid++);
-  b.plates.push({ id: p1, x: x0 + 80, y: b.gy - 10, w: 60, h: 10, hold: 0, t: 0, on: false });
-  b.plates.push({ id: p2, x: x0 + dist + 120, y: b.gy - 10, w: 60, h: 10, hold: 0, t: 0, on: false });
-  b.gates.push({ x: x0 + Math.floor(dist / 2) + 80, y: b.gy - 340, w: 28, h: 340, ctrl: [p1, p2], mode: 'all', open: false, inv: false });
-  b.coin(x0 + Math.floor(dist / 2) + 94, b.gy - 60);
+  const px2 = x0 + 80 + gapP;
+  b.plates.push({ id: p1, x: x0 + 80, y: b.gy - 10, w: 60, h: 10, hold: 3, t: 0, on: false });
+  b.plates.push({ id: p2, x: px2, y: b.gy - 10, w: 60, h: 10, hold: 3, t: 0, on: false });
+  b.gates.push({ x: px2 + 60 + 190, y: b.gy - 340, w: 28, h: 340, ctrl: [p1, p2], mode: 'all', open: false, inv: false });
+  b.coin(px2 + 60 + 190 + 120, b.gy - 60);
   if (o.flag) b.flag(x0 + 40);
   return x0;
 };
 
 // HARDCORE ANTI-SOLO: tall cliff requiring bunny stacking
 seg.partyStackCliff = function (b, cliffH) {
-  cliffH = cliffH || 250;
+  // A 2-bunny stack reaches ~200px (36 head + ~165 boosted jump), so cap the wall at 180: 2 players are always enough,
+  // while one bunny alone (jump ~126px) still cannot climb it.
+  cliffH = Math.min(cliffH || 170, 180);
   const x0 = b.ground(520);
   const lowGy = b.gy, wallX = x0 + 520;
   b.step(cliffH);
@@ -615,7 +622,20 @@ function buildTower(o) {
       },
     };
     for (const r of o.rooms) rooms[r[0]](r[1], r[2] || {});
-    ledge(85, 540, W / 2, {});
+    // Summit ledge: must NOT hang over the ledge below it (head-bonk = stuck). Add a stepping ledge if needed,
+    // then start the summit 56px inside the previous ledge's edge so there is always standing room beside its face.
+    {
+      const FW = 540;
+      const okR = (c) => c.x0 + 56 <= W - 60 - FW, okL = (c) => c.x1 - 56 - FW >= 60;
+      let guard = 0;
+      while ((cur.x1 - cur.x0 < 140 || (!okR(cur) && !okL(cur))) && guard++ < 3) {
+        ledge(85, 150, cur.cx < W / 2 ? 235 : W - 235, {});
+      }
+      const pc = (cur.x0 + cur.x1) / 2;
+      const fx = (okR(cur) && (!okL(cur) || pc < W / 2)) ? cur.x0 + 56 : cur.x1 - 56 - FW;
+      b.solids.push([fx, cur.y - 85, FW, 20]);
+      cur = { x0: fx, x1: fx + FW, y: cur.y - 85, cx: fx + FW / 2 };
+    }
     const sx = cur.x0, sy = cur.y;
     b.springs.push({ x: sx + 70, y: sy - 14, w: 56, h: 14, power: 17.5, sq: 0 });
     b.key = { x: sx + 98, y: sy - 215 };
