@@ -40,6 +40,65 @@ const VIEW_MIN_W = 760;            // logical minimum visible width (portrait ph
 const SEND_MS = 50;                // 20 Hz position packets
 const SKIN_PRICE = { ninja: 20, king: 40, slime: 60 };
 
+// ============================================================================
+// v8 ADDITIONS  --  skin tiers, diamonds, temporary buffs, guest/admin roles
+// ============================================================================
+const DIA_RATE = 50;        // coins needed to convert into 1 diamond
+const BUFF_CAP = 2;         // max unspent charges of each shop buff a player can carry
+const DJ_SECONDS = 30;      // Double Jump potion duration (also ends on death / level end)
+
+const Role = { admin: false, god: false, token: '', dbg: false };  // everybody starts as a GUEST
+let storeHook = null;       // set at boot: called on every Store.set (drives cloud auto-sync)
+let curEnv = null;          // environment of the equipped LEGENDARY skin (null = normal level scenery)
+let curPassive = null;      // passive buff id of the equipped LEGENDARY skin
+const envParts = [];        // ambient environment particles (embers / snow / stars)
+
+const TIERS = {
+  common:    { label: 'COMMON' },
+  rare:      { label: 'RARE' },
+  legendary: { label: 'LEGENDARY' },
+};
+
+const SKINS = {
+  classic: { tier: 'common', name: 'Classic Pink', icon: '🐰', coins: 0, dia: 0 },
+  ninja:   { tier: 'common', name: 'Cyber Ninja',  icon: '🥷', coins: 20, dia: 0 },
+  cocoa:   { tier: 'common', name: 'Cocoa Bunny',  icon: '🍫', coins: 30, dia: 0 },
+  king:    { tier: 'rare', name: 'King Bunny',    icon: '👑', coins: 40, dia: 2 },
+  slime:   { tier: 'rare', name: 'Golden Slime',  icon: '✨', coins: 60, dia: 3 },
+  crystal: { tier: 'rare', name: 'Crystal Bunny', icon: '🔮', coins: 50, dia: 4 },
+  phoenix: {
+    tier: 'legendary', name: 'Phoenix Bunny', icon: '🔥', coins: 0, dia: 10,
+    env: { name: 'Ember Skies', desc: 'volcanic sky, lava rock, drifting embers', sky: 'ember', solidHue: 12, grassHue: 28, tint: 'rgba(255,80,10,.07)', fx: 'embers', rate: 16 },
+    passive: { id: 'rebirth', name: 'Rebirth', desc: 'After a respawn you are invulnerable for 5s instead of 2.5s.' },
+    trail: ['#ff6a1a', '#ffb347', '#ffe08a'],
+  },
+  aurora: {
+    tier: 'legendary', name: 'Aurora Bunny', icon: '❄️', coins: 0, dia: 12,
+    env: { name: 'Frozen Night', desc: 'icy sky, aurora ribbons, falling snow', sky: 'frost', solidHue: 200, grassHue: 172, tint: 'rgba(120,200,255,.06)', fx: 'snow', rate: 18 },
+    passive: { id: 'featherfall', name: 'Featherfall', desc: 'Fall 30% slower and steer better in mid-air.' },
+    trail: ['#9ff3e6', '#bde0fe', '#e0aaff', '#ffffff'],
+  },
+  cosmic: {
+    tier: 'legendary', name: 'Cosmic Bunny', icon: '🌌', coins: 0, dia: 15,
+    env: { name: 'Deep Space', desc: 'ringed planet, nebulae, twinkling stars', sky: 'cosmic', solidHue: 262, grassHue: 292, tint: 'rgba(150,100,255,.06)', fx: 'stars', rate: 12 },
+    passive: { id: 'magnet', name: 'Star Magnet', desc: 'Collect coins, 💎 and the key from much farther away.' },
+    trail: ['#c9b8ff', '#ffe9a8', '#8ecae6'],
+  },
+};
+
+const SKIN_PAL = {
+  cocoa:   { body: '#a9714b', edge: '#6b3f22', inner: '#f2c9a5', belly: 'rgba(255,240,220,.7)' },
+  crystal: { body: '#bfe9ff', edge: '#4f9ccf', inner: '#e8f8ff', belly: 'rgba(255,255,255,.75)' },
+  phoenix: { body: '#ff9a3c', edge: '#b3300f', inner: '#ffe08a', belly: 'rgba(255,230,160,.8)' },
+  aurora:  { body: '#9ff3e6', edge: '#2a8f9c', inner: '#e6fff9', belly: 'rgba(255,255,255,.7)' },
+  cosmic:  { body: '#5a3fc0', edge: '#1d0f5c', inner: '#c9b8ff', belly: 'rgba(190,170,255,.55)' },
+};
+
+const BUFFS = {
+  doublejump: { name: 'Double Jump',   icon: '🦘', price: 10, desc: 'One extra mid-air hop for ' + DJ_SECONDS + 's. Ends if you die or the level ends.' },
+  shield:     { name: 'Bubble Shield', icon: '🛡️', price: 15, desc: 'Absorbs 1 hit (a pit fall returns you to checkpoint). Gone when the level ends.' },
+};
+
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const lerp = (a, b, t) => a + (b - a) * t;
 const rnd = (a, b) => a + Math.random() * (b - a);
@@ -67,7 +126,9 @@ const Store = (() => {
     set(k, v) {
       v = String(v); mem[k] = v;
       try { if (ok) localStorage.setItem(k, v); } catch (e) {}
+      if (storeHook) storeHook(k);
     },
+    del(k) { delete mem[k]; try { if (ok) localStorage.removeItem(k); } catch (e) {} },
     keys() {
       const out = new Set(Object.keys(mem));
       try { if (ok) for (let i = 0; i < localStorage.length; i++) out.add(localStorage.key(i)); } catch (e) {}
@@ -77,44 +138,51 @@ const Store = (() => {
 })();
 
 const Save = {
-  unlocked(mode) { return Math.max(1, parseInt(Store.get('tb_unlocked_' + (mode || 'solo'), '1'), 10) || 1); },
-  unlock(mode, n) { if (n > this.unlocked(mode)) Store.set('tb_unlocked_' + (mode || 'solo'), n); },
+  realUnlocked(mode) { return Math.max(1, parseInt(Store.get('tb_unlocked_' + (mode || 'solo'), '1'), 10) || 1); },
+  unlocked(mode) { return Role.admin ? 999 : this.realUnlocked(mode); },
+  unlock(mode, n) { if (n > this.realUnlocked(mode)) Store.set('tb_unlocked_' + (mode || 'solo'), n); },
   customLevels() { try { const a = JSON.parse(Store.get('tb_custom_levels', '[]')); return Array.isArray(a) ? a : []; } catch (e) { return []; } },
   saveCustomLevel(lvl) { const a = this.customLevels(); a.push(lvl); Store.set('tb_custom_levels', JSON.stringify(a)); },
   coins() { return Math.max(0, parseInt(Store.get('tb_coins', '0'), 10) || 0); },
   addCoins(n) { Store.set('tb_coins', this.coins() + n); refreshCoinUI(); },
-  spend(n) { const c = this.coins(); if (c < n) return false; Store.set('tb_coins', c - n); refreshCoinUI(); return true; },
+  spend(n) { if (Role.admin) return true; const c = this.coins(); if (c < n) return false; Store.set('tb_coins', c - n); refreshCoinUI(); return true; },
+  diamonds() { return Math.max(0, parseInt(Store.get('tb_diamonds', '0'), 10) || 0); },
+  addDiamonds(n) { Store.set('tb_diamonds', this.diamonds() + n); refreshCoinUI(); },
+  spendDiamonds(n) { if (Role.admin) return true; const d = this.diamonds(); if (d < n) return false; Store.set('tb_diamonds', d - n); refreshCoinUI(); return true; },
   skins() { try { const a = JSON.parse(Store.get('tb_skins', '["classic"]')); return Array.isArray(a) ? a : ['classic']; } catch (e) { return ['classic']; } },
-  hasSkin(s) { return s === 'classic' || this.skins().includes(s); },
+  hasSkin(s) { return s === 'classic' || (Role.admin ? !!SKINS[s] : this.skins().includes(s)); },
   addSkin(s) { const a = this.skins(); if (!a.includes(s)) { a.push(s); Store.set('tb_skins', JSON.stringify(a)); } },
   equipped() { const s = Store.get('tb_equipped_skin', 'classic'); return this.hasSkin(s) ? s : 'classic'; },
   equip(s) { Store.set('tb_equipped_skin', s); },
   buff(b) { return Math.max(0, parseInt(Store.get('tb_buff_' + b, '0'), 10) || 0); },
-  addBuff(b, n) { Store.set('tb_buff_' + b, this.buff(b) + n); refreshBuffUI(); },
+  addBuff(b, n) { Store.set('tb_buff_' + b, Math.min(BUFF_CAP, this.buff(b) + n)); refreshBuffUI(); },
   useBuff(b) { const c = this.buff(b); if (c <= 0) return false; Store.set('tb_buff_' + b, c - 1); refreshBuffUI(); return true; },
   coinsGot(mode, lv) { try { const a = JSON.parse(Store.get('tb_cg_' + mode + '_' + lv, '[]')); return Array.isArray(a) ? a : []; } catch (e) { return []; } },
   markCoin(mode, lv, i) { const a = this.coinsGot(mode, lv); if (!a.includes(i)) { a.push(i); Store.set('tb_cg_' + mode + '_' + lv, JSON.stringify(a)); } },
   best(mode, lv) { const v = parseFloat(Store.get('tb_best_' + mode + '_' + lv, '0')); return v > 0 ? v : 0; },
   setBest(mode, lv, t) { const b = this.best(mode, lv); if (!b || t < b) { Store.set('tb_best_' + mode + '_' + lv, t.toFixed(2)); return true; } return false; },
-  cleared(mode, lv) { return this.unlocked(mode) > lv + 1 || this.best(mode, lv) > 0; },
+  cleared(mode, lv) { return this.realUnlocked(mode) > lv + 1 || this.best(mode, lv) > 0; },
 };
 
 function refreshCoinUI() {
-  const c = Save.coins();
+  const c = Role.admin ? '∞' : Save.coins(), d = Role.admin ? '∞' : Save.diamonds();
   setText('lobbyCoins', c); setText('shopCoins', c); setText('hudCoins', '🪙 ' + c);
+  setText('lobbyDiamonds', d); setText('shopDiamonds', d); setText('hudDiamonds', '💎 ' + d);
 }
 
 function refreshBuffUI() {
-  const dj = Save.buff('doublejump'), sh = Save.buff('shield');
+  const dj = Save.buff('doublejump'), sh = Save.buff('shield'), P = G && G.me;
+  const act = [];
+  if (P && P.shield) act.push('🛡️');
+  if (P && P.dj) act.push('🦘 ' + (Role.admin ? '∞' : Math.max(1, Math.ceil(P.djT)) + 's'));
   let str = '';
-  if (G && G.me && G.me.shield) str = '🛡️ ACTIVE';
-  else if (G && G.me && G.me.dj) str = '🦘 ACTIVE';
-  else if (sh > 0) str = '🛡️ Shield x' + sh + ' (E)';
-  else if (dj > 0) str = '🦘 2xJump x' + dj + ' (E)';
+  if (act.length) str = act.join(' ') + ' ACTIVE';
+  else if (Role.admin) str = '🛡️🦘 ∞ (E)';
+  else if (sh > 0 || dj > 0) str = ((sh ? '🛡️×' + sh + ' ' : '') + (dj ? '🦘×' + dj : '')).trim() + ' (E)';
   const badge = $('buffBadge');
   if (badge) { badge.textContent = str; badge.classList.toggle('hidden', !str); }
   const tb = $('tBuff');
-  if (tb) { tb.classList.toggle('hidden', !(str && isTouchDevice)); tb.textContent = (sh > 0 || (G && G.me && G.me.shield)) ? '🛡️' : '🦘'; }
+  if (tb) { tb.classList.toggle('hidden', !(str && isTouchDevice)); tb.textContent = (sh > 0 || Role.admin || (P && P.shield)) ? '🛡️' : '🦘'; }
 }
 
 // ============================================================================
@@ -835,7 +903,7 @@ function newPlayer(slot) {
   return {
     slot, x: 0, y: 0, vx: 0, vy: 0, face: 1, onGround: false, coyote: 0, jbuf: 0,
     jPrev: false, bPrev: false, jumping: false, dead: false, deadT: 0, inv: 0,
-    shield: false, dj: false, usedDJ: false, rope: null, ropeCd: 0, cp: { x: 0, y: 0 },
+    shield: false, dj: false, djT: 0, usedDJ: false, rope: null, ropeCd: 0, cp: { x: 0, y: 0 },
     anch: false, sq: 0, runT: 0, ride: null, wasGround: false, tetherGrace: 0, ear: 0, earV: 0,
   };
 }
@@ -902,6 +970,8 @@ function loadLevel(idx, customLevelObj) {
   G.lt = 0; G.levelTime = 0; G.keyGot = false; G.won = false; G.winT = 0; G.deaths = 0; G.finalShown = false;
   const got = G.lvIdx >= 0 ? Save.coinsGot(G.mode, G.lvIdx) : [];
   L.coins.forEach((c) => { c.got = got.includes(c.id); c.pop = 0; });
+  const dIdx = diamondIndex(G.mode, G.lvIdx, L.coins.length);
+  if (dIdx >= 0) L.coins[dIdx].kind = 'diamond';
   L.plates.forEach((p) => { p.t = 0; p.on = false; p.pr = false; });
   L.gates.forEach((g) => { g.act = false; });
   L.ropes.forEach((r) => { r.hs = -1; r.hb = null; });
@@ -1039,17 +1109,21 @@ function updateWorld() {
       }
     }
     const cx = me.x + PW / 2, cy = me.y + PH / 2;
+    const mg = curPassive === 'magnet' ? 2.3 : 1;
     for (const c of L.coins) {
       if (c.pop > 0) c.pop -= STEP;
       if (c.got) continue;
-      if (Math.abs(cx - c.x) < 24 && Math.abs(cy - c.y) < 28) {
-        c.got = true; c.pop = 0.5; if (G.lvIdx >= 0) { Save.markCoin(G.mode, G.lvIdx, c.id); Save.addCoins(1); }
-        Snd.coin(); sparkle(c.x, c.y, 10, 1);
+      if (Math.abs(cx - c.x) < 24 * mg && Math.abs(cy - c.y) < 28 * mg) {
+        c.got = true; c.pop = 0.5;
+        const dia = c.kind === 'diamond';
+        if (G.lvIdx >= 0) { Save.markCoin(G.mode, G.lvIdx, c.id); if (dia) Save.addDiamonds(1); else Save.addCoins(1); }
+        if (dia) { Snd.key(); sparkle(c.x, c.y, 18, 1.4, '#7ee8ff'); toast('💎 Diamond found!'); }
+        else { Snd.coin(); sparkle(c.x, c.y, 10, 1); }
       }
     }
     if (!G.keyGot) {
-      const k = keyPos();
-      if (Math.abs(cx - k.x) < 30 && Math.abs(cy - k.y) < 34) collectKey(true, me.slot);
+      const k = keyPos(), kg = mg > 1 ? 1.6 : 1;
+      if (Math.abs(cx - k.x) < 30 * kg && Math.abs(cy - k.y) < 34 * kg) collectKey(true, me.slot);
     }
     exitCheck();
   }
@@ -1089,6 +1163,7 @@ function exitCheck() {
 function triggerWin(send) {
   if (G.won) return;
   G.won = true; G.winT = 0;
+  if (G.me) { G.me.shield = false; G.me.dj = false; G.me.djT = 0; refreshBuffUI(); }
   const L = G.L, e = L.exit;
   Snd.win(); confetti(e.x + e.w / 2, e.y, 160, 90);
   const first = !Save.cleared(G.mode, G.lvIdx);
@@ -1134,11 +1209,19 @@ const isNet = () => G.mode === 'coop' || G.mode === 'party';
 function die(cause) {
   const P = G.me;
   if (P.dead || P.inv > 0 || G.won) return;
+  if (Role.admin && Role.god) {
+    if (cause === 'fall') { P.x = P.cp.x; P.y = P.cp.y; P.vx = P.vy = 0; G.cam.snap = true; }
+    return;
+  }
   if (P.shield) {
-    P.shield = false; P.inv = 1.4; P.vy = -8; P.rope = null; Snd.pop(); sparkle(P.x + PW / 2, P.y + PH / 2, 16, 1.5, '#8ff');
-    toast('🛡️ Shield popped!'); refreshBuffUI(); return;
+    P.shield = false; P.inv = 1.4; P.rope = null; Snd.pop(); sparkle(P.x + PW / 2, P.y + PH / 2, 16, 1.5, '#8ff');
+    if (cause === 'fall') { P.x = P.cp.x; P.y = P.cp.y; P.vx = P.vy = 0; G.cam.snap = true; toast('🛡️ Shield saved you from the pit!'); }
+    else { P.vy = -8; toast('🛡️ Shield popped!'); }
+    refreshBuffUI(); return;
   }
   P.dead = true; P.deadT = 0.75; P.rope = null;
+  if (P.dj) { P.dj = false; P.djT = 0; toast('🦘 Double Jump ended (you died)'); }
+  refreshBuffUI();
   G.deaths++; setText('deaths', '💥 ' + G.deaths);
   Snd.die(); G.shake = Math.max(G.shake, 8);
   sparkle(P.x + PW / 2, P.y + PH / 2, 22, 1.8, COLORS[P.slot % COLORS.length]);
@@ -1157,7 +1240,7 @@ function respawn() {
     }
   }
   P.x = rx; P.y = ry; P.vx = P.vy = 0; P.dead = false;
-  P.inv = 2.5; // 2.5s invulnerability
+  P.inv = curPassive === 'rebirth' ? 5 : 2.5; // 2.5s invulnerability (5s with Phoenix passive)
   P.tetherGrace = 3.5; // 3.5s zero-tether pull on respawn!
   P.rope = null; P.ropeCd = 20; P.usedDJ = false;
   puff(P.x + PW / 2, P.y + PH, 12, '#fff');
@@ -1167,9 +1250,10 @@ function respawn() {
 function useBuff() {
   const P = G.me;
   if (P.dead || G.won) return;
-  if (!P.shield && Save.buff('shield') > 0) { Save.useBuff('shield'); P.shield = true; toast('🛡️ Bubble Shield on!'); Snd.pop(); }
-  else if (!P.dj && Save.buff('doublejump') > 0) { Save.useBuff('doublejump'); P.dj = true; toast('🦘 Double Jump on for this level!'); Snd.djump(); }
-  else if (!P.shield && !P.dj) toast('No potions - visit the 🛍️ shop!');
+  const free = Role.admin;
+  if (!P.shield && (free || Save.buff('shield') > 0)) { if (!free) Save.useBuff('shield'); P.shield = true; toast('🛡️ Bubble Shield on!'); Snd.pop(); }
+  else if (!P.dj && (free || Save.buff('doublejump') > 0)) { if (!free) Save.useBuff('doublejump'); P.dj = true; P.djT = DJ_SECONDS; P.usedDJ = false; toast('🦘 Double Jump on for ' + DJ_SECONDS + 's!'); Snd.djump(); }
+  else if (!P.shield && !P.dj) toast('No charges - buy in the 🛍️ shop!');
   refreshBuffUI();
 }
 
@@ -1265,6 +1349,11 @@ function stepPlayer() {
   if (P.dead) { P.deadT -= STEP; if (P.deadT <= 0) respawn(); return; }
   if (P.inv > 0) P.inv -= STEP;
   if (P.tetherGrace > 0) P.tetherGrace -= STEP;
+  if (P.dj && !Role.admin) {
+    const before = Math.ceil(P.djT); P.djT -= STEP;
+    if (P.djT <= 0) { P.dj = false; P.djT = 0; toast('🦘 Double Jump expired'); refreshBuffUI(); }
+    else if (Math.ceil(P.djT) !== before) refreshBuffUI();
+  }
   if (G.won) { P.vx *= 0.8; }
   const ax = G.won ? 0 : (input.r ? 1 : 0) - (input.l ? 1 : 0);
 
@@ -1275,7 +1364,7 @@ function stepPlayer() {
   if (P.rope) { stepRope(P, ax); if (P.jbuf > 0) P.jbuf--; P.anch = false; const h = hazardCheck(P); if (h) die(h); return; }
 
   if (ax !== 0) {
-    const acc = P.onGround ? 1.0 : 0.65;
+    const acc = P.onGround ? 1.0 : (curPassive === 'featherfall' ? 0.85 : 0.65);
     const tgt = ax * RUN;
     P.vx += clamp(tgt - P.vx, -acc, acc);
     P.face = ax;
@@ -1284,7 +1373,7 @@ function stepPlayer() {
   applyTether(P);
 
   P.vx = clamp(P.vx, -RUN - 4, RUN + 4);
-  P.vy = Math.min(P.vy + GRAV, MAXFALL);
+  P.vy = Math.min(P.vy + GRAV, curPassive === 'featherfall' ? MAXFALL * 0.7 : MAXFALL);
 
   if (P.onGround) { P.coyote = 6; P.usedDJ = false; } else if (P.coyote > 0) P.coyote--;
   if (P.jbuf > 0) {
@@ -1749,41 +1838,6 @@ function changeLevel(n) {
   loadLevel(n);
 }
 
-function openShop() { show('shopModal', true); refreshCoinUI(); refreshShopUI(); const m = $('shopModal'); if (m) m.style.zIndex = '40'; }
-function closeShop() { show('shopModal', false); setText('lpCoins', Save.coins()); }
-
-function refreshShopUI() {
-  const eq = Save.equipped();
-  document.querySelectorAll('.shop-item[data-skin]').forEach((el) => {
-    const skin = el.dataset.skin, btn = el.querySelector('.skin-btn');
-    const owned = Save.hasSkin(skin);
-    btn.textContent = !owned ? 'Buy' : (eq === skin ? 'Equipped' : 'Equip');
-    btn.className = 'skin-btn' + (owned && eq === skin ? ' equipped' : '');
-  });
-}
-
-function equipSkin(skin) {
-  Save.equip(skin); G.skins[G.myslot] = skin;
-  if (isNet() && socket && socket.connected) socket.emit('skin', skin);
-  refreshShopUI();
-}
-
-document.querySelectorAll('.shop-item[data-skin]').forEach((el) => {
-  const skin = el.dataset.skin, btn = el.querySelector('.skin-btn');
-  btn.onclick = () => {
-    Snd.init();
-    if (Save.hasSkin(skin)) { equipSkin(skin); toast('Equipped ' + skin + '!'); return; }
-    const cost = SKIN_PRICE[skin] || 20;
-    if (Save.spend(cost)) { Save.addSkin(skin); equipSkin(skin); toast('Unlocked ' + skin + ' skin! 🎉'); Snd.key(); }
-    else toast('Not enough coins! Collect 🪙 in levels (need ' + cost + ').');
-  };
-});
-
-$('buyDoubleJumpBtn').onclick = () => { Snd.init(); if (Save.spend(10)) { Save.addBuff('doublejump', 1); toast('Double Jump potion bought! Press E in a level. 🦘'); } else toast('Not enough coins! (10 🪙)'); };
-$('buyShieldBtn').onclick = () => { Snd.init(); if (Save.spend(15)) { Save.addBuff('shield', 1); toast('Bubble Shield bought! Press E in a level. 🛡️'); } else toast('Not enough coins! (15 🪙)'); };
-$('lobbyShopBtn').onclick = openShop;
-$('hudShopBtn').onclick = openShop;
-$('shopCloseBtn').onclick = closeShop;
 
 const kb = { l: false, r: false, j: false, b: false }, tc = { l: false, r: false, j: false, b: false };
 function recompute() { input.l = kb.l || tc.l; input.r = kb.r || tc.r; input.j = kb.j || tc.j; input.b = kb.b || tc.b; }
@@ -1791,6 +1845,7 @@ const KEYMAP = { ArrowLeft: 'l', KeyA: 'l', ArrowRight: 'r', KeyD: 'r', ArrowUp:
 window.addEventListener('keydown', (e) => {
   if (e.target && e.target.tagName === 'INPUT') return;
   Snd.init();
+  if (e.ctrlKey && e.shiftKey && e.altKey && e.code === 'KeyA') { e.preventDefault(); openAdminEntry(); return; }
   const k = KEYMAP[e.code];
   if (k && G.inGame) { kb[k] = true; recompute(); e.preventDefault(); }
   else if (e.code === 'KeyR' && !e.repeat && G.inGame) changeLevel(G.lvIdx < 0 ? -1 : G.lvIdx);
@@ -1896,7 +1951,11 @@ const SKY_CFG = {
   sunset: { stops: [[0, '#2a0f55'], [0.32, '#7b2d8e'], [0.58, '#ff5e9c'], [0.8, '#ff9a5a'], [1, '#ffd27a']], hills: ['#7a2f86', '#531f6b', '#341250'], mote: 'rgba(255,170,220,.6)' },
   aurora: { stops: [[0, '#020a1e'], [0.6, '#06304a'], [1, '#0b5a63']], hills: ['#0f4458', '#0a3044', '#06202f'], mote: 'rgba(140,255,230,.55)' },
   galaxy: { stops: [[0, '#030012'], [0.55, '#12063a'], [1, '#2c0f60']], hills: ['#221250', '#170c3a', '#0d0624'], mote: 'rgba(200,170,255,.6)' },
+  ember:  { stops: [[0, '#1a0606'], [0.4, '#5c1408'], [0.75, '#c2410c'], [1, '#ffb347']], hills: ['#5a1d10', '#3b110a', '#220806'], mote: 'rgba(255,170,80,.7)' },
+  frost:  { stops: [[0, '#0b2a4a'], [0.5, '#2d6a9f'], [1, '#d8f3ff']], hills: ['#a9d6ee', '#7fb7d9', '#5d98c0'], mote: 'rgba(255,255,255,.8)' },
+  cosmic: { stops: [[0, '#02010d'], [0.5, '#150a42'], [1, '#3b1478']], hills: ['#2a1668', '#1c0e48', '#0f0730'], mote: 'rgba(255,230,160,.7)' },
 };
+const effTheme = (L) => (curEnv ? curEnv.sky : (L.skyTheme || 'meadow'));
 const STARS = Array.from({ length: 170 }, () => ({ x: Math.random(), y: Math.random() * 0.75, r: 0.5 + Math.random() * 1.5, ph: Math.random() * 6.28, sp: 1 + Math.random() * 3, par: 0.01 + Math.random() * 0.05 }));
 const hash1 = (n) => { const v = Math.sin(n * 127.1 + 311.7) * 43758.5453; return v - Math.floor(v); };
 
@@ -1937,7 +1996,7 @@ function drawSkyCloudLayer(L, cam, f, yBase, scale, col, count) {
 }
 
 function drawSky(L, cam) {
-  const theme = L.skyTheme || 'meadow', cfg = SKY_CFG[theme], T = G.lt;
+  const theme = effTheme(L), cfg = SKY_CFG[theme], T = G.lt;
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   const g = ctx.createLinearGradient(0, 0, 0, canvas.height);
   cfg.stops.forEach((cs) => g.addColorStop(cs[0], cs[1]));
@@ -1976,6 +2035,8 @@ function drawSky(L, cam) {
     drawSkyCloudLayer(L, cam, 0.05, ch * 0.1, 1.4, 'rgba(255,130,200,.28)', 4);
     drawSkyCloudLayer(L, cam, 0.12, ch * 0.24, 1.1, 'rgba(255,160,210,.38)', 5);
     drawSkyCloudLayer(L, cam, 0.22, ch * 0.4, 0.9, 'rgba(255,200,230,.45)', 4);
+  } else if (SKY_LEGEND[theme]) {
+    drawLegendSky(theme, cam, T);
   } else {
     drawStars(cam, T, theme === 'galaxy' ? 1 : 0.7);
     if (theme === 'galaxy') {
@@ -2013,7 +2074,7 @@ function drawSky(L, cam) {
 function drawBackground(L, cam) {
   if (!L.skyTheme) L.skyTheme = 'meadow';
   drawSky(L, cam);
-  const cfg = SKY_CFG[L.skyTheme];
+  const cfg = SKY_CFG[effTheme(L)];
   for (let layer = 0; layer < 3; layer++) {
     const f = 0.12 + layer * 0.14, base = ch * (0.72 + layer * 0.08) - (cam.y * (0.1 + layer * 0.05)) * cam.sc;
     ctx.fillStyle = cfg.hills[layer];
@@ -2034,16 +2095,17 @@ function drawBackground(L, cam) {
 
 function drawSolid(L, s) {
   const x = s[0], y = s[1], w = s[2], h = s[3];
+  const sh = curEnv ? curEnv.solidHue : L.hue + 25, gh = curEnv ? curEnv.grassHue : 105;
   const gr = ctx.createLinearGradient(0, y, 0, y + Math.min(h, 280));
-  gr.addColorStop(0, hsl(L.hue + 25, 38, 58)); gr.addColorStop(1, hsl(L.hue + 25, 38, 34));
+  gr.addColorStop(0, hsl(sh, 38, 58)); gr.addColorStop(1, hsl(sh, 38, 34));
   ctx.fillStyle = gr; ctx.fillRect(x, y, w, h);
   ctx.fillStyle = 'rgba(255,255,255,.13)';
   for (let px = x + 18; px < x + w - 10; px += 56) ctx.fillRect(px, y + 30 + ((px * 7) % 40), 14, 5);
   ctx.fillStyle = 'rgba(0,0,0,.10)';
   for (let px = x + 40; px < x + w - 20; px += 90) ctx.fillRect(px, y + 70 + ((px * 5) % 60), 22, 6);
-  ctx.fillStyle = hsl(105, 52, 40); rr(x - 3, y - 5, w + 6, 19, 7); ctx.fill();
-  ctx.fillStyle = hsl(105, 60, 56); rr(x - 3, y - 5, w + 6, 9, 5); ctx.fill();
-  ctx.fillStyle = hsl(105, 62, 50);
+  ctx.fillStyle = hsl(gh, 52, 40); rr(x - 3, y - 5, w + 6, 19, 7); ctx.fill();
+  ctx.fillStyle = hsl(gh, 60, 56); rr(x - 3, y - 5, w + 6, 9, 5); ctx.fill();
+  ctx.fillStyle = hsl(gh, 62, 50);
   for (let px = x + 6; px < x + w - 4; px += 22) {
     const bh = 5 + ((px * 13) % 7);
     ctx.beginPath(); ctx.moveTo(px, y - 4); ctx.lineTo(px + 3, y - 4 - bh); ctx.lineTo(px + 6, y - 4); ctx.fill();
@@ -2137,6 +2199,7 @@ function drawSweeper(s, cam) {
 
 function drawCoin(c) {
   if (c.got && c.pop <= 0) return;
+  if (c.kind === 'diamond') { drawDiamond(c); return; }
   const t = G.lt * 4 + c.id, sx = Math.abs(Math.cos(t));
   ctx.save(); ctx.translate(c.x, c.y + Math.sin(t * 0.7) * 3);
   if (c.got) { ctx.globalAlpha = c.pop * 2; ctx.translate(0, -(0.5 - c.pop) * 50); }
@@ -2267,9 +2330,10 @@ function drawBunny(x, y, o) {
     }
     ctx.strokeStyle = '#4e342e'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(6.5, -14, 3.5, 0.15, 3.0); ctx.stroke();
   } else {
-    const body = skin === 'ninja' ? '#2b2d42' : skin === 'king' ? '#efe0fa' : col;
-    const edge = skin === 'ninja' ? '#12131f' : skin === 'king' ? '#8e5bbd' : dk;
-    const inner = skin === 'ninja' ? '#00bfa5' : '#ffb3cb';
+    const pal = SKIN_PAL[skin];
+    const body = pal ? pal.body : skin === 'ninja' ? '#2b2d42' : skin === 'king' ? '#efe0fa' : col;
+    const edge = pal ? pal.edge : skin === 'ninja' ? '#12131f' : skin === 'king' ? '#8e5bbd' : dk;
+    const inner = pal ? pal.inner : skin === 'ninja' ? '#00bfa5' : '#ffb3cb';
     if (skin === 'king') {
       ctx.fillStyle = '#c1121f'; ctx.strokeStyle = '#7a0b13'; ctx.lineWidth = 2;
       const cw2 = Math.sin(t * 6) * 2 + (run ? 4 : 0);
@@ -2286,7 +2350,7 @@ function drawBunny(x, y, o) {
     ear(-6, -0.15 - earSwing); ear(6, 0.15 - earSwing * 0.8);
     const bg = ctx.createLinearGradient(0, -36 + bob, 0, 0); bg.addColorStop(0, lighten(body, 0.4)); bg.addColorStop(1, body);
     ctx.fillStyle = bg; ctx.strokeStyle = edge; ctx.lineWidth = 3; rr(-14, -34 + bob, 28, 34 - bob, 12); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = skin === 'ninja' ? '#3d405b' : 'rgba(255,255,255,.62)'; ctx.beginPath(); ctx.ellipse(1, -9, 8.5, 8, 0, 0, 6.3); ctx.fill();
+    ctx.fillStyle = skin === 'ninja' ? '#3d405b' : pal ? pal.belly : 'rgba(255,255,255,.62)'; ctx.beginPath(); ctx.ellipse(1, -9, 8.5, 8, 0, 0, 6.3); ctx.fill();
     const fo = run ? Math.sin(ph) * 4 : 0, fy = air ? -4 : -2;
     ctx.fillStyle = edge; ctx.beginPath(); ctx.ellipse(-6 + fo, fy, 6, 3.2, 0, 0, 6.3); ctx.ellipse(7 - fo, fy, 6, 3.2, 0, 0, 6.3); ctx.fill();
     ctx.fillStyle = body; ctx.strokeStyle = edge; ctx.lineWidth = 2;
@@ -2324,6 +2388,7 @@ function drawBunny(x, y, o) {
       ctx.fillStyle = '#ff5252'; ctx.beginPath(); ctx.arc(0, -39 + bob, 2.2, 0, 6.3); ctx.fill();
       ctx.fillStyle = '#4dabf7'; ctx.beginPath(); ctx.arc(-6, -37 + bob, 1.4, 0, 6.3); ctx.arc(6, -37 + bob, 1.4, 0, 6.3); ctx.fill();
     }
+    drawSkinAccents(skin, t, bob);
   }
   ctx.restore();
   if (o.shield) {
@@ -2410,10 +2475,13 @@ function render(dt) {
   }
   for (const s of L.sweepers) drawSweeper(s, cam);
   drawParts();
+  drawEnvFX();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   const vg = ctx.createRadialGradient(canvas.width / 2, canvas.height / 2, Math.min(canvas.width, canvas.height) * 0.45, canvas.width / 2, canvas.height / 2, Math.max(canvas.width, canvas.height) * 0.78);
   vg.addColorStop(0, 'rgba(70,20,80,0)'); vg.addColorStop(1, 'rgba(70,20,80,.22)');
   ctx.fillStyle = vg; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  drawEnvTint();
+  drawDebug();
 }
 
 // ============================================================================
@@ -2433,6 +2501,8 @@ function frame(t) {
     G.alpha = clamp(acc / STEP, 0, 1);
     sendPos(t);
     updateParts(dt);
+    updateEnvFX(dt);
+    spawnSkinTrails();
     updateCamera(dt);
     render(dt);
   } else {
@@ -2467,13 +2537,16 @@ function buildSettingsModal() {
   el.innerHTML = `
     <div class="sm-card">
       <div class="sm-title">⚙️ CÀI ĐẶT TRÒ CHƠI</div>
+      <div id="smWho" class="sy-who"></div>
       <div class="sm-grid">
         <button id="smSoundBtn" class="sm-btn">🔊 Âm thanh: BẬT</button>
         <button id="smRestartBtn" class="sm-btn pri host-tag">🔄 Khởi động lại màn</button>
         <button id="smAutoMapBtn" class="sm-btn host-tag">🎲 Tạo màn ngẫu nhiên</button>
         <button id="smEditorBtn" class="sm-btn">🛠️ Trình tạo màn (Editor)</button>
         <button id="smUnstickBtn" class="sm-btn">🆘 Kẹt map? Hồi sinh ngay</button>
-        <button id="smSaveBtn" class="sm-btn">💾 Sao lưu &amp; Khôi phục tiến trình</button>
+        <button id="smNickBtn" class="sm-btn">✏️ Đổi biệt danh (Change Nickname)</button>
+        <button id="smSaveBtn" class="sm-btn">☁️ Mã đồng bộ 6 ký tự (Sao lưu / Khôi phục)</button>
+        <button id="smAdminBtn" class="sm-btn pri hidden">🛠 Bảng quản trị (Admin)</button>
         <button id="smExitBtn" class="sm-btn danger">🏠 Thoát về Menu chính</button>
         <button id="smCloseBtn" class="sm-btn close">✕ Đóng</button>
       </div>
@@ -2512,7 +2585,9 @@ function buildSettingsModal() {
     show('settingsModal', false);
     openEditor();
   };
-  $('smSaveBtn').onclick = () => { show('settingsModal', false); openSaveCode(); };
+  $('smSaveBtn').onclick = () => { show('settingsModal', false); openSyncModal(); };
+  $('smNickBtn').onclick = () => { show('settingsModal', false); openNickModal(); };
+  $('smAdminBtn').onclick = () => { show('settingsModal', false); openAdminPanel(); };
   $('smUnstickBtn').onclick = () => {
     show('settingsModal', false);
     respawn();
@@ -2538,23 +2613,99 @@ function buildSettingsModal() {
     hudGear.title = 'Cài đặt';
     hudGear.textContent = '⚙️';
     hudGear.style.fontSize = '18px';
-    hudGear.onclick = () => {
-      show('settingsModal', true);
-      $('smSoundBtn').textContent = Snd.isMuted() ? '🔇 Âm thanh: TẮT' : '🔊 Âm thanh: BẬT';
-    };
+    hudGear.onclick = () => { openSettings(); };
     const hud = $('hud');
     if (hud) hud.appendChild(hudGear);
   }
 }
 
+
 // ============================================================================
-// SAVE CODE  (copy progress to another browser / device / incognito tab)
+// v8 MODULE 1 -- API helper, CLOUD SYNC (6-character code) & LEGACY TB7 IMPORT
 // ============================================================================
-function makeSaveCode() {
-  const d = {};
-  Store.keys().forEach((k) => { if (k !== 'tb_mute') d[k] = Store.get(k, ''); });
-  return 'TB7-' + btoa(unescape(encodeURIComponent(JSON.stringify({ v: 1, d }))));
+async function api(method, path, body) {
+  try {
+    const r = await fetch(path, { method, headers: { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+    let j = {}; try { j = await r.json(); } catch (e) {}
+    return { status: r.status, body: j || {} };
+  } catch (e) { return { status: 0, body: { error: 'offline' } }; }
 }
+
+const LOCAL_ONLY = new Set(['tb_mute', 'tb_sync_code', 'tb_sync_rev', 'tb_sync_dirty']);
+const CODE_ALPHA = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+const Sync = {
+  applying: false, conflict: false, timer: 0, pushing: false,
+  code() { return Store.get('tb_sync_code', ''); },
+  rev() { return parseInt(Store.get('tb_sync_rev', '0'), 10) || 0; },
+  link(code, rev) { Store.set('tb_sync_code', code); Store.set('tb_sync_rev', String(rev)); Store.set('tb_sync_dirty', '0'); this.conflict = false; },
+  unlink() { Store.set('tb_sync_code', ''); Store.set('tb_sync_rev', '0'); Store.set('tb_sync_dirty', '0'); this.conflict = false; },
+  newCode() { let c = ''; for (let i = 0; i < 6; i++) c += CODE_ALPHA[(Math.random() * CODE_ALPHA.length) | 0]; return c; },
+  clean(raw) { return String(raw || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6); },
+  snapshot() { const d = {}; Store.keys().forEach((k) => { if (!LOCAL_ONLY.has(k)) d[k] = Store.get(k, ''); }); return d; },
+  hasProgress() { return Store.keys().some((k) => !LOCAL_ONLY.has(k) && k !== 'tb_name'); },
+
+  async create(code) {
+    const r = await api('POST', '/api/sync/create', { code, data: this.snapshot() });
+    if (r.status === 200 && r.body.ok) { this.link(r.body.code, r.body.rev); return { ok: true, code: r.body.code }; }
+    return { ok: false, reason: r.body.error || (r.status === 0 ? 'offline' : 'error') };
+  },
+  async pull(code) {
+    const r = await api('GET', '/api/sync/' + encodeURIComponent(code));
+    if (r.status === 200 && r.body.ok) return { ok: true, data: r.body.data || {}, rev: r.body.rev | 0 };
+    return { ok: false, reason: r.body.error || (r.status === 0 ? 'offline' : 'error') };
+  },
+  async push(force) {
+    const code = this.code();
+    if (!code || this.pushing) return { ok: false, reason: 'busy' };
+    this.pushing = true; clearTimeout(this.timer);
+    try {
+      const r = await api('POST', '/api/sync/push', { code, rev: this.rev(), data: this.snapshot(), force: !!force });
+      if (r.status === 200 && r.body.ok) { Store.set('tb_sync_rev', String(r.body.rev)); Store.set('tb_sync_dirty', '0'); this.conflict = false; return { ok: true }; }
+      if (r.status === 409) { this.conflict = true; return { ok: false, reason: 'conflict' }; }
+      if (r.status === 404) {
+        const c = await this.create(code);
+        return c.ok ? { ok: true } : { ok: false, reason: 'not_found' };
+      }
+      return { ok: false, reason: r.body.error || 'offline' };
+    } finally { this.pushing = false; }
+  },
+  onWrite(k) {
+    if (this.applying || LOCAL_ONLY.has(k) || !this.code()) return;
+    Store.set('tb_sync_dirty', '1');
+    if (this.conflict) return;
+    clearTimeout(this.timer);
+    this.timer = setTimeout(() => this.autoPush(), 6000);
+  },
+  async autoPush() {
+    const r = await this.push(false);
+    if (!r.ok && r.reason === 'conflict') toast('⚠️ Cloud đã đổi từ máy khác — vào ⚙️ → Mã đồng bộ để chọn bản lưu');
+  },
+  apply(data) {
+    this.applying = true;
+    try {
+      Store.keys().forEach((k) => { if (!LOCAL_ONLY.has(k)) Store.del(k); });
+      Object.keys(data || {}).forEach((k) => {
+        if (!/^tb_[A-Za-z0-9_\-]+$/.test(k) || LOCAL_ONLY.has(k)) return;
+        const v = String(data[k]); if (v.length > 400000) return;
+        Store.set(k, v);
+      });
+    } finally { this.applying = false; }
+  },
+  async boot() {
+    const code = this.code(); if (!code) return;
+    const r = await api('GET', '/api/sync/' + code + '/meta');
+    const dirty = Store.get('tb_sync_dirty', '0') === '1';
+    if (r.status === 404) { if (this.hasProgress()) this.push(false); return; }
+    if (r.status !== 200 || !r.body.ok) return;
+    if ((r.body.rev | 0) > this.rev()) {
+      if (!dirty) {
+        const p = await this.pull(code);
+        if (p.ok) { this.apply(p.data); this.link(code, p.rev); afterProgressChange(); toast('☁️ Đã cập nhật tiến trình mới nhất từ cloud'); }
+      } else { this.conflict = true; toast('⚠️ Cloud và máy này đều có thay đổi — mở ⚙️ → Mã đồng bộ để chọn'); }
+    } else if (dirty) this.push(false);
+  },
+};
 
 function applySaveCode(code) {
   code = String(code || '').replace(/\s+/g, '');
@@ -2563,47 +2714,649 @@ function applySaveCode(code) {
     const o = JSON.parse(decodeURIComponent(escape(atob(code.slice(4)))));
     if (!o || o.v !== 1 || typeof o.d !== 'object' || !o.d) return -1;
     let n = 0;
+    Sync.applying = true;
     Object.keys(o.d).forEach((k) => {
-      if (!/^tb_[A-Za-z0-9_\-]+$/.test(k)) return;
-      const v = String(o.d[k]);
-      if (v.length > 400000) return;
+      if (!/^tb_[A-Za-z0-9_\-]+$/.test(k) || LOCAL_ONLY.has(k)) return;
+      const v = String(o.d[k]); if (v.length > 400000) return;
       Store.set(k, v); n++;
     });
     return n;
-  } catch (e) { return -1; }
+  } catch (e) { return -1; } finally { Sync.applying = false; }
 }
 
-function openSaveCode() {
-  if (!$('saveCodeModal')) {
-    const el = document.createElement('div');
-    el.id = 'saveCodeModal'; el.className = 'sm-wrap hidden'; el.style.zIndex = '80';
-    el.innerHTML = '<div class="sm-card"><div class="sm-title">💾 MÃ TIẾN TRÌNH</div>' +
-      '<div style="font-size:13px;color:#5b3a5e;margin-bottom:8px;text-align:left">Xu, skin, bình thuốc, màn đã qua và kỷ lục được lưu trong mã này. Dán mã sang trình duyệt / máy khác để chơi tiếp.</div>' +
-      '<textarea id="scText" rows="5" spellcheck="false" style="width:100%;border:3px solid #5b3a5e;border-radius:12px;padding:8px;font:12px monospace;resize:vertical"></textarea>' +
-      '<div class="sm-grid" style="margin-top:10px">' +
-      '<button id="scCopy" class="sm-btn pri">📋 Sao chép mã của tôi</button>' +
-      '<button id="scLoad" class="sm-btn">📥 Khôi phục từ mã đã dán</button>' +
-      '<button id="scClose" class="sm-btn close">✕ Đóng</button></div></div>';
+function afterProgressChange() {
+  migrateEconomy();
+  refreshFX(); refreshCoinUI(); refreshBuffUI(); refreshShopUI(); rebuildLevelSelect();
+  setText('lpCoins', Role.admin ? '∞' : Save.coins());
+  const nm = Store.get('tb_name', '') || G.myName; G.myName = nm; G.names[G.myslot] = nm;
+  const ni = $('nameInput'); if (ni) ni.value = nm;
+  G.skins[G.myslot] = Save.equipped();
+  if (isNet() && socket && socket.connected) { socket.emit('skin', Save.equipped()); socket.emit('rename', nm); }
+  updatePlayerList();
+}
+
+function copyText(text, okMsg) {
+  const fallback = () => window.prompt('Sao chép (Ctrl+C):', text);
+  if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(() => toast(okMsg), fallback);
+  else fallback();
+}
+
+function makeModal(id, z) {
+  let el = $(id);
+  if (!el) {
+    el = document.createElement('div');
+    el.id = id; el.className = 'sm-wrap hidden'; el.style.zIndex = String(z || 80);
     document.body.appendChild(el);
-    $('scClose').onclick = () => show('saveCodeModal', false);
-    $('scCopy').onclick = () => {
-      const code = makeSaveCode(); $('scText').value = code;
-      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(code).then(() => toast('📋 Đã sao chép mã tiến trình!'), () => { $('scText').select(); toast('Hãy nhấn Ctrl+C để sao chép'); });
-      else { $('scText').select(); toast('Hãy nhấn Ctrl+C để sao chép'); }
-    };
-    $('scLoad').onclick = () => {
-      const n = applySaveCode($('scText').value);
-      if (n < 0) { toast('❌ Mã không hợp lệ!'); return; }
-      refreshCoinUI(); refreshBuffUI(); refreshShopUI(); rebuildLevelSelect();
-      if (G.myslot !== undefined) G.skins[G.myslot] = Save.equipped();
-      toast('✅ Đã khôi phục ' + n + ' mục tiến trình!');
-      show('saveCodeModal', false);
-    };
   }
-  $('scText').value = makeSaveCode();
-  show('saveCodeModal', true);
+  return el;
 }
 
+function syMsg(t, bad) { const m = $('syMsg'); if (m) { m.textContent = t || ''; m.className = 'sy-msg' + (bad ? ' bad' : ''); } }
+function openSyncModal() { renderSyncModal(); show('syncModal', true); }
+function openSaveCode() { openSyncModal(); }
+
+function renderSyncModal() {
+  const el = makeModal('syncModal', 80);
+  const code = Sync.code(), conflict = Sync.conflict;
+  el.innerHTML =
+    '<div class="sm-card">' +
+      '<div class="sm-title">☁️ MÃ ĐỒNG BỘ TIẾN TRÌNH</div>' +
+      '<div class="sy-help">Mã 6 ký tự giúp bạn chơi tiếp trên thiết bị khác — giữ nguyên xu, 💎, skin, màn đã qua, kỷ lục, thuốc và biệt danh.</div>' +
+      (code
+        ? '<div class="sy-code">' + code + '</div>' +
+          (conflict ? '<div class="sy-warn">⚠️ Cloud đã thay đổi từ thiết bị khác. Hãy chọn bản muốn giữ.</div>' : '<div class="sy-ok">✅ Tự động đồng bộ khi bạn chơi</div>') +
+          '<div class="sm-grid">' +
+            '<button id="syCopy" class="sm-btn pri">📋 Sao chép mã</button>' +
+            '<button id="syPush" class="sm-btn">' + (conflict ? '⬆️ Ghi đè cloud bằng máy này' : '⬆️ Lưu lên cloud ngay') + '</button>' +
+            '<button id="syPull" class="sm-btn">⬇️ Tải bản cloud về máy này</button>' +
+            '<button id="syUnlink" class="sm-btn danger">🔗 Dùng mã khác (ngắt liên kết)</button>' +
+          '</div>'
+        : '<div class="sy-label">Tạo mã mới — bạn có thể tự đặt (6 ký tự A-Z / 0-9)</div>' +
+          '<div class="sy-row"><input id="syNew" class="sy-input" maxlength="6" autocomplete="off" spellcheck="false"><button id="syDice" class="sm-btn" title="Mã ngẫu nhiên">🎲</button></div>' +
+          '<button id="syCreate" class="sm-btn pri" style="width:100%;margin-top:8px">☁️ Tạo mã &amp; lưu tiến trình</button>') +
+      '<div class="sy-sep"></div>' +
+      '<div class="sy-label">Đã có mã? Nhập để khôi phục</div>' +
+      '<div class="sy-row"><input id="syRestore" class="sy-input" placeholder="ABC123" autocomplete="off" spellcheck="false"><button id="syLoad" class="sm-btn pri">📥 Khôi phục</button></div>' +
+      '<div id="syMsg" class="sy-msg"></div>' +
+      '<button id="syClose" class="sm-btn close" style="width:100%">✕ Đóng</button>' +
+    '</div>';
+  const on = (id, fn) => { const b = $(id); if (b) b.onclick = fn; };
+  const restoreIn = $('syRestore');
+  restoreIn.oninput = () => { const v = restoreIn.value; if (!/^TB7-/i.test(v.trim())) restoreIn.value = Sync.clean(v); };
+  restoreIn.onkeydown = (e) => { if (e.key === 'Enter') $('syLoad').click(); };
+  if (!code) {
+    const ni = $('syNew'); ni.value = Sync.newCode();
+    ni.oninput = () => { ni.value = Sync.clean(ni.value); };
+    ni.onkeydown = (e) => { if (e.key === 'Enter') $('syCreate').click(); };
+  }
+  on('syClose', () => show('syncModal', false));
+  on('syCopy', () => copyText(code, '📋 Đã sao chép mã ' + code));
+  on('syDice', () => { $('syNew').value = Sync.newCode(); });
+  on('syCreate', async () => {
+    const want = Sync.clean($('syNew').value);
+    if (want.length !== 6) { syMsg('Mã phải đủ 6 ký tự (A-Z, 0-9).', true); return; }
+    syMsg('Đang tạo mã…');
+    const r = await Sync.create(want);
+    if (r.ok) { renderSyncModal(); syMsg('✅ Xong! Hãy ghi nhớ mã ' + r.code + ' để dùng trên thiết bị khác.'); toast('☁️ Đã tạo mã đồng bộ ' + r.code); return; }
+    if (r.reason === 'taken') {
+      const alt = Sync.newCode(), ni = $('syNew'); ni.value = alt; ni.focus(); ni.select();
+      syMsg('⚠️ Mã "' + want + '" đã có người sử dụng. Hãy chọn mã khác (gợi ý: ' + alt + ') rồi bấm Tạo mã.', true); return;
+    }
+    syMsg(r.reason === 'offline' ? '❌ Không kết nối được máy chủ.' : '❌ Không thể tạo mã (' + r.reason + ').', true);
+  });
+  on('syPush', async () => {
+    syMsg('Đang lưu…');
+    const r = await Sync.push(Sync.conflict);
+    if (r.ok) { renderSyncModal(); syMsg('✅ Đã lưu tiến trình lên cloud.'); }
+    else syMsg(r.reason === 'conflict' ? '⚠️ Cloud đã thay đổi từ thiết bị khác.' : '❌ Không lưu được (' + r.reason + ').', true);
+  });
+  on('syPull', async () => {
+    syMsg('Đang tải…');
+    const p = await Sync.pull(code);
+    if (!p.ok) { syMsg('❌ Không tải được (' + p.reason + ').', true); return; }
+    if (!confirm('Tiến trình trên máy này sẽ được thay bằng bản cloud. Tiếp tục?')) { syMsg(''); return; }
+    Sync.apply(p.data); Sync.link(code, p.rev); afterProgressChange();
+    renderSyncModal(); syMsg('✅ Đã tải bản cloud về máy.');
+  });
+  on('syUnlink', () => {
+    if (!confirm('Ngắt liên kết mã ' + code + ' khỏi thiết bị này? (Tiến trình trên máy vẫn giữ nguyên.)')) return;
+    Sync.unlink(); renderSyncModal();
+  });
+  on('syLoad', async () => {
+    const raw = $('syRestore').value.trim();
+    if (/^TB7-/i.test(raw)) {
+      if (Sync.hasProgress() && !confirm('Mã TB7 cũ sẽ ghi đè tiến trình hiện tại. Tiếp tục?')) return;
+      const n = applySaveCode(raw);
+      if (n < 0) { syMsg('❌ Mã TB7 không hợp lệ.', true); return; }
+      afterProgressChange(); renderSyncModal(); syMsg('✅ Đã nhập ' + n + ' mục từ mã cũ.'); return;
+    }
+    const want = Sync.clean(raw);
+    if (want.length !== 6) { syMsg('Hãy nhập đủ 6 ký tự.', true); return; }
+    syMsg('Đang tải…');
+    const p = await Sync.pull(want);
+    if (!p.ok) { syMsg(p.reason === 'not_found' ? '❌ Không tìm thấy mã ' + want + '.' : '❌ Lỗi kết nối.', true); return; }
+    if (Sync.hasProgress() && !confirm('Khôi phục sẽ ghi đè dữ liệu hiện tại bằng tiến trình của mã ' + want + '. Tiếp tục?')) { syMsg(''); return; }
+    Sync.apply(p.data); Sync.link(want, p.rev); afterProgressChange();
+    show('syncModal', false); toast('✅ Đã khôi phục tiến trình thành công!');
+  });
+}
+
+function ensureGuestName() {
+  let n = Store.get('tb_name', '');
+  if (!n) { n = 'Guest' + (1000 + Math.floor(Math.random() * 9000)); Store.set('tb_name', n); }
+  return n;
+}
+
+function setNickname(raw) {
+  const n = String(raw || '').replace(/[<>&"']/g, '').trim().slice(0, 12);
+  if (!n) { toast('Biệt danh không được để trống'); return false; }
+  Store.set('tb_name', n); G.myName = n; G.names[G.myslot] = n;
+  const ni = $('nameInput'); if (ni) ni.value = n;
+  if (isNet() && socket && socket.connected) socket.emit('rename', n);
+  updatePlayerList(); refreshSettingsInfo(); toast('✅ Biệt danh mới: ' + n);
+  return true;
+}
+
+function openNickModal() {
+  const el = makeModal('nickModal', 80);
+  el.innerHTML =
+    '<div class="sm-card"><div class="sm-title">✏️ ĐỔI BIỆT DANH</div>' +
+    '<div class="sy-help">Miễn phí, đổi bao nhiêu lần tuỳ thích (tối đa 12 ký tự).</div>' +
+    '<input id="nickInput" class="sy-input" style="width:100%;text-transform:none" maxlength="12" autocomplete="off" spellcheck="false">' +
+    '<div class="sm-grid" style="margin-top:10px"><button id="nickSave" class="sm-btn pri">💾 Lưu biệt danh</button><button id="nickClose" class="sm-btn close">✕ Hủy</button></div></div>';
+  const inp = $('nickInput'); inp.value = Store.get('tb_name', '') || G.myName;
+  const save = () => { if (setNickname(inp.value)) show('nickModal', false); };
+  $('nickSave').onclick = save;
+  $('nickClose').onclick = () => show('nickModal', false);
+  inp.onkeydown = (e) => { if (e.key === 'Enter') save(); };
+  show('nickModal', true); setTimeout(() => { inp.focus(); inp.select(); }, 50);
+}
+
+function refreshSettingsInfo() {
+  const w = $('smWho');
+  if (w) w.textContent = (Role.admin ? '🛠 Quản trị' : '👤 Khách') + ' · ' + (G.myName || 'Bunny') + (Sync.code() ? ' · ☁️ ' + Sync.code() : ' · chưa có mã');
+  show('smAdminBtn', Role.admin);
+}
+function openSettings() {
+  show('settingsModal', true);
+  const sb = $('smSoundBtn'); if (sb) sb.textContent = Snd.isMuted() ? '🔇 Âm thanh: TẮT' : '🔊 Âm thanh: BẬT';
+  refreshSettingsInfo();
+}
+
+const Admin = {
+  async login(key) {
+    const r = await api('POST', '/api/admin/login', { key });
+    if (r.status === 200 && r.body.ok) { this.enable(r.body.token); return { ok: true }; }
+    return { ok: false, reason: r.status === 429 ? 'rate' : r.status === 0 ? 'offline' : 'bad' };
+  },
+  enable(token) { Role.admin = true; Role.token = token; try { sessionStorage.setItem('tb_admin_tok', token); } catch (e) {} this.refresh(); },
+  disable() { Role.admin = false; Role.god = false; Role.dbg = false; Role.token = ''; try { sessionStorage.removeItem('tb_admin_tok'); } catch (e) {} this.refresh(); },
+  async resume() {
+    let t = ''; try { t = sessionStorage.getItem('tb_admin_tok') || ''; } catch (e) {}
+    if (!t) return;
+    const r = await api('POST', '/api/admin/verify', { token: t });
+    if (r.status === 200 && r.body.ok) this.enable(t); else { try { sessionStorage.removeItem('tb_admin_tok'); } catch (e) {} }
+  },
+  refresh() {
+    show('adminTag', Role.admin);
+    refreshCoinUI(); refreshBuffUI(); refreshFX(); refreshShopUI(); rebuildLevelSelect(); refreshSettingsInfo();
+    G.skins[G.myslot] = Save.equipped();
+    if (isNet() && socket && socket.connected) socket.emit('skin', Save.equipped());
+  },
+};
+
+function openAdminEntry() { if (Role.admin) openAdminPanel(); else openAdminLogin(); }
+
+function openAdminLogin() {
+  const el = makeModal('adminLoginModal', 90);
+  el.innerHTML =
+    '<div class="sm-card"><div class="sm-title">🔐 QUẢN TRỊ</div>' +
+    '<input id="adKey" type="password" class="sy-input" style="width:100%;text-transform:none" placeholder="Mật khẩu admin" autocomplete="off">' +
+    '<div id="adMsg" class="sy-msg"></div>' +
+    '<div class="sm-grid" style="margin-top:8px"><button id="adGo" class="sm-btn pri">Đăng nhập</button><button id="adCancel" class="sm-btn close">✕ Hủy</button></div></div>';
+  const inp = $('adKey');
+  const go = async () => {
+    const r = await Admin.login(inp.value);
+    if (r.ok) { show('adminLoginModal', false); toast('🛠 Đã bật quyền Admin'); openAdminPanel(); return; }
+    const m = $('adMsg'); m.className = 'sy-msg bad';
+    m.textContent = r.reason === 'rate' ? 'Sai quá nhiều lần, hãy đợi 5 phút.' : 'Sai mật khẩu.';
+    inp.value = '';
+  };
+  $('adGo').onclick = go; $('adCancel').onclick = () => show('adminLoginModal', false);
+  inp.onkeydown = (e) => { if (e.key === 'Enter') go(); };
+  show('adminLoginModal', true); setTimeout(() => inp.focus(), 50);
+}
+
+function adminInGame() { if (!G.inGame || !G.me) { toast('Chỉ dùng được khi đang trong màn chơi'); return false; } return true; }
+function adminTeleport(x, y) { const P = G.me; P.x = x; P.y = y; P.vx = P.vy = 0; P.rope = null; P.dead = false; G.cam.snap = true; }
+
+function openAdminPanel() {
+  const el = makeModal('adminModal', 90);
+  const st = (v) => (v ? 'BẬT' : 'TẮT');
+  const b = (id, label, cls) => '<button id="' + id + '" class="sm-btn ' + (cls || '') + '">' + label + '</button>';
+  el.innerHTML =
+    '<div class="sm-card"><div class="sm-title">🛠 BẢNG QUẢN TRỊ</div>' +
+    '<div class="sy-help">Xu / 💎 vô hạn, mua miễn phí, mọi skin &amp; màn đều mở (chỉ trên máy này).</div>' +
+    '<div class="sm-grid">' +
+      b('adGod', '🛡️ Bất tử (God mode): ' + st(Role.god), Role.god ? 'pri' : '') +
+      b('adCoins', '🪙 +10.000 xu vào save') + b('adDia', '💎 +100 kim cương vào save') +
+      b('adUnlock', '🔓 Mở khóa mọi màn (lưu vào save)') +
+      b('adTpKey', '🔑 Dịch chuyển tới chìa khóa') + b('adTpExit', '🚪 Dịch chuyển tới cửa thoát') +
+      b('adWin', '⚡ Thắng màn ngay') + b('adKill', '☠️ Tự hồi sinh') +
+      b('adDbg', '📊 Thông số debug: ' + st(Role.dbg), Role.dbg ? 'pri' : '') +
+      b('adWipe', '🗑️ Xóa save trên máy (test như khách mới)', 'danger') +
+      b('adOut', '🚪 Đăng xuất Admin', 'danger') +
+      b('adClose', '✕ Đóng', 'close') +
+    '</div></div>';
+  const on = (id, fn) => { $(id).onclick = fn; };
+  on('adClose', () => show('adminModal', false));
+  on('adGod', () => { Role.god = !Role.god; openAdminPanel(); toast('🛡️ God mode: ' + st(Role.god)); });
+  on('adDbg', () => { Role.dbg = !Role.dbg; openAdminPanel(); });
+  on('adCoins', () => { Save.addCoins(10000); toast('🪙 +10.000 xu'); });
+  on('adDia', () => { Save.addDiamonds(100); toast('💎 +100 kim cương'); });
+  on('adUnlock', () => { ['solo', 'coop', 'party'].forEach((m) => Store.set('tb_unlocked_' + m, String(LEVELS[m].length))); rebuildLevelSelect(); toast('🔓 Đã mở khóa mọi màn'); });
+  on('adTpKey', () => { if (!adminInGame()) return; const k = keyPos(); adminTeleport(k.x - PW / 2, k.y - PH / 2); show('adminModal', false); });
+  on('adTpExit', () => { if (!adminInGame()) return; const e = G.L.exit; adminTeleport(e.x + e.w / 2 - PW / 2, e.y + e.h - PH - 2); show('adminModal', false); });
+  on('adWin', () => { if (!adminInGame()) return; if (!G.keyGot) collectKey(true, G.myslot); triggerWin(true); show('adminModal', false); });
+  on('adKill', () => { if (!adminInGame()) return; respawn(); show('adminModal', false); });
+  on('adWipe', () => {
+    if (!confirm('Xóa TOÀN BỘ tiến trình trên máy này?')) return;
+    Sync.applying = true; Store.keys().forEach((k) => { if (k !== 'tb_mute') Store.del(k); }); Sync.applying = false;
+    ensureGuestName(); afterProgressChange(); openAdminPanel(); toast('🗑️ Đã xóa save trên máy');
+  });
+  on('adOut', () => { Admin.disable(); show('adminModal', false); toast('Đã đăng xuất Admin'); });
+  show('adminModal', true);
+}
+
+function installAdminTrigger() {
+  const title = document.querySelector('#lobby .logo h1') || document.querySelector('#lobby .logo');
+  if (!title) return;
+  let n = 0, last = 0;
+  title.addEventListener('click', () => {
+    const now = nowMs();
+    n = (now - last < 900) ? n + 1 : 1; last = now;
+    if (n >= 5) { n = 0; openAdminEntry(); }
+  });
+}
+
+function drawDebug() {
+  if (!(Role.admin && Role.dbg) || !G.me) return;
+  const P = G.me;
+  const lines = ['ADMIN DEBUG', 'x ' + P.x.toFixed(0) + '  y ' + P.y.toFixed(0), 'vx ' + P.vx.toFixed(1) + '  vy ' + P.vy.toFixed(1),
+    'lt ' + G.lt.toFixed(1) + '  ping ' + G.pingMs, 'parts ' + parts.length + ' / env ' + envParts.length, 'god ' + (Role.god ? 'on' : 'off') + '  mode ' + G.mode];
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.font = '12px monospace'; ctx.textAlign = 'left';
+  ctx.fillStyle = 'rgba(0,0,0,.55)'; ctx.fillRect(8, ch - 14 - lines.length * 15, 200, lines.length * 15 + 8);
+  ctx.fillStyle = '#7CFC00';
+  lines.forEach((t, i) => ctx.fillText(t, 14, ch - 8 - (lines.length - 1 - i) * 15));
+}
+
+function priceText(d) {
+  const p = [];
+  if (d.coins) p.push('🪙 ' + d.coins);
+  if (d.dia) p.push('💎 ' + d.dia);
+  return p.length ? p.join(' + ') : 'FREE';
+}
+
+function renderShop() {
+  const m = $('shopModal'), card = m && m.querySelector('.shop-card');
+  if (!card) return;
+  const eq = Save.equipped();
+  let h = '<div class="shop-header"><div class="shop-title">🥕 BUNNY BOUTIQUE</div>' +
+    '<div class="shop-balance">🪙 <span id="shopCoins">0</span></div>' +
+    '<div class="shop-balance dia">💎 <span id="shopDiamonds">0</span></div>' +
+    '<button class="shop-close" data-act="close" title="Close Shop">&times;</button></div>';
+  h += '<div class="shop-xchg"><span>💱 Gold → Diamond</span>' +
+    '<button class="skin-btn" data-act="xchg" data-n="1">🪙 ' + DIA_RATE + ' → 💎 1</button>' +
+    '<button class="skin-btn" data-act="xchg" data-n="5">🪙 ' + (DIA_RATE * 5) + ' → 💎 5</button></div>';
+  ['common', 'rare', 'legendary'].forEach((t) => {
+    h += '<div class="shop-section-title tier-' + t + '">' + TIERS[t].label + ' SKINS' + (t === 'legendary' ? ' <span class="tiny">· đổi khung cảnh &amp; kỹ năng nội tại</span>' : '') + '</div><div class="shop-grid">';
+    Object.keys(SKINS).filter((id) => SKINS[id].tier === t).forEach((id) => {
+      const d = SKINS[id], owned = Save.hasSkin(id), on = owned && eq === id;
+      h += '<div class="shop-item tier-' + t + '" data-skin="' + id + '"><div class="tier-tag">' + TIERS[t].label + '</div>' +
+        '<div class="skin-preview preview-' + id + '">' + d.icon + '</div>' +
+        '<div class="skin-name">' + d.name + '</div>' +
+        (t === 'legendary' ? '<div class="skin-desc"><b>🌍 ' + d.env.name + '</b> — ' + d.env.desc + '<br><b>✨ ' + d.passive.name + ':</b> ' + d.passive.desc + '</div>' : '') +
+        '<div class="skin-price">' + (owned ? 'OWNED' : priceText(d)) + '</div>' +
+        '<button class="skin-btn' + (on ? ' equipped' : '') + '" data-act="skin" data-id="' + id + '">' + (!owned ? 'Buy' : on ? 'Equipped' : 'Equip') + '</button></div>';
+    });
+    h += '</div>';
+  });
+  h += '<div class="shop-section-title">POTIONS &amp; BUFFS <span class="tiny">· dùng 1 lần · hết hạn khi hết màn hoặc chết</span></div><div class="shop-grid buffs-grid">';
+  Object.keys(BUFFS).forEach((id) => {
+    const b = BUFFS[id];
+    h += '<div class="shop-item buff-item"><div class="skin-preview">' + b.icon + '</div><div class="skin-name">' + b.name + '</div>' +
+      '<div class="skin-desc">' + b.desc + '</div>' +
+      '<div class="skin-price">🪙 ' + b.price + ' · Kho ' + (Role.admin ? '∞' : Save.buff(id) + '/' + BUFF_CAP) + '</div>' +
+      '<button class="skin-btn" data-act="buff" data-id="' + id + '">Buy charge</button></div>';
+  });
+  h += '</div><div class="shop-foot">Kích hoạt buff bằng phím <b>E</b> (hoặc nút 🛡️ / 🦘 trên điện thoại).</div>';
+  card.innerHTML = h;
+  refreshCoinUI();
+}
+
+function openShop() { show('shopModal', true); refreshCoinUI(); refreshShopUI(); const m = $('shopModal'); if (m) m.style.zIndex = '40'; }
+function closeShop() { show('shopModal', false); setText('lpCoins', Role.admin ? '∞' : Save.coins()); }
+
+function refreshShopUI() {
+  const card = document.querySelector('#shopModal .shop-card');
+  const top = card ? card.scrollTop : 0;
+  renderShop();
+  if (card) card.scrollTop = top;
+}
+
+function equipSkin(skin) {
+  Save.equip(skin); G.skins[G.myslot] = skin;
+  if (isNet() && socket && socket.connected) socket.emit('skin', skin);
+  refreshFX(); refreshShopUI();
+}
+
+function buySkin(id) {
+  const d = SKINS[id]; if (!d) return;
+  if (Save.hasSkin(id)) {
+    equipSkin(id);
+    toast(d.passive ? '✨ ' + d.passive.name + ': ' + d.passive.desc : 'Đã trang bị ' + d.name + '!');
+    return;
+  }
+  if (Save.coins() < d.coins) { toast('Không đủ xu! Cần ' + d.coins + ' 🪙'); return; }
+  if (Save.diamonds() < d.dia) { toast('Không đủ kim cương! Cần ' + d.dia + ' 💎'); return; }
+  if (d.coins) Save.spend(d.coins);
+  if (d.dia) Save.spendDiamonds(d.dia);
+  Save.addSkin(id); equipSkin(id); Snd.key();
+  toast('Mở khóa ' + d.name + '! 🎉' + (d.passive ? '  ✨ ' + d.passive.name : ''));
+}
+
+function buyBuff(id) {
+  const b = BUFFS[id]; if (!b) return;
+  if (Role.admin) { toast('🛠 Admin: Buff miễn phí & vô hạn'); return; }
+  if (Save.buff(id) >= BUFF_CAP) { toast('Đã đạt giới hạn tối đa (' + BUFF_CAP + ') ' + b.name); return; }
+  if (!Save.spend(b.price)) { toast('Không đủ xu! (' + b.price + ' 🪙)'); return; }
+  Save.addBuff(id, 1); Snd.key();
+  toast(b.icon + ' Đã mua ' + b.name + '! Nhấn E trong màn chơi để dùng.');
+  refreshShopUI();
+}
+
+function convertGold(n) {
+  const cost = DIA_RATE * n;
+  if (!Role.admin) {
+    if (Save.coins() < cost) { toast('Cần ' + cost + ' 🪙 để đổi ' + n + ' 💎.'); return; }
+    Save.spend(cost);
+  }
+  Save.addDiamonds(n); Snd.key();
+  toast('💎 +' + n + ' Kim cương!');
+  refreshShopUI();
+}
+
+function migrateEconomy() {
+  if (Store.get('tb_econ', '') === '8') return;
+  let refund = 0;
+  Object.keys(BUFFS).forEach((id) => {
+    const n = Save.buff(id);
+    if (n > BUFF_CAP) { refund += (n - BUFF_CAP) * BUFFS[id].price; Store.set('tb_buff_' + id, String(BUFF_CAP)); }
+  });
+  if (refund) { Save.addCoins(refund); setTimeout(() => toast('♻️ Hoàn tiền thuốc dư +' + refund + ' 🪙'), 1200); }
+  Store.set('tb_econ', '8');
+}
+
+function refreshFX() {
+  const d = SKINS[Save.equipped()];
+  curEnv = (d && d.env) || null;
+  curPassive = (d && d.passive) ? d.passive.id : null;
+  envParts.length = 0;
+  const c = $('passiveChip');
+  if (c) {
+    if (d && d.passive) { c.textContent = '✨ ' + d.passive.name; c.title = d.passive.desc; c.classList.remove('hidden'); }
+    else c.classList.add('hidden');
+  }
+}
+
+function updateEnvFX(dt) {
+  const e = curEnv;
+  if (!e || !G.inGame || !G.L) { if (envParts.length) envParts.length = 0; return; }
+  const cam = G.cam, vw = cam.vw || 900, vh = cam.vh || 720, k = dt * 60;
+  let n = e.rate * dt; n = Math.floor(n) + (Math.random() < n - Math.floor(n) ? 1 : 0);
+  while (n-- > 0 && envParts.length < 150) {
+    let p;
+    if (e.fx === 'embers') p = { x: cam.x + rnd(-30, vw + 30), y: cam.y + vh + 10, vx: rnd(-0.3, 0.9), vy: -rnd(0.7, 2.0), size: rnd(1.4, 3.4), col: ['#ff6a1a', '#ffb347', '#ffe08a'][(Math.random() * 3) | 0], kind: 0 };
+    else if (e.fx === 'snow') p = { x: cam.x + rnd(-60, vw + 60), y: cam.y - 12, vx: rnd(-0.5, 0.3), vy: rnd(0.6, 1.5), size: rnd(1.6, 3.8), col: '#ffffff', kind: 0 };
+    else p = { x: cam.x + rnd(0, vw), y: cam.y + rnd(0, vh), vx: rnd(-0.1, 0.1), vy: rnd(-0.1, 0.1), size: rnd(1.6, 3.6), col: ['#ffffff', '#ffe9a8', '#c9b8ff'][(Math.random() * 3) | 0], kind: 1 };
+    p.life = p.max = rnd(2, 4.5); p.ph = rnd(0, 6.3);
+    envParts.push(p);
+  }
+  for (let i = envParts.length - 1; i >= 0; i--) {
+    const p = envParts[i]; p.life -= dt;
+    if (p.life <= 0 || p.y < cam.y - 80 || p.y > cam.y + vh + 80) { envParts.splice(i, 1); continue; }
+    p.x += (p.vx + Math.sin(G.lt * 2 + p.ph) * 0.25) * k; p.y += p.vy * k;
+  }
+}
+
+function drawEnvFX() {
+  if (!curEnv || !envParts.length) return;
+  ctx.save();
+  ctx.globalCompositeOperation = curEnv.fx === 'snow' ? 'source-over' : 'lighter';
+  for (const p of envParts) {
+    ctx.globalAlpha = clamp(Math.sin(Math.PI * clamp(p.life / p.max, 0, 1)), 0, 1) * 0.9;
+    ctx.fillStyle = p.col;
+    if (p.kind === 1) {
+      const s = p.size * (0.7 + 0.3 * Math.sin(G.lt * 5 + p.ph));
+      ctx.fillRect(p.x - s * 2, p.y - 0.5, s * 4, 1); ctx.fillRect(p.x - 0.5, p.y - s * 2, 1, s * 4);
+      ctx.beginPath(); ctx.arc(p.x, p.y, s * 0.6, 0, 6.3); ctx.fill();
+    } else { ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, 6.3); ctx.fill(); }
+  }
+  ctx.restore();
+}
+
+function drawEnvTint() {
+  if (!curEnv) return;
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = curEnv.tint; ctx.fillRect(0, 0, canvas.width, canvas.height);
+}
+
+function spawnSkinTrails() {
+  if (!G.inGame || !G.me) return;
+  const ents = [];
+  if (!G.me.dead) ents.push({ x: G.me.x, y: G.me.y, sp: Math.hypot(G.me.vx, G.me.vy), skin: G.skins[G.me.slot] || Save.equipped(), p: 0.3 });
+  for (const r of G.remotes.values()) if (!r.dead) ents.push({ x: r.x, y: r.y, sp: Math.hypot(r.tvx, r.tvy), skin: G.skins[r.slot], p: 0.2 });
+  for (const e of ents) {
+    const d = SKINS[e.skin];
+    if (!d || d.tier !== 'legendary') continue;
+    if (e.sp < 1.2 ? Math.random() > 0.08 : Math.random() > e.p) continue;
+    sparkle(e.x + PW / 2 + rnd(-8, 8), e.y + PH * 0.6 + rnd(-10, 10), 1, 0.35, d.trail[(Math.random() * d.trail.length) | 0]);
+  }
+}
+
+const SKY_LEGEND = { ember: 1, frost: 1, cosmic: 1 };
+function drawLegendSky(theme, cam, T) {
+  const L = G.L;
+  if (theme === 'ember') {
+    const sx = cw * 0.7 - cam.x * 0.01, sy = ch * 0.34, r = Math.min(cw, ch) * 0.15;
+    let g = ctx.createRadialGradient(sx, sy, r * 0.3, sx, sy, r * 4);
+    g.addColorStop(0, 'rgba(255,140,40,.65)'); g.addColorStop(1, 'rgba(255,60,0,0)');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, cw, ch);
+    g = ctx.createRadialGradient(sx - r * 0.2, sy - r * 0.2, r * 0.1, sx, sy, r);
+    g.addColorStop(0, '#fff6c2'); g.addColorStop(0.6, '#ff9a2e'); g.addColorStop(1, '#e2410f');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(sx, sy, r, 0, 6.3); ctx.fill();
+    for (let v = 0; v < 2; v++) {
+      const f = 0.04 + v * 0.05, base = ch * (0.8 + v * 0.04), span = cw * 0.9, off = -((cam.x * f) % span);
+      const col = v ? '#2a0a06' : '#431109';
+      for (let i = -1; i < 3; i++) {
+        const cx0 = off + i * span + cw * (0.25 + v * 0.2), w = cw * 0.36, h = ch * (0.2 - v * 0.04);
+        ctx.fillStyle = col; ctx.beginPath(); ctx.moveTo(cx0 - w / 2, base); ctx.lineTo(cx0 - w * 0.07, base - h); ctx.lineTo(cx0 + w * 0.07, base - h); ctx.lineTo(cx0 + w / 2, base); ctx.closePath(); ctx.fill();
+        const lg = ctx.createRadialGradient(cx0, base - h, 0, cx0, base - h, w * 0.35);
+        lg.addColorStop(0, 'rgba(255,120,30,.55)'); lg.addColorStop(1, 'rgba(255,120,30,0)');
+        ctx.fillStyle = lg; ctx.fillRect(cx0 - w * 0.4, base - h - w * 0.4, w * 0.8, w * 0.8);
+      }
+    }
+    drawSkyCloudLayer(L, cam, 0.05, ch * 0.08, 1.4, 'rgba(60,15,10,.45)', 4);
+    drawSkyCloudLayer(L, cam, 0.12, ch * 0.22, 1.1, 'rgba(90,25,15,.4)', 4);
+  } else if (theme === 'frost') {
+    drawStars(cam, T, 0.55);
+    const mx = cw * 0.25 - cam.x * 0.008, my = ch * 0.2, r = Math.min(cw, ch) * 0.1;
+    let g = ctx.createRadialGradient(mx, my, r * 0.5, mx, my, r * 3.2);
+    g.addColorStop(0, 'rgba(200,235,255,.5)'); g.addColorStop(1, 'rgba(200,235,255,0)');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, cw, ch);
+    ctx.fillStyle = '#f4fbff'; ctx.beginPath(); ctx.arc(mx, my, r, 0, 6.3); ctx.fill();
+    ctx.save(); ctx.globalCompositeOperation = 'lighter';
+    for (let rb = 0; rb < 2; rb++) {
+      const base = ch * (0.2 + rb * 0.1), c1 = rb ? '170,120,255' : '80,255,200';
+      const ag = ctx.createLinearGradient(0, base - ch * 0.1, 0, base + ch * 0.25);
+      ag.addColorStop(0, 'rgba(' + c1 + ',0)'); ag.addColorStop(0.5, 'rgba(' + c1 + ',.3)'); ag.addColorStop(1, 'rgba(' + c1 + ',0)');
+      ctx.fillStyle = ag; ctx.beginPath();
+      for (let x = 0; x <= cw + 14; x += 14) { const y = base + Math.sin(x * 0.006 + T * 0.4 + rb * 2 - cam.x * 0.0005) * ch * 0.05; if (x === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); }
+      for (let x = cw + 14; x >= 0; x -= 14) ctx.lineTo(x, base + ch * 0.22 + Math.sin(x * 0.008 + T * 0.3 + rb) * ch * 0.04);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.restore();
+    drawSkyCloudLayer(L, cam, 0.06, ch * 0.12, 1.3, 'rgba(220,240,255,.35)', 4);
+    drawSkyCloudLayer(L, cam, 0.16, ch * 0.3, 1.0, 'rgba(235,248,255,.5)', 4);
+  } else {
+    drawStars(cam, T, 1);
+    [[0.25, 0.3, 'rgba(150,60,255,.35)', 0.5], [0.7, 0.45, 'rgba(60,120,255,.3)', 0.55], [0.5, 0.15, 'rgba(255,80,200,.2)', 0.4]].forEach((n, i) => {
+      const nx = (((n[0] * cw - cam.x * 0.02 + Math.sin(T * 0.05 + i) * 40) % (cw * 1.4)) + cw * 1.4) % (cw * 1.4) - cw * 0.2, ny = n[1] * ch + Math.cos(T * 0.04 + i) * 20, nr = Math.max(cw, ch) * n[3];
+      const ng = ctx.createRadialGradient(nx, ny, 0, nx, ny, nr);
+      ng.addColorStop(0, n[2]); ng.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = ng; ctx.fillRect(0, 0, cw, ch);
+    });
+    const px = cw * 0.78 - cam.x * 0.015, py = ch * 0.3, pr = Math.min(cw, ch) * 0.12;
+    ctx.save(); ctx.translate(px, py); ctx.rotate(-0.35);
+    ctx.lineWidth = pr * 0.12; ctx.strokeStyle = 'rgba(255,220,160,.55)';
+    ctx.beginPath(); ctx.ellipse(0, 0, pr * 1.9, pr * 0.5, 0, Math.PI, 2 * Math.PI); ctx.stroke();
+    const pg = ctx.createRadialGradient(-pr * 0.35, -pr * 0.35, pr * 0.1, 0, 0, pr);
+    pg.addColorStop(0, '#ffd6a5'); pg.addColorStop(0.6, '#c77dff'); pg.addColorStop(1, '#4a1a8c');
+    ctx.fillStyle = pg; ctx.beginPath(); ctx.arc(0, 0, pr, 0, 6.3); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(0, 0, pr * 1.9, pr * 0.5, 0, 0, Math.PI); ctx.stroke();
+    ctx.restore();
+    drawShootingStars(T);
+  }
+}
+
+function drawDiamond(c) {
+  const t = G.lt * 3 + c.id;
+  ctx.save(); ctx.translate(c.x, c.y + Math.sin(t * 0.8) * 4);
+  if (c.got) { ctx.globalAlpha = c.pop * 2; ctx.translate(0, -(0.5 - c.pop) * 60); }
+  const gl = ctx.createRadialGradient(0, 0, 2, 0, 0, 30);
+  gl.addColorStop(0, 'rgba(120,230,255,.55)'); gl.addColorStop(1, 'rgba(120,230,255,0)');
+  ctx.fillStyle = gl; ctx.beginPath(); ctx.arc(0, 0, 30, 0, 6.3); ctx.fill();
+  ctx.scale(0.78 + 0.22 * Math.abs(Math.cos(t)), 1);
+  ctx.fillStyle = '#7ee8ff'; ctx.strokeStyle = '#1b8fb5'; ctx.lineWidth = 2.5;
+  ctx.beginPath(); ctx.moveTo(0, -15); ctx.lineTo(13, -5); ctx.lineTo(0, 15); ctx.lineTo(-13, -5); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = 'rgba(255,255,255,.55)'; ctx.beginPath(); ctx.moveTo(0, -15); ctx.lineTo(-6, -5); ctx.lineTo(0, -2); ctx.lineTo(6, -5); ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = 'rgba(27,143,181,.7)'; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(-13, -5); ctx.lineTo(13, -5); ctx.moveTo(0, -2); ctx.lineTo(0, 15); ctx.stroke();
+  ctx.restore();
+}
+
+function diamondIndex(mode, lvIdx, n) {
+  if (n < 2 || lvIdx < 0) return -1;
+  const off = { solo: 0, coop: 1, party: 2 }[mode] || 0;
+  if (hash1(lvIdx * 31 + off * 977 + 5) > 0.5) return -1;
+  return Math.floor(hash1(lvIdx * 17 + off * 131 + 9) * n) % n;
+}
+
+function drawSkinAccents(skin, t, bob) {
+  if (skin === 'cocoa') {
+    ctx.fillStyle = '#d62839'; ctx.fillRect(-13, -17 + bob, 26, 5);
+    ctx.fillStyle = '#9d0208'; ctx.fillRect(-13, -13 + bob, 26, 1.5);
+  } else if (skin === 'crystal') {
+    ctx.save(); ctx.fillStyle = '#e8fbff'; ctx.strokeStyle = '#2b9bd1'; ctx.lineWidth = 1.6;
+    ctx.beginPath(); ctx.moveTo(0, -42 + bob); ctx.lineTo(4.5, -37.5 + bob); ctx.lineTo(0, -32 + bob); ctx.lineTo(-4.5, -37.5 + bob); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.restore();
+  } else if (skin === 'phoenix') {
+    ctx.save(); ctx.globalCompositeOperation = 'lighter';
+    const au = ctx.createRadialGradient(0, -18 + bob, 4, 0, -18 + bob, 34);
+    au.addColorStop(0, 'rgba(255,140,40,.35)'); au.addColorStop(1, 'rgba(255,60,0,0)');
+    ctx.fillStyle = au; ctx.beginPath(); ctx.arc(0, -18 + bob, 34, 0, 6.3); ctx.fill();
+    ctx.restore();
+    for (let i = 0; i < 3; i++) {
+      const len = 11 + Math.sin(t * 9 + i * 2) * 4, y0 = -8 + bob - i * 3.5;
+      ctx.fillStyle = i === 0 ? '#e8590c' : i === 1 ? '#ff922b' : '#ffd43b';
+      ctx.beginPath(); ctx.moveTo(-13, y0 + 4); ctx.quadraticCurveTo(-13 - len * 0.6, y0 - 4, -14 - len, y0 + Math.sin(t * 11 + i) * 2); ctx.quadraticCurveTo(-13 - len * 0.5, y0 + 6, -13, y0 + 4); ctx.fill();
+    }
+  } else if (skin === 'aurora') {
+    const hu = (t * 70) % 360;
+    ctx.save(); ctx.globalCompositeOperation = 'lighter';
+    ctx.strokeStyle = 'hsla(' + hu + ',90%,70%,.9)'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.ellipse(0, -60 + bob, 11, 3.4, 0, 0, 6.3); ctx.stroke();
+    ctx.restore();
+  } else if (skin === 'cosmic') {
+    ctx.save(); ctx.globalCompositeOperation = 'lighter';
+    const cg = ctx.createRadialGradient(0, -18 + bob, 4, 0, -18 + bob, 36);
+    cg.addColorStop(0, 'rgba(140,100,255,.35)'); cg.addColorStop(1, 'rgba(140,100,255,0)');
+    ctx.fillStyle = cg; ctx.beginPath(); ctx.arc(0, -18 + bob, 36, 0, 6.3); ctx.fill();
+    for (let i = 0; i < 3; i++) {
+      const a = t * 2.2 + i * 2.094, ox = Math.cos(a) * 25, oy = -20 + bob + Math.sin(a) * 11, s = 3 + Math.sin(t * 6 + i) * 0.8;
+      ctx.fillStyle = i === 1 ? '#ffe9a8' : '#fff';
+      ctx.fillRect(ox - s, oy - 0.6, s * 2, 1.2); ctx.fillRect(ox - 0.6, oy - s, 1.2, s * 2);
+      ctx.beginPath(); ctx.arc(ox, oy, 1.4, 0, 6.3); ctx.fill();
+    }
+    ctx.restore();
+  }
+}
+
+function injectV8Style() {
+  if ($('tbV8Style')) return;
+  const st = document.createElement('style'); st.id = 'tbV8Style';
+  st.textContent = `
+    .sm-card{max-height:94vh;overflow-y:auto}
+    .sy-help{font-size:13px;color:#5b3a5e;margin:-6px 0 10px;text-align:left}
+    .sy-who{font-size:12px;font-weight:700;color:#7a5a7d;margin:-8px 0 10px}
+    .sy-label{font-size:13px;font-weight:700;color:#5b3a5e;text-align:left;margin:6px 0}
+    .sy-row{display:flex;gap:8px}
+    .sy-input{flex:1;min-width:0;font:800 18px monospace;letter-spacing:3px;text-transform:uppercase;border:3px solid #5b3a5e;border-radius:12px;padding:8px 10px;background:#fff;color:#5b3a5e}
+    .sy-code{font:800 34px monospace;letter-spacing:8px;color:#5b3a5e;background:#fff3bf;border:3px dashed #c9a800;border-radius:14px;padding:10px 6px;margin:6px 0 8px;user-select:all}
+    .sy-sep{height:2px;background:rgba(91,58,94,.18);margin:14px 0 8px}
+    .sy-msg{min-height:18px;font-size:13px;font-weight:700;color:#2b8a3e;margin:8px 0;text-align:left}
+    .sy-msg.bad,.sy-warn{color:#c92a2a}
+    .admin-tag{position:fixed;bottom:4px;left:50%;transform:translateX(-50%);z-index:55;font:700 11px sans-serif;padding:3px 10px;border-radius:10px;border:2px solid #5b3a5e;background:#ffe066;color:#5b3a5e;opacity:.85;cursor:pointer}
+    .shop-balance.dia{background:#d0f4ff;color:#0a7ea4}
+    .shop-header{flex-wrap:wrap;gap:6px}
+    .shop-xchg{display:flex;align-items:center;gap:6px;flex-wrap:wrap;background:#e7f5ff;border:2px dashed #4dabf7;border-radius:12px;padding:6px 8px;margin-top:8px;font-weight:700;font-size:13px}
+    .shop-xchg .skin-btn{width:auto;flex:1;min-width:110px}
+    .shop-item{position:relative}
+    .tier-tag{position:absolute;top:6px;right:8px;font:700 8px var(--pixel,monospace);padding:2px 5px;border-radius:6px;color:#fff;background:#74c69d}
+    .shop-item.tier-rare .tier-tag{background:#4dabf7}
+    .shop-item.tier-legendary .tier-tag{background:linear-gradient(90deg,#ff9e00,#ff4d6d)}
+    .shop-item.tier-rare{border-color:#4dabf7}
+    .shop-item.tier-legendary{border-color:#ffb703;background:linear-gradient(160deg,#fff8e1,#ffe9c7)}
+    .shop-section-title.tier-rare{color:#1c7ed6}
+    .shop-section-title.tier-legendary{color:#e67700}
+    .preview-cocoa{background:#a9714b}
+    .preview-crystal{background:#bfe9ff;border-color:#4f9ccf;box-shadow:0 0 10px #9fdcff}
+    .preview-phoenix{background:#ff9a3c;border-color:#b3300f;box-shadow:0 0 12px #ff6a1a}
+    .preview-aurora{background:#9ff3e6;border-color:#2a8f9c;box-shadow:0 0 12px #9ff3e6}
+    .preview-cosmic{background:#3b1d8a;border-color:#c9b8ff;box-shadow:0 0 12px #8a6bff}
+  `;
+  document.head.appendChild(st);
+}
+
+function initV8() {
+  injectV8Style();
+  const lb = $('lobbyShopBtn'); if (lb && !$('lobbyDiamonds')) lb.insertAdjacentHTML('beforeend', ' &bull; 💎 <span id="lobbyDiamonds">0</span>');
+  const hc = $('hudCoins'); if (hc && !$('hudDiamonds')) hc.insertAdjacentHTML('afterend', '<span class="chip-sep">&bull;</span><span id="hudDiamonds" class="hud-coins">💎 0</span>');
+  const hr = document.querySelector('.hud-right');
+  if (hr && !$('passiveChip')) { const c = document.createElement('div'); c.id = 'passiveChip'; c.className = 'buff-badge hidden'; hr.insertBefore(c, hr.firstChild); }
+  if (!$('adminTag')) { const tg = document.createElement('button'); tg.id = 'adminTag'; tg.className = 'admin-tag hidden'; tg.textContent = '🛠 ADMIN'; tg.onclick = openAdminPanel; document.body.appendChild(tg); }
+
+  const sm = $('shopModal');
+  if (sm) sm.addEventListener('click', (e) => {
+    const b = e.target.closest ? e.target.closest('[data-act]') : null; if (!b) return;
+    Snd.init();
+    const a = b.dataset.act;
+    if (a === 'close') closeShop();
+    else if (a === 'skin') buySkin(b.dataset.id);
+    else if (a === 'buff') buyBuff(b.dataset.id);
+    else if (a === 'xchg') convertGold(parseInt(b.dataset.n, 10) || 1);
+  });
+  $('lobbyShopBtn').onclick = openShop;
+  $('hudShopBtn').onclick = openShop;
+
+  installAdminTrigger();
+  migrateEconomy();
+  refreshFX(); refreshCoinUI(); refreshBuffUI(); renderShop();
+  storeHook = (k) => Sync.onWrite(k);
+  document.addEventListener('visibilitychange', () => { if (document.hidden && Sync.code() && !Sync.conflict && Store.get('tb_sync_dirty', '0') === '1') Sync.push(false); });
+  Admin.resume();
+  Sync.boot();
+}
 function addLobbyButtons() {
   const msv = $('modeSelectView');
   if (!msv || $('btnParty')) return;
@@ -2823,7 +3576,7 @@ function drawEditor() {
 // BOOT
 // ============================================================================
 resize();
-G.myName = Store.get('tb_name', 'Bunny');
+G.myName = ensureGuestName();
 refreshCoinUI();
 refreshBuffUI();
 
@@ -2838,5 +3591,6 @@ const ni = $('nameInput'); if (ni && !ni.value) ni.value = Store.get('tb_name', 
 document.addEventListener('visibilitychange', () => { if (document.hidden) { kb.l = kb.r = kb.j = kb.b = false; recompute(); } });
 buildSettingsModal();
 addLobbyButtons();
+initV8();
 requestAnimationFrame(frame);
 })();

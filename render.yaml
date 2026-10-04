@@ -10,3 +10,7 @@ services:
     envVars:
       - key: NODE_VERSION
         value: 20
+      - key: ADMIN_KEY
+        sync: false          # set your admin password in the Render dashboard
+      # - key: DATA_DIR      # point at a persistent disk to keep cloud-sync saves across deploys
+      #   value: /var/data
