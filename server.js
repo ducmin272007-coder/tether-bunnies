@@ -237,6 +237,7 @@ function rosterOf(room) {
     mode: room.mode || 'coop',
     host: host ? host.slot : 0,
     lv: room.lv,
+    pn: room.pn || 0,
     players: [...room.players.values()]
       .sort((a, b) => a.slot - b.slot)
       .map((p) => ({ s: p.slot, n: p.name, skin: p.skin || 'classic' })),
@@ -264,7 +265,7 @@ io.on('connection', (socket) => {
     if (socket.data.code) return cb({ ok: false, error: 'Already in a room.' });
     const code = genCode();
     const mode = (data && data.mode) === 'party' ? 'party' : 'coop';
-    const room = { code, mode, players: new Map(), hostId: null, lv: 0, positions: new Map() };
+    const room = { code, mode, players: new Map(), hostId: null, lv: 0, pn: 0, positions: new Map() };
     rooms.set(code, room);
     const slot = attach(socket, room, data && data.name, data && data.skin);
     cb({ ok: true, code, slot, host: slot, mode });
@@ -280,7 +281,7 @@ io.on('connection', (socket) => {
     const slot = attach(socket, room, data && data.name, data && data.skin);
     if (slot < 0) return cb({ ok: false, error: 'Room is full (max 10 bunnies).' });
     const host = room.players.get(room.hostId);
-    cb({ ok: true, code, slot, host: host ? host.slot : 0, lv: room.lv, mode: room.mode });
+    cb({ ok: true, code, slot, host: host ? host.slot : 0, lv: room.lv, pn: room.pn || 0, mode: room.mode });
     broadcastRoster(room);
   });
 
@@ -300,9 +301,24 @@ io.on('connection', (socket) => {
     const p = room.players.get(socket.id);
     if (!p) return;
     e.s = p.slot;
-    if (e.t === 'lvl' || e.t === 'restart' || e.t === 'custom_lvl') {
+    if (e.t === 'lvl' || e.t === 'restart' || e.t === 'custom_lvl' || e.t === 'pcount') {
       if (socket.id !== room.hostId) return;          // host only
       if (e.t === 'lvl') room.lv = e.n | 0;
+    }
+    // v11: the host fixes the party size N (1..10); late joiners receive it in the join reply / roster
+    if (room.mode === 'party') {
+      const pn = e.t === 'pcount' ? e.n : ((e.t === 'lvl' || e.t === 'restart') ? e.pn : 0);
+      if (pn !== 0 && pn !== undefined) {
+        room.pn = Math.max(1, Math.min(MAX_PLAYERS, pn | 0));
+        e.pn = room.pn; if (e.t === 'pcount') e.n = room.pn;
+      }
+    }
+    // v11 troll traps: accept only well-formed trap events, relayed to everybody else
+    if (e.t === 'trap') {
+      const okA = ['fire', 'hit', 'done', 'reset', 'flee', 'fix'];
+      if (!Number.isInteger(e.i) || e.i < 0 || e.i > 64 || okA.indexOf(e.a) < 0) return;
+      if (typeof e.v !== 'number' || !isFinite(e.v)) e.v = 0;
+      if ((e.a === 'done' || e.a === 'reset') && socket.id !== room.hostId) return;   // only the host judges the saw arena
     }
     socket.to(code).emit('ev', e);
   });
