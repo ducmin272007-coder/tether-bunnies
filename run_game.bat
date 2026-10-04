@@ -27,6 +27,7 @@ if not exist "node_modules\socket.io" (
 )
 
 echo [3/3] Starting Game Server on port 3000...
+set "ADMIN_KEY=272007"
 start "Tether Bunnies Server Window" cmd /k "node server.js"
 timeout /t 2 /nobreak >nul
 
