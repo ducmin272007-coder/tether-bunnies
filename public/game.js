@@ -23,8 +23,8 @@
 // ============================================================================
 // CONSTANTS
 // ============================================================================
-const COLORS = ['#FF8FA3', '#4EA8DE', '#FEE440', '#70E000'];
-const DARKS  = ['#D9566F', '#2478B0', '#C9A800', '#3C9E00'];
+const COLORS = ['#FF8FA3', '#4EA8DE', '#FEE440', '#70E000', '#B5179E', '#F77F00', '#4CC9F0', '#E63946', '#2EC4B6', '#FFB703'];
+const DARKS  = ['#D9566F', '#2478B0', '#C9A800', '#3C9E00', '#7209B7', '#D62828', '#0096C7', '#9D0208', '#0F9F90', '#FB8500'];
 const PW = 28, PH = 36;            // player collider
 const RUN = 5.0;                   // max run speed (px / step)
 const GRAV = 0.58;
@@ -71,8 +71,10 @@ const Store = (() => {
 })();
 
 const Save = {
-  unlocked(mode) { return Math.max(1, parseInt(Store.get('tb_unlocked_' + mode, '1'), 10) || 1); },
-  unlock(mode, n) { if (n > this.unlocked(mode)) Store.set('tb_unlocked_' + mode, n); },
+  unlocked(mode) { return Math.max(1, parseInt(Store.get('tb_unlocked_' + (mode || 'solo'), '1'), 10) || 1); },
+  unlock(mode, n) { if (n > this.unlocked(mode)) Store.set('tb_unlocked_' + (mode || 'solo'), n); },
+  customLevels() { try { const a = JSON.parse(Store.get('tb_custom_levels', '[]')); return Array.isArray(a) ? a : []; } catch (e) { return []; } },
+  saveCustomLevel(lvl) { const a = this.customLevels(); a.push(lvl); Store.set('tb_custom_levels', JSON.stringify(a)); },
   coins() { return Math.max(0, parseInt(Store.get('tb_coins', '0'), 10) || 0); },
   addCoins(n) { Store.set('tb_coins', this.coins() + n); refreshCoinUI(); },
   spend(n) { const c = this.coins(); if (c < n) return false; Store.set('tb_coins', c - n); refreshCoinUI(); return true; },
@@ -82,7 +84,51 @@ const Save = {
   equipped() { const s = Store.get('tb_equipped_skin', 'classic'); return this.hasSkin(s) ? s : 'classic'; },
   equip(s) { Store.set('tb_equipped_skin', s); },
   buff(b) { return Math.max(0, parseInt(Store.get('tb_buff_' + b, '0'), 10) || 0); },
-  addBuff(b, n) { Store.set('tb_buff_' + b, this.buff(b) + n); refreshBuffUI(); },
+  addBuff(b, n) { Store.set('tb_buff_' + b, this.buff(b) + n); refreshBuffUI();
+buildSettingsModal();
+
+// Add Party Mode button and Editor button to lobby modeSelectView
+const msv = $('modeSelectView');
+if (msv) {
+  let btnParty = $('btnParty');
+  if (!btnParty) {
+    btnParty = document.createElement('button');
+    btnParty.id = 'btnParty';
+    btnParty.className = 'btn pri';
+    btnParty.style.background = 'linear-gradient(135deg, #b5179e 0%, #7209b7 100%)';
+    btnParty.style.color = '#fff';
+    btnParty.style.boxShadow = '0 6px 0 #3f0764';
+    btnParty.style.marginTop = '10px';
+    btnParty.innerHTML = '🐱 PARTY XẾP CHỒNG (2-10 người) <span style="font-size:12px;display:block;opacity:.85;font-weight:600">Không nối dây · Nhảy lên đầu nhau leo tường Roblox/Pico Park!</span>';
+    btnParty.onclick = () => {
+      Snd.init();
+      G.mode = 'party';
+      show('modeSelectView', false);
+      show('coopLobbyView', true);
+      const n = $('nameInput');
+      if (n && !n.value) n.value = Store.get('tb_name', '');
+    };
+    msv.appendChild(btnParty);
+  }
+
+  let btnEditor = $('btnEditor');
+  if (!btnEditor) {
+    btnEditor = document.createElement('button');
+    btnEditor.id = 'btnEditor';
+    btnEditor.className = 'btn';
+    btnEditor.style.background = 'linear-gradient(135deg, #4cc9f0 0%, #4895ef 100%)';
+    btnEditor.style.color = '#03045e';
+    btnEditor.style.boxShadow = '0 6px 0 #0077b6';
+    btnEditor.style.marginTop = '10px';
+    btnEditor.innerHTML = '🛠️ TỰ TẠO MÀN / LEVEL EDITOR <span style="font-size:12px;display:block;opacity:.85;font-weight:600">Tự vẽ bản đồ hoặc Tạo Màn Ngẫu Nhiên Vô Tận</span>';
+    btnEditor.onclick = () => {
+      Snd.init();
+      openEditor();
+    };
+    msv.appendChild(btnEditor);
+  }
+}
+ },
   useBuff(b) { const c = this.buff(b); if (c <= 0) return false; Store.set('tb_buff_' + b, c - 1); refreshBuffUI(); return true; },
   coinsGot(mode, lv) { try { const a = JSON.parse(Store.get('tb_cg_' + mode + '_' + lv, '[]')); return Array.isArray(a) ? a : []; } catch (e) { return []; } },
   markCoin(mode, lv, i) { const a = this.coinsGot(mode, lv); if (!a.includes(i)) { a.push(i); Store.set('tb_cg_' + mode + '_' + lv, JSON.stringify(a)); } },
@@ -352,8 +398,8 @@ const seg = {
   chaser(b, speed, delay) { b.sweepers.push({ x: -520, w: 220, y: -200, h: 1300, speed, delay, cx: -520 }); },
 };
 
-const LEVELS = { solo: [], coop: [] };
-const S = LEVELS.solo, C = LEVELS.coop;
+const LEVELS = { solo: [], coop: [], party: [] };
+const S = LEVELS.solo, C = LEVELS.coop, PTY = LEVELS.party;
 
 // SOLO LEVELS (10 STAGES)
 S.push(() => {
@@ -654,6 +700,157 @@ C.push(() => {
 });
 
 // ============================================================================
+// PARTY LEVELS (6 STAGES - NO TETHER, STACKING & MULTI-BUNNY TEAMWORK 2-10 PLAYERS)
+// ============================================================================
+PTY.push(() => {
+  const b = new LB('Bunny Tower 101', 'Nhảy lên đầu đồng đội để xếp tháp thỏ leo lên vách cao dẫm nút hạ cầu!', 140, false);
+  seg.run(b, 720, { flag: true, coins: [[360, -60]] });
+  const x0 = b.ground(420);
+  const wallX = x0 + 420;
+  b.step(160);
+  const x1 = b.ground(520);
+  const pId = 'p' + (b.pid++);
+  b.plates.push({ id: pId, x: x1 + 60, y: b.gy - 10, w: 60, h: 10, hold: 0, t: 0, on: false });
+  b.gates.push({ x: wallX - 140, y: b.gy + 60, w: 140, h: 20, ctrl: [pId], mode: 'any', open: false, inv: true });
+  b.coin(x1 + 90, b.gy - 70);
+  seg.run(b, 500, { flag: true });
+  seg.fakes(b, 3, { coins: [1] });
+  seg.run(b, 800, { coins: [[300, -60]] });
+  return b.finish(520, 56);
+});
+
+PTY.push(() => {
+  const b = new LB('Cầu Bập Bênh Cân Não', 'Phân chia người đứng hai bên để giữ thăng bằng vượt qua hố gai!', 45, false);
+  seg.run(b, 600, { flag: true });
+  b.gap(120);
+  seg.run(b, 340, { flag: true });
+  const x0 = b.ground(700);
+  const a = 'p' + (b.pid++), c = 'p' + (b.pid++);
+  b.plates.push({ id: a, x: x0 + 100, y: b.gy - 10, w: 60, h: 10, hold: 0, t: 0, on: false });
+  b.plates.push({ id: c, x: x0 + 500, y: b.gy - 10, w: 60, h: 10, hold: 0, t: 0, on: false });
+  b.gates.push({ x: x0 + 320, y: b.gy - 340, w: 30, h: 340, ctrl: [a, c], mode: 'all', open: false, inv: false });
+  b.coin(x0 + 335, b.gy - 80);
+  seg.run(b, 400, { flag: true, spikes: [[180, 60]] });
+  seg.fakes(b, 4, { coins: [2] });
+  seg.run(b, 800);
+  return b.finish(500, 56);
+});
+
+PTY.push(() => {
+  const b = new LB('Công Tắc Tam Trọng', '3 công tắc ở 3 tầng khác nhau, cần ít nhất 3 bạn dẫm cùng lúc để mở cửa sắt!', 210, false);
+  seg.run(b, 640, { flag: true });
+  const x0 = b.ground(800);
+  const p1 = 'p' + (b.pid++), p2 = 'p' + (b.pid++), p3 = 'p' + (b.pid++);
+  b.plates.push({ id: p1, x: x0 + 80, y: b.gy - 10, w: 60, h: 10, hold: 0, t: 0, on: false });
+  b.solids.push([x0 + 200, b.gy - 80, 100, 18]);
+  b.plates.push({ id: p2, x: x0 + 220, y: b.gy - 90, w: 60, h: 10, hold: 0, t: 0, on: false });
+  b.solids.push([x0 + 360, b.gy - 160, 100, 18]);
+  b.plates.push({ id: p3, x: x0 + 380, y: b.gy - 170, w: 60, h: 10, hold: 0, t: 0, on: false });
+  b.gates.push({ x: x0 + 600, y: b.gy - 340, w: 30, h: 340, ctrl: [p1, p2, p3], mode: 'all', open: false, inv: false });
+  b.coin(x0 + 410, b.gy - 220);
+  seg.run(b, 400, { flag: true });
+  seg.crushers(b, 3, { spacing: 240, coins: [1] });
+  seg.run(b, 800);
+  return b.finish(520, 56);
+});
+
+PTY.push(() => {
+  const b = new LB('Vách Núi 3 Tầng', 'Vách núi siêu cao 240px! Phải xếp chồng 3-4 bạn thỏ thành tháp sống để với tới đỉnh!', 280, false);
+  seg.run(b, 620, { flag: true });
+  const x0 = b.ground(460);
+  const wallX = x0 + 460;
+  b.step(240);
+  const x1 = b.ground(600);
+  const pId = 'p' + (b.pid++);
+  b.plates.push({ id: pId, x: x1 + 80, y: b.gy - 10, w: 60, h: 10, hold: 0, t: 0, on: false });
+  b.gates.push({ x: wallX - 160, y: b.gy + 100, w: 160, h: 20, ctrl: [pId], mode: 'any', open: false, inv: true });
+  b.gates.push({ x: wallX - 80, y: b.gy + 180, w: 80, h: 20, ctrl: [pId], mode: 'any', open: false, inv: true });
+  b.coin(x1 + 110, b.gy - 80);
+  seg.run(b, 500, { flag: true });
+  seg.boulders(b, 800, { specs: [[60, 740, 3.2, 0]], plats: [[340, -100, 120]], coins: [[400, -170]] });
+  seg.run(b, 800);
+  return b.finish(500, 56);
+});
+
+PTY.push(() => {
+  const b = new LB('Lò Xo & Búa Ép Siêu Nảy', 'Độ nảy tối đa! Nhảy lên đầu đồng đội được nhân đôi lực bật cao qua hàng búa ép!', 330, false);
+  seg.run(b, 580, { flag: true });
+  seg.springWall(b, { h: 190 });
+  seg.run(b, 420, { flag: true, coins: [[210, -60]] });
+  seg.crushers(b, 4, { spacing: 250, period: 2.8, coins: [1, 2], flag: true });
+  seg.fakes(b, 5, { real: [2], coins: [3] });
+  seg.run(b, 400, { flag: true });
+  seg.boulders(b, 900, { specs: [[60, 840, 3.6, 0]], plats: [[380, -100, 130]], coins: [[440, -170]] });
+  seg.run(b, 800);
+  return b.finish(500, 56);
+});
+
+PTY.push(() => {
+  const b = new LB('Đại Tiệc Hỗn Loạn Roblox', 'Màn tiệc tổng hợp đỉnh cao: Xếp chồng tháp, sàn nứt và bức tường tử thần!', 355, false);
+  seg.chaser(b, 110, 5.0);
+  seg.run(b, 600, { flag: true });
+  seg.fakes(b, 4, { coins: [1] });
+  const x0 = b.ground(440);
+  const wallX = x0 + 440;
+  b.step(180);
+  const x1 = b.ground(500);
+  const pId = 'p' + (b.pid++);
+  b.plates.push({ id: pId, x: x1 + 60, y: b.gy - 10, w: 60, h: 10, hold: 0, t: 0, on: false });
+  b.gates.push({ x: wallX - 140, y: b.gy + 80, w: 140, h: 20, ctrl: [pId], mode: 'any', open: false, inv: true });
+  seg.crushers(b, 3, { spacing: 240, period: 2.7, coins: [1], flag: true });
+  seg.boulders(b, 850, { specs: [[60, 800, 3.5, 0]], plats: [[320, -100, 110]], coins: [[370, -170]] });
+  seg.fakes(b, 5, { real: [1, 4], dys: [-10, -70, -30, -90, -50] });
+  seg.run(b, 900, { coins: [[500, -60]] });
+  return b.finish(480, 56);
+});
+
+// ============================================================================
+// AUTO LEVEL GENERATOR (PROCEDURAL GENERATOR)
+// ============================================================================
+function generateRandomLevel(mode, seed) {
+  const s = seed || (Math.floor(Math.random() * 89999) + 10000);
+  const hue = (s * 47) % 360;
+  const isCoop = mode === 'coop';
+  const isParty = mode === 'party';
+  const b = new LB('Auto Map #' + s, 'Màn chơi tạo tự động ngẫu nhiên · ' + (isParty ? 'Party 2-10P' : isCoop ? 'Co-op' : 'Solo'), hue, isCoop);
+  seg.run(b, 700, { flag: true, coins: [[350, -60]] });
+  if (s % 2 === 0) {
+    seg.fakes(b, 4, { coins: [2] });
+    seg.run(b, 400, { flag: true });
+  } else {
+    b.gap(140);
+    seg.run(b, 450, { flag: true, spikes: [[200, 60]] });
+  }
+  if (isParty) {
+    const x0 = b.ground(420);
+    const wallX = x0 + 420;
+    b.step(160);
+    const x1 = b.ground(500);
+    const pId = 'p' + (b.pid++);
+    b.plates.push({ id: pId, x: x1 + 60, y: b.gy - 10, w: 60, h: 10, hold: 0, t: 0, on: false });
+    b.gates.push({ x: wallX - 130, y: b.gy + 60, w: 130, h: 20, ctrl: [pId], mode: 'any', open: false, inv: true });
+    b.coin(x1 + 80, b.gy - 60);
+    seg.run(b, 400, { flag: true });
+  } else {
+    seg.springWall(b, { h: 190 });
+    seg.run(b, 400, { flag: true });
+  }
+  if (s % 3 === 0) {
+    seg.crushers(b, 3, { spacing: 250, period: 2.8, coins: [1] });
+  } else {
+    seg.boulders(b, 850, { specs: [[60, 800, 3.4, 0]], plats: [[350, -100, 120]], coins: [[400, -170]] });
+  }
+  seg.run(b, 400, { flag: true });
+  if (s % 2 === 1) {
+    seg.sprint(b, 560, 3.0, { coins: [[380, -60]] });
+  } else {
+    seg.fakes(b, 5, { real: [2], coins: [3] });
+  }
+  seg.run(b, 800, { coins: [[400, -60]] });
+  return b.finish(480, 56);
+}
+
+// ============================================================================
 // GAME STATE
 // ============================================================================
 const F_RIGHT = 1, F_GROUND = 2, F_DEAD = 4, F_ROPE = 16, F_SHIELD = 32, F_INV = 64, F_ANCH = 128;
@@ -663,7 +860,7 @@ const G = {
   me: null, myslot: 0, code: 'SOLO', myName: 'Bunny',
   remotes: new Map(), names: {}, skins: {}, roster: null, hostSlot: 0,
   cam: { x: 0, y: 0, z: 1, snap: true }, shake: 0, pingMs: 0,
-  banner: 0, msg: '', alpha: 1,
+  banner: 0, msg: '',
 };
 
 const input = { l: false, r: false, j: false, b: false };
@@ -673,7 +870,7 @@ function newPlayer(slot) {
     slot, x: 0, y: 0, vx: 0, vy: 0, face: 1, onGround: false, coyote: 0, jbuf: 0,
     jPrev: false, bPrev: false, jumping: false, dead: false, deadT: 0, inv: 0,
     shield: false, dj: false, usedDJ: false, rope: null, ropeCd: 0, cp: { x: 0, y: 0 },
-    anch: false, sq: 0, runT: 0, ride: null, wasGround: false,
+    anch: false, sq: 0, runT: 0, ride: null, wasGround: false, tetherGrace: 0,
   };
 }
 
@@ -688,16 +885,9 @@ function nearSolids(x, y, w, h) {
   return nearBuf;
 }
 
-function ipos(e) {
-  const a = G.alpha === undefined ? 1 : G.alpha;
-  const px = e.px === undefined ? e.x : e.px, py = e.py === undefined ? e.y : e.py;
-  if (Math.abs(e.x - px) > 120 || Math.abs(e.y - py) > 120) return { x: e.x, y: e.y };
-  return { x: px + (e.x - px) * a, y: py + (e.y - py) * a };
-}
-
 function allBodies() {
   const a = [G.me];
-  if (G.mode === 'coop') for (const r of G.remotes.values()) if (!r.dead) a.push(r);
+  if (G.mode !== 'solo') for (const r of G.remotes.values()) if (!r.dead) a.push(r);
   return a;
 }
 
@@ -719,34 +909,41 @@ function keyPos() {
   return k;
 }
 
-function loadLevel(idx) {
-  const list = LEVELS[G.mode];
-  idx = clamp(idx | 0, 0, list.length - 1);
-  G.lvIdx = idx;
-  const L = list[idx]();
-  G.L = L; G.lt = 0; G.levelTime = 0; G.keyGot = false; G.won = false; G.winT = 0; G.deaths = 0; G.finalShown = false;
-  const got = Save.coinsGot(G.mode, idx);
+function loadLevel(idx, customLevelObj) {
+  if (customLevelObj) {
+    G.L = customLevelObj;
+    G.lvIdx = -1;
+  } else {
+    const list = LEVELS[G.mode] || LEVELS.solo;
+    idx = clamp(idx | 0, 0, list.length - 1);
+    G.lvIdx = idx;
+    G.L = list[idx]();
+  }
+  const L = G.L;
+  G.lt = 0; G.levelTime = 0; G.keyGot = false; G.won = false; G.winT = 0; G.deaths = 0; G.finalShown = false;
+  const got = G.lvIdx >= 0 ? Save.coinsGot(G.mode, G.lvIdx) : [];
   L.coins.forEach((c) => { c.got = got.includes(c.id); c.pop = 0; });
   L.plates.forEach((p) => { p.t = 0; p.on = false; p.pr = false; });
   L.gates.forEach((g) => { g.act = false; });
   L.ropes.forEach((r) => { r.hs = -1; r.hb = null; });
   L.key.got = false;
   const me = newPlayer(G.myslot);
-  me.x = L.spawn[0] + G.myslot * 34; me.y = L.spawn[1];
+  me.x = L.spawn[0] + (G.myslot % 4) * 34; me.y = L.spawn[1];
   me.cp = { x: me.x, y: me.y };
   G.me = me;
-  for (const r of G.remotes.values()) { r.x = r.tx = L.spawn[0] + r.slot * 34; r.y = r.ty = L.spawn[1]; r.vx = r.vy = 0; r.dead = false; r.ropeOn = false; r.recv = nowMs(); }
+  for (const r of G.remotes.values()) { r.x = r.tx = L.spawn[0] + (r.slot % 4) * 34; r.y = r.ty = L.spawn[1]; r.vx = r.vy = 0; r.dead = false; r.ropeOn = false; r.recv = nowMs(); }
   G.cam.snap = true;
   parts.length = 0;
   document.body.classList.toggle('mode-coop', G.mode === 'coop');
-  setText('lvName', 'Lv ' + (idx + 1) + ' · ' + L.name);
+  document.body.classList.toggle('mode-party', G.mode === 'party');
+  setText('lvName', G.lvIdx >= 0 ? 'Lv ' + (G.lvIdx + 1) + ' · ' + L.name : L.name);
   setText('deaths', '💥 0');
-  setText('modeBadge', G.mode === 'coop' ? 'CO-OP' : 'SOLO');
+  setText('modeBadge', G.mode === 'party' ? 'PARTY' : G.mode === 'coop' ? 'CO-OP' : 'SOLO');
   const ks = $('keyStat'); if (ks) { ks.textContent = '🔑 ✗'; ks.classList.remove('got'); }
   rebuildLevelSelect();
   refreshBuffUI();
-  showBanner('LEVEL ' + (idx + 1) + ': ' + L.name.toUpperCase(), L.hint);
-  const sel = $('lvSelect'); if (sel) sel.value = String(idx);
+  showBanner((G.lvIdx >= 0 ? 'LEVEL ' + (G.lvIdx + 1) + ': ' : '') + L.name.toUpperCase(), L.hint);
+  const sel = $('lvSelect'); if (sel && G.lvIdx >= 0) sel.value = String(G.lvIdx);
 }
 
 function nowMs() { return (typeof performance !== 'undefined' ? performance.now() : Date.now()); }
@@ -854,10 +1051,11 @@ function updateWorld() {
 
   if (!me.dead) {
     for (const f of L.flags) {
-      if (!f.on && Math.abs(me.x + PW / 2 - f.x) < 36 && Math.abs(me.y + PH - f.y) < 90) {
-        f.on = true; me.cp = { x: f.x - PW / 2, y: f.y - PH }; Snd.cp(); sparkle(f.x, f.y - 50, 12, 1, '#7cf');
+      if (!f.on && Math.abs(me.x + PW / 2 - f.x) < 40 && Math.abs(me.y + PH - f.y) < 90) {
+        f.on = true; me.cp = { x: f.x - PW / 2, y: f.y - PH }; Snd.cp(); sparkle(f.x, f.y - 50, 14, 1, '#7cf');
         toast('⚑ Checkpoint!');
-      } else if (f.on && Math.abs(me.x + PW / 2 - f.x) < 36 && Math.abs(me.y + PH - f.y) < 90) {
+        if (G.mode !== 'solo') netEv({ t: 'cp', x: Math.round(me.cp.x), y: Math.round(me.cp.y), fi: L.flags.indexOf(f), s: me.slot });
+      } else if (f.on && Math.abs(me.x + PW / 2 - f.x) < 40 && Math.abs(me.y + PH - f.y) < 90) {
         me.cp = { x: f.x - PW / 2, y: f.y - PH };
       }
     }
@@ -896,12 +1094,12 @@ function exitCheck() {
   if (G.won || !G.keyGot) return;
   const e = G.L.exit, me = G.me;
   if (!rectsOverlap(me.x, me.y, PW, PH, e.x, e.y, e.w, e.h)) return;
-  if (G.mode === 'coop') {
+  if (G.mode !== 'solo') {
     const t = nowMs();
     for (const r of G.remotes.values()) {
-      if (t - r.recv > 4000) continue;
-      if (r.dead || !rectsOverlap(r.x, r.y, PW, PH, e.x - 10, e.y - 10, e.w + 20, e.h + 20)) {
-        if (!G._waitToast || t - G._waitToast > 2500) { G._waitToast = t; toast('Waiting for everyone at the exit…'); }
+      if (t - r.recv > 5000) continue;
+      if (r.dead || !rectsOverlap(r.x, r.y, PW, PH, e.x - 14, e.y - 14, e.w + 28, e.h + 28)) {
+        if (!G._waitToast || t - G._waitToast > 2500) { G._waitToast = t; toast('Đang đợi tất cả đồng đội ở cửa thoát…'); }
         return;
       }
     }
@@ -926,10 +1124,16 @@ function triggerWin(send) {
 }
 
 function advanceAfterWin() {
-  const list = LEVELS[G.mode];
+  const list = LEVELS[G.mode] || LEVELS.solo;
+  if (G.lvIdx < 0) {
+    G.finalShown = true;
+    toast('🎉 Hoàn thành màn tự tạo!');
+    setTimeout(() => { if (isHostSlot() || G.mode === 'solo') loadLevel(-1, generateRandomLevel(G.mode)); }, 3000);
+    return;
+  }
   const next = G.lvIdx + 1;
   if (next < list.length) {
-    if (G.mode === 'coop') {
+    if (G.mode !== 'solo') {
       G.finalShown = true;
       if (isHostSlot()) { netEv({ t: 'lvl', n: next }); loadLevel(next); }
       else setTimeout(() => { if (G.won && G.lvIdx === next - 1) { loadLevel(next); } }, 2500);
@@ -965,6 +1169,17 @@ function die(cause) {
 function respawn() {
   const P = G.me, L = G.L;
   let rx = P.cp.x, ry = P.cp.y;
+  if (G.mode !== 'solo' && G.remotes.size) {
+    let leader = null;
+    for (const r of G.remotes.values()) {
+      if (!r.dead && (!leader || r.x > leader.x)) leader = r;
+    }
+    // If teammate is way further ahead than old checkpoint (> 500px), catch up to avoid rubberband death loop
+    if (leader && leader.x > rx + 500) {
+      rx = Math.max(rx, leader.x - 70);
+      ry = leader.y;
+    }
+  }
   for (const s of L.sweepers) {
     if (rx < s.cx + s.w + 160) {
       let best = null;
@@ -972,9 +1187,12 @@ function respawn() {
       if (best) { rx = best[0] + 60; ry = best[1] - PH; }
     }
   }
-  P.x = rx; P.y = ry; P.vx = P.vy = 0; P.dead = false; P.inv = 1.2; P.rope = null; P.ropeCd = 20; P.usedDJ = false;
-  puff(P.x + PW / 2, P.y + PH, 8, '#fff');
-  G.cam.snap = G.cam.snap || (Math.abs(G.cam.x - P.x) > 1500);
+  P.x = rx; P.y = ry; P.vx = P.vy = 0; P.dead = false;
+  P.inv = 2.5; // 2.5s invulnerability
+  P.tetherGrace = 3.5; // 3.5s zero-tether pull on respawn!
+  P.rope = null; P.ropeCd = 20; P.usedDJ = false;
+  puff(P.x + PW / 2, P.y + PH, 12, '#fff');
+  G.cam.snap = G.cam.snap || (Math.abs(G.cam.x - P.x) > 1400);
 }
 
 function useBuff() {
@@ -987,7 +1205,8 @@ function useBuff() {
 }
 
 function applyTether(P) {
-  if (G.mode !== 'coop' || P.anch || P.rope || G.remotes.size === 0) return;
+  // Disable tether in Party mode or during respawn grace!
+  if (G.mode !== 'coop' || P.anch || P.rope || G.remotes.size === 0 || (P.tetherGrace && P.tetherGrace > 0)) return;
   const slots = [P.slot];
   for (const r of G.remotes.values()) slots.push(r.slot);
   slots.sort((a, b) => a - b);
@@ -997,14 +1216,15 @@ function applyTether(P) {
   if (i < slots.length - 1) nb.push(slots[i + 1]);
   for (const s of nb) {
     const r = G.remotes.get(s);
-    if (!r || r.dead || r.ropeOn) continue;
+    if (!r || r.dead || r.ropeOn || (r.tetherGrace && r.tetherGrace > 0)) continue;
     const dx = (r.x + PW / 2) - (P.x + PW / 2), dy = (r.y + PH / 2) - (P.y + PH / 2);
     const d = Math.hypot(dx, dy);
     if (d > TETHER) {
       const st = d - TETHER;
-      const f = Math.min(st * 0.010 + (st > 110 ? 0.25 : 0), 1.6);
+      // Cap pulling force smoothly so players aren't violently launched into pits
+      const f = Math.min(st * 0.008 + (st > 120 ? 0.2 : 0), 1.2);
       P.vx += (dx / d) * f;
-      P.vy += (dy / d) * f * (dy < 0 ? 0.8 : 0.3);
+      P.vy += (dy / d) * f * (dy < 0 ? 0.7 : 0.25);
     }
   }
 }
@@ -1071,9 +1291,9 @@ function hazardCheck(P) {
 
 function stepPlayer() {
   const P = G.me, L = G.L;
-  P.px = P.x; P.py = P.y;
   if (P.dead) { P.deadT -= STEP; if (P.deadT <= 0) respawn(); return; }
   if (P.inv > 0) P.inv -= STEP;
+  if (P.tetherGrace > 0) P.tetherGrace -= STEP;
   if (G.won) { P.vx *= 0.8; }
   const ax = G.won ? 0 : (input.r ? 1 : 0) - (input.l ? 1 : 0);
 
@@ -1098,8 +1318,10 @@ function stepPlayer() {
   if (P.onGround) { P.coyote = 6; P.usedDJ = false; } else if (P.coyote > 0) P.coyote--;
   if (P.jbuf > 0) {
     if (P.coyote > 0) {
-      P.vy = -JUMP; P.coyote = 0; P.jbuf = 0; P.jumping = true; P.onGround = false; P.sq = -0.25;
-      Snd.jump(P.slot); puff(P.x + PW / 2, P.y + PH, 4);
+      const isFromHead = !!P.ride;
+      P.vy = isFromHead ? -JUMP * 1.15 : -JUMP; // 15% super jump boost off head!
+      P.coyote = 0; P.jbuf = 0; P.jumping = true; P.onGround = false; P.sq = -0.25;
+      Snd.jump(P.slot); puff(P.x + PW / 2, P.y + PH, isFromHead ? 6 : 4, isFromHead ? '#ffe066' : '#fff');
     } else if (P.dj && !P.usedDJ && !P.onGround) {
       P.vy = -JUMP * 0.92; P.usedDJ = true; P.jbuf = 0; P.jumping = true; Snd.djump(); sparkle(P.x + PW / 2, P.y + PH, 8, 1, '#9ef');
     } else P.jbuf--;
@@ -1126,18 +1348,31 @@ function stepPlayer() {
   hits = nearSolids(P.x, P.y, PW, PH);
   for (let i = 0; i < hits.length; i++) {
     const s = hits[i];
-    if (P.vy > 0) { P.y = s[1] - PH; P.onGround = true; }
-    else if (P.vy < 0) P.y = s[1] + s[3];
-    else P.y += (P.y + PH / 2 < s[1] + s[3] / 2) ? -1.5 : 1.5;
+    if (P.vy > 0) {
+      P.y = s[1] - PH; P.onGround = true;
+    } else if (P.vy < 0) {
+      P.y = s[1] + s[3];
+    } else {
+      // Platform appeared/solidified around player: ELEVATE to top surface! Never push through floor!
+      if (feet0 <= s[1] + s[3] + 8) {
+        P.y = s[1] - PH;
+        P.onGround = true;
+      } else {
+        P.y = s[1] + s[3];
+      }
+    }
     P.vy = P.vy > 0 ? 0 : (P.vy < 0 ? 0 : P.vy);
   }
 
-  if (G.mode === 'coop' && !P.onGround && P.vy >= 0) {
+  if ((G.mode === 'coop' || G.mode === 'party') && !P.onGround && P.vy >= 0) {
     for (const r of G.remotes.values()) {
       if (r.dead || r.ropeOn) continue;
       const feet = P.y + PH, prevFeet = feet0;
-      if (P.x + PW - 6 > r.x + 3 && P.x + 6 < r.x + PW - 3 && feet >= r.y && prevFeet <= r.y + 7) {
-        P.y = r.y - PH; P.vy = 0; P.onGround = true; P.ride = r;
+      if (P.x + PW - 5 > r.x + 3 && P.x + 5 < r.x + PW - 3 && feet >= r.y - 2 && prevFeet <= r.y + 10) {
+        P.y = r.y - PH;
+        P.vy = 0;
+        P.onGround = true;
+        P.ride = r;
         P.x += r.dx || 0;
         if (nearSolids(P.x, P.y, PW, PH).length) P.x -= r.dx || 0;
         break;
@@ -1205,14 +1440,7 @@ function ensureSocket() {
   socket.on('ev', onNetEv);
   socket.on('disconnect', () => { if (G.inGame && G.mode === 'coop') { netLost = true; toast('Connection lost - reconnecting…'); } });
   socket.on('connect', () => {
-    if (!(netLost && G.inGame && G.mode === 'coop')) return;
-    socket.emit('join', { code: G.code, name: G.myName, skin: Save.equipped() }, (res) => {
-      if (res && res.ok) {
-        netLost = false; G.myslot = res.slot; if (G.me) G.me.slot = res.slot;
-        G.names[res.slot] = G.myName; G.hostSlot = res.host !== undefined ? res.host : res.slot;
-        toast('✅ Reconnected!');
-      } else { toast('Room was closed.'); setTimeout(() => { location.href = location.pathname; }, 1500); }
-    });
+    if (netLost && G.inGame && G.mode === 'coop') { netLost = false; toast('Room was lost during the disconnect.'); setTimeout(() => { location.href = location.pathname; }, 1200); }
   });
   return socket;
 }
@@ -1242,6 +1470,26 @@ function onNetEv(e) {
   switch (e.t) {
     case 'lvl':
       loadLevel(e.n);
+      break;
+    case 'cp':
+      if (e.lv === G.lvIdx) {
+        G.me.cp = { x: e.x, y: e.y };
+        if (G.L && G.L.flags && G.L.flags[e.fi]) G.L.flags[e.fi].on = true;
+        sparkle(e.x + PW / 2, e.y + PH / 2, 14, 1, '#7cf');
+        toast('⚑ ' + (G.names[e.s] || 'Đồng đội') + ' đã mở Checkpoint!');
+      }
+      break;
+    case 'restart':
+      if (e.lv === G.lvIdx) {
+        loadLevel(e.lv);
+        toast('🔄 Chủ phòng đã khởi động lại màn!');
+      }
+      break;
+    case 'custom_lvl':
+      if (e.data) {
+        loadLevel(-1, e.data);
+        toast('🗺️ Đã tải màn chơi từ ' + (G.names[e.s] || 'Chủ phòng') + '!');
+      }
       break;
     case 'key': if (e.lv === G.lvIdx) collectKey(false, e.s); break;
     case 'keyst': if (e.lv === G.lvIdx && e.v && !G.keyGot) { G.keyGot = true; const ks = $('keyStat'); if (ks) { ks.textContent = '🔑 ✓'; ks.classList.add('got'); } } break;
@@ -1313,7 +1561,7 @@ function stepRemotes() {
     const age = Math.min(0.12, Math.max(0, (now - r.recv) / 1000));
     const ex = r.tx + r.tvx * 60 * age;
     const ey = r.onGround ? r.ty : r.ty + clamp(r.tvy * 60 * age, -40, 40);
-    const px = r.x; r.px = r.x; r.py = r.y;
+    const px = r.x;
     if (Math.abs(ex - r.x) > 380 || Math.abs(ey - r.y) > 380) { r.x = ex; r.y = ey; }
     else { r.x += (ex - r.x) * k; r.y += (ey - r.y) * k; }
     r.dx = r.x - px;
@@ -1379,7 +1627,7 @@ function buildPicker() {
   el.id = 'levelPicker'; el.className = 'lp-wrap hidden';
   el.innerHTML = '<div class=\"lp-card\"><div class=\"lp-head\"><button id=\"lpBack\" class=\"lp-back\">← Back</button>' +
     '<div id=\"lpTitle\" class=\"lp-title\"></div><button id=\"lpShop\" class=\"lp-shop\">🛍️ 🪙 <span id=\"lpCoins\">0</span></button></div>' +
-    '<div id=\"lpGrid\" class=\"lp-grid\"></div><div class=\"lp-foot\">Beat a level to unlock the next one. Progress & coins are saved in your browser.</div></div>';
+    '<div id=\"lpGrid\" class=\"lp-grid\"></div><div class=\"lp-foot\">Beat a level to unlock the next one. Progress &amp; coins are saved in your browser.</div></div>';
   document.body.appendChild(el);
   $('lpBack').onclick = () => { show('levelPicker', false); show('lobby', true); };
   $('lpShop').onclick = () => openShop();
@@ -1409,9 +1657,9 @@ function beginGame(mode, idx) {
   G.mode = mode;
   G.inGame = true;
   show('lobby', false); show('levelPicker', false); show('hud', true); show('final', false);
-  show('roomChip', mode === 'coop'); show('botBtn', false);
+  show('roomChip', mode !== 'solo'); show('botBtn', false);
   show('touch', isTouchDevice);
-  const pb = $('ping'); if (pb) { pb.textContent = mode === 'coop' ? '…' : 'Local'; pb.className = 'ping good'; }
+  const pb = $('ping'); if (pb) { pb.textContent = mode !== 'solo' ? '…' : 'Local'; pb.className = 'ping good'; }
   if (mode === 'solo') { G.myslot = 0; G.code = 'SOLO'; G.remotes.clear(); G.hostSlot = 0; }
   G.skins[G.myslot] = Save.equipped();
   G.names[G.myslot] = G.myName;
@@ -1598,11 +1846,10 @@ function updateCamera(dt) {
   const L = G.L, me = G.me, cam = G.cam;
   if (!L || !me) return;
   const sc0 = baseScale();
-  const mp = ipos(me);
-  let fx = mp.x + PW / 2, fy = mp.y + PH / 2, spread = 0;
+  let fx = me.x + PW / 2, fy = me.y + PH / 2, spread = 0;
   if (G.mode === 'coop' && G.remotes.size) {
     let sx = 0, sy = 0, n = 0;
-    for (const r of G.remotes.values()) { if (r.dead) continue; const rp = ipos(r); sx += rp.x + PW / 2; sy += rp.y + PH / 2; n++; spread = Math.max(spread, Math.hypot(rp.x - mp.x, rp.y - mp.y)); }
+    for (const r of G.remotes.values()) { if (r.dead) continue; sx += r.x + PW / 2; sy += r.y + PH / 2; n++; spread = Math.max(spread, Math.hypot(r.x - me.x, r.y - me.y)); }
     if (n) { fx = lerp(fx, sx / n, 0.35); fy = lerp(fy, sy / n, 0.35); }
   }
   const tz = G.mode === 'coop' ? clamp(1 - (spread - 420) / 1700, 0.78, 1) : 1;
@@ -1612,8 +1859,8 @@ function updateCamera(dt) {
   const look = clamp(me.vx * 14, -90, 90);
   let tx = fx + look - vw / 2;
   let ty = fy - vh * 0.56;
-  tx = clamp(tx, mp.x + PW / 2 - vw * 0.78, mp.x + PW / 2 - vw * 0.22);
-  ty = clamp(ty, mp.y + PH / 2 - vh * 0.85, mp.y + PH / 2 - vh * 0.15);
+  tx = clamp(tx, me.x + PW / 2 - vw * 0.78, me.x + PW / 2 - vw * 0.22);
+  ty = clamp(ty, me.y + PH / 2 - vh * 0.85, me.y + PH / 2 - vh * 0.15);
   tx = L.w <= vw ? (L.w - vw) / 2 : clamp(tx, 0, L.w - vw);
   ty = L.h <= vh ? (L.h - vh) / 2 : clamp(ty, 0, L.h - vh);
   if (cam.snap) { cam.x = tx; cam.y = ty; cam.snap = false; }
@@ -1642,63 +1889,38 @@ function drawCloud(x, y, s) {
 function hsl(h, s, l, a) { return 'hsla(' + (((h % 360) + 360) % 360) + ',' + s + '%,' + l + '%,' + (a === undefined ? 1 : a) + ')'; }
 
 function drawBackground(L, cam) {
+  const g = ctx.createLinearGradient(0, 0, 0, ch);
+  g.addColorStop(0, hsl(L.hue, 70, 82)); g.addColorStop(0.6, hsl(L.hue + 20, 80, 90)); g.addColorStop(1, hsl(L.hue + 40, 70, 94));
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  const g = ctx.createLinearGradient(0, 0, 0, canvas.height);
-  g.addColorStop(0, hsl(L.hue, 70, 76)); g.addColorStop(0.55, hsl(L.hue + 20, 80, 89)); g.addColorStop(1, hsl(L.hue + 40, 75, 95));
   ctx.fillStyle = g; ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  const sunX = cw * 0.78 - cam.x * 0.015, sunY = ch * 0.2;
-  const rg = ctx.createRadialGradient(sunX, sunY, 0, sunX, sunY, ch * 0.6);
-  rg.addColorStop(0, 'rgba(255,252,215,.95)'); rg.addColorStop(0.12, 'rgba(255,240,180,.55)'); rg.addColorStop(1, 'rgba(255,240,180,0)');
-  ctx.fillStyle = rg; ctx.fillRect(0, 0, cw, ch);
-  ctx.fillStyle = 'rgba(255,255,255,.72)';
+  ctx.fillStyle = 'rgba(255,255,255,.75)';
   for (const c of clouds) {
     const span = L.w * c.f + cw + 600;
     const x = ((c.x - cam.x * c.f) % span + span) % span - 200;
-    drawCloud(x + Math.sin(G.lt * 0.15 + c.x) * 10, c.y * cam.sc * 0.8 + 20 - cam.y * 0.04 * cam.sc, c.s * cam.sc * 0.9);
+    drawCloud(x, c.y * cam.sc * 0.8 + 20 - cam.y * 0.04 * cam.sc, c.s * cam.sc * 0.9);
   }
   for (let layer = 0; layer < 3; layer++) {
     const f = 0.12 + layer * 0.14, base = ch * (0.72 + layer * 0.08) - (cam.y * (0.1 + layer * 0.05)) * cam.sc;
-    const lg = ctx.createLinearGradient(0, base - 160 * cam.sc, 0, ch);
-    lg.addColorStop(0, hsl(L.hue + 10 + layer * 12, 42, 84 - layer * 6)); lg.addColorStop(1, hsl(L.hue + 10 + layer * 12, 48, 66 - layer * 6));
-    ctx.fillStyle = lg;
+    ctx.fillStyle = hsl(L.hue + 10 + layer * 12, 45, 76 - layer * 6, 0.9);
     ctx.beginPath(); ctx.moveTo(0, ch);
-    for (let sx = 0; sx <= cw + 40; sx += 24) {
-      const wx = sx / cam.sc + cam.x * f;
+    for (let sx = 0; sx <= cw + 40; sx += 40) {
+      const wx = sx / cam.sc * 1 + cam.x * f * 1;
       ctx.lineTo(sx, base - (Math.sin(wx * 0.004 + layer * 2) * 40 + Math.sin(wx * 0.011 + layer) * 18 + 60 - layer * 14) * cam.sc * 0.8);
     }
     ctx.lineTo(cw, ch); ctx.closePath(); ctx.fill();
   }
-  ctx.fillStyle = 'rgba(255,255,255,.55)';
-  for (let i = 0; i < 18; i++) {
-    const mx = (((i * 377 + G.lt * (8 + (i % 4) * 5) - cam.x * 0.3) % cw) + cw) % cw;
-    const my = (i * 131) % ch + Math.sin(G.lt * 0.8 + i) * 12;
-    ctx.beginPath(); ctx.arc(mx, my, 1.5 + (i % 3), 0, 6.3); ctx.fill();
-  }
 }
 
 function drawSolid(L, s) {
-  const x = s[0], y = s[1], w = s[2], h = s[3];
-  const gr = ctx.createLinearGradient(0, y, 0, y + Math.min(h, 280));
-  gr.addColorStop(0, hsl(L.hue + 25, 38, 58)); gr.addColorStop(1, hsl(L.hue + 25, 38, 34));
-  ctx.fillStyle = gr; ctx.fillRect(x, y, w, h);
-  ctx.fillStyle = 'rgba(255,255,255,.13)';
+  const [x, y, w, h] = s;
+  const body = hsl(L.hue + 25, 35, 52), dark = hsl(L.hue + 25, 35, 40);
+  ctx.fillStyle = body; ctx.fillRect(x, y, w, h);
+  ctx.fillStyle = dark; ctx.fillRect(x, y + 18, w, 3);
+  ctx.fillStyle = hsl(110, 55, 52); rr(x - 2, y - 4, w + 4, 16, 6); ctx.fill();
+  ctx.fillStyle = hsl(110, 55, 42); ctx.fillRect(x, y + 8, w, 3);
+  ctx.fillStyle = 'rgba(255,255,255,.18)';
   for (let px = x + 18; px < x + w - 10; px += 56) ctx.fillRect(px, y + 30 + ((px * 7) % 40), 14, 5);
-  ctx.fillStyle = 'rgba(0,0,0,.10)';
-  for (let px = x + 40; px < x + w - 20; px += 90) ctx.fillRect(px, y + 70 + ((px * 5) % 60), 22, 6);
-  ctx.fillStyle = hsl(105, 52, 40); rr(x - 3, y - 5, w + 6, 19, 7); ctx.fill();
-  ctx.fillStyle = hsl(105, 60, 56); rr(x - 3, y - 5, w + 6, 9, 5); ctx.fill();
-  ctx.fillStyle = hsl(105, 62, 50);
-  for (let px = x + 6; px < x + w - 4; px += 22) {
-    const bh = 5 + ((px * 13) % 7);
-    ctx.beginPath(); ctx.moveTo(px, y - 4); ctx.lineTo(px + 3, y - 4 - bh); ctx.lineTo(px + 6, y - 4); ctx.fill();
-  }
-  if (h > 100) {
-    for (let px = x + 40; px < x + w - 20; px += 170 + ((px * 7) % 90)) {
-      ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(px, y - 9, 3.2, 0, 6.3); ctx.fill();
-      ctx.fillStyle = '#ffd43b'; ctx.beginPath(); ctx.arc(px, y - 9, 1.5, 0, 6.3); ctx.fill();
-    }
-  }
 }
 
 function drawCrumble(c) {
@@ -1738,11 +1960,11 @@ function drawSpring(s) {
   ctx.fillStyle = '#e65100'; ctx.fillRect(s.x + 4, s.y + s.h - 3, s.w - 8, 3);
 }
 
-function drawCrusher(c, cb) {
+function drawCrusher(c) {
   const sx = c.shake ? Math.sin(G.lt * 120) * 3 : 0;
   ctx.strokeStyle = '#78909c'; ctx.lineWidth = 6;
-  ctx.beginPath(); ctx.moveTo(c.x + c.w / 2 + sx, c.top); ctx.lineTo(c.x + c.w / 2 + sx, cb - c.h); ctx.stroke();
-  const x = c.x + sx, y = cb - c.h;
+  ctx.beginPath(); ctx.moveTo(c.x + c.w / 2 + sx, c.top); ctx.lineTo(c.x + c.w / 2 + sx, c.cb - c.h); ctx.stroke();
+  const x = c.x + sx, y = c.cb - c.h;
   ctx.fillStyle = c.shake ? '#e57373' : '#90a4ae'; rr(x, y, c.w, c.h - 18, 8); ctx.fill();
   ctx.strokeStyle = '#455a64'; ctx.lineWidth = 3; ctx.stroke();
   ctx.fillStyle = '#cfd8dc';
@@ -1754,8 +1976,8 @@ function drawCrusher(c, cb) {
   ctx.beginPath(); ctx.moveTo(x + c.w * 0.2, y + 22); ctx.lineTo(x + c.w * 0.4, y + 27); ctx.moveTo(x + c.w * 0.8, y + 22); ctx.lineTo(x + c.w * 0.6, y + 27); ctx.stroke();
 }
 
-function drawBoulder(b, bcx, brot) {
-  ctx.save(); ctx.translate(bcx, b.y - b.r); ctx.rotate(brot);
+function drawBoulder(b) {
+  ctx.save(); ctx.translate(b.cx, b.y - b.r); ctx.rotate(b.rot);
   ctx.fillStyle = '#8d6e63'; ctx.beginPath(); ctx.arc(0, 0, b.r, 0, 6.3); ctx.fill();
   ctx.strokeStyle = '#4e342e'; ctx.lineWidth = 3; ctx.stroke();
   ctx.fillStyle = '#6d4c41';
@@ -1785,7 +2007,6 @@ function drawCoin(c) {
   const t = G.lt * 4 + c.id, sx = Math.abs(Math.cos(t));
   ctx.save(); ctx.translate(c.x, c.y + Math.sin(t * 0.7) * 3);
   if (c.got) { ctx.globalAlpha = c.pop * 2; ctx.translate(0, -(0.5 - c.pop) * 50); }
-  ctx.fillStyle = 'rgba(255,214,80,.22)'; ctx.beginPath(); ctx.arc(0, 0, 21, 0, 6.3); ctx.fill();
   ctx.fillStyle = '#ffca28'; ctx.strokeStyle = '#b8860b'; ctx.lineWidth = 2.5;
   ctx.beginPath(); ctx.ellipse(0, 0, 11 * Math.max(0.2, sx), 13, 0, 0, 6.3); ctx.fill(); ctx.stroke();
   ctx.fillStyle = '#fff3b0'; ctx.fillRect(-1.5 * sx, -6, 3 * sx, 12);
@@ -1865,115 +2086,55 @@ function drawExit(L) {
   else { ctx.fillStyle = '#ffd43b'; ctx.beginPath(); ctx.arc(e.x + e.w / 2, e.y + e.h / 2 + 4, 7, 0, 6.3); ctx.fill(); ctx.fillRect(e.x + e.w / 2 - 3, e.y + e.h / 2 + 6, 6, 12); }
 }
 
-const lighten = (hex, a) => {
-  const n = parseInt(hex.slice(1), 16), r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
-  const f = (v) => Math.round(v + (255 - v) * a);
-  return 'rgb(' + f(r) + ',' + f(g) + ',' + f(b) + ')';
-};
-
-function drawShadow(x, y) {
-  const L = G.L, fx = x + PW / 2, feet = y + PH;
-  let top = null;
-  for (let i = 0; i < L.solids.length; i++) { const s = L.solids[i]; if (fx >= s[0] && fx <= s[0] + s[2] && s[1] >= feet - 6 && (top === null || s[1] < top)) top = s[1]; }
-  for (let i = 0; i < L.crumbles.length; i++) { const c = L.crumbles[i]; if (c.st < 2 && fx >= c.x && fx <= c.x + c.w && c.y >= feet - 6 && (top === null || c.y < top)) top = c.y; }
-  if (top === null) return;
-  const d = top - feet; if (d > 320) return;
-  const k = 1 - d / 320;
-  ctx.fillStyle = 'rgba(40,20,50,' + (0.07 + 0.2 * k).toFixed(3) + ')';
-  ctx.beginPath(); ctx.ellipse(fx, top + 1, 17 * (0.55 + 0.45 * k), 4.5 * (0.55 + 0.45 * k), 0, 0, 6.3); ctx.fill();
-}
-
 function drawBunny(x, y, o) {
   const slot = o.slot || 0, skin = o.skin || 'classic';
   const col = COLORS[slot % 4], dk = DARKS[slot % 4];
   const face = o.face >= 0 ? 1 : -1, sq = clamp(o.sq || 0, -0.4, 0.4);
-  const run = o.ground && Math.abs(o.vx) > 0.8, air = !o.ground;
-  const ph = o.runT * 3, bob = run ? -Math.abs(Math.sin(ph)) * 2.4 : 0;
-  const t = G.lt + slot * 1.7, blink = (t % 3.4) < 0.12;
-  const vx = o.vx || 0, vy = o.vy || 0;
+  const run = o.ground && Math.abs(o.vx) > 0.8;
+  const bob = run ? Math.sin(o.runT * 3) * 2 : 0;
   ctx.save();
   if (o.inv && Math.floor(G.lt * 14) % 2 === 0) ctx.globalAlpha = 0.45;
   ctx.translate(x + PW / 2, y + PH);
   ctx.scale(face * (1 + sq * 0.6), 1 - sq);
-  ctx.rotate(run ? 0.07 : air ? clamp(vy * 0.014, -0.18, 0.18) : 0);
-  const earSwing = clamp(-vy * 0.05, -0.5, 0.5) + (run ? Math.sin(ph) * 0.12 : 0);
+  const earSwing = clamp(-(o.vy || 0) * 0.05, -0.5, 0.5) + (run ? Math.sin(o.runT * 3) * 0.12 : 0);
   if (skin === 'slime') {
-    const wob = Math.sin(t * 5) * 1.5;
-    const sg = ctx.createLinearGradient(0, -38, 0, 0); sg.addColorStop(0, 'rgba(255,224,102,.98)'); sg.addColorStop(1, 'rgba(255,170,0,.95)');
-    ctx.fillStyle = sg; ctx.strokeStyle = '#d98200'; ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.moveTo(-17, 0); ctx.quadraticCurveTo(-19, -34 + wob, 0, -39 + bob + wob); ctx.quadraticCurveTo(19, -34 + wob, 17, 0); ctx.closePath(); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = 'rgba(255,255,255,.7)'; ctx.beginPath(); ctx.ellipse(-7, -27, 4, 7, -0.5, 0, 6.3); ctx.fill();
-    if (blink) { ctx.strokeStyle = '#4e342e'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(-1, -20); ctx.lineTo(5, -20); ctx.moveTo(7, -20); ctx.lineTo(13, -20); ctx.stroke(); }
-    else {
-      ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(2, -21, 4.4, 0, 6.3); ctx.arc(10, -21, 4.4, 0, 6.3); ctx.fill();
-      ctx.fillStyle = '#4e342e'; ctx.beginPath(); ctx.arc(3.4, -20.6, 2.3, 0, 6.3); ctx.arc(11.4, -20.6, 2.3, 0, 6.3); ctx.fill();
-      ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(2.8, -21.6, 0.9, 0, 6.3); ctx.arc(10.8, -21.6, 0.9, 0, 6.3); ctx.fill();
-    }
-    ctx.strokeStyle = '#4e342e'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(6.5, -14, 3.5, 0.15, 3.0); ctx.stroke();
+    ctx.fillStyle = 'rgba(255,193,7,.95)'; ctx.strokeStyle = '#e09b00'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(-16, 0); ctx.quadraticCurveTo(-18, -34, 0, -38 + bob); ctx.quadraticCurveTo(18, -34, 16, 0); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,.65)'; ctx.beginPath(); ctx.ellipse(-6, -26, 4, 7, -0.5, 0, 6.3); ctx.fill();
+    ctx.fillStyle = '#4e342e'; ctx.beginPath(); ctx.arc(2, -20, 2.6, 0, 6.3); ctx.arc(10, -20, 2.6, 0, 6.3); ctx.fill();
+    ctx.strokeStyle = '#4e342e'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(6, -14, 3.5, 0.15, 3.0); ctx.stroke();
   } else {
-    const body = skin === 'ninja' ? '#2b2d42' : skin === 'king' ? '#efe0fa' : col;
-    const edge = skin === 'ninja' ? '#12131f' : skin === 'king' ? '#8e5bbd' : dk;
-    const inner = skin === 'ninja' ? '#00bfa5' : '#ffb3cb';
-    if (skin === 'king') {
-      ctx.fillStyle = '#c1121f'; ctx.strokeStyle = '#7a0b13'; ctx.lineWidth = 2;
-      const cw2 = Math.sin(t * 6) * 2 + (run ? 4 : 0);
-      ctx.beginPath(); ctx.moveTo(-11, -28 + bob); ctx.quadraticCurveTo(-22 - cw2, -14, -19 - cw2, 1); ctx.lineTo(-8, -2); ctx.closePath(); ctx.fill(); ctx.stroke();
-    }
-    ctx.fillStyle = '#fff'; ctx.strokeStyle = edge; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.arc(-15, -10 + bob, 5.6 + Math.sin(t * 6) * 0.4, 0, 6.3); ctx.fill(); ctx.stroke();
-    const ear = (ox, rot) => {
-      ctx.save(); ctx.translate(ox, -31 + bob); ctx.rotate(rot);
-      ctx.fillStyle = body; ctx.strokeStyle = edge; ctx.lineWidth = 2.5;
-      ctx.beginPath(); ctx.ellipse(0, -11, 4.8, 13, 0, 0, 6.3); ctx.fill(); ctx.stroke();
-      ctx.fillStyle = inner; ctx.beginPath(); ctx.ellipse(0, -10, 2.2, 9, 0, 0, 6.3); ctx.fill(); ctx.restore();
-    };
-    ear(-6, -0.15 - earSwing); ear(6, 0.15 - earSwing);
-    const bg = ctx.createLinearGradient(0, -36 + bob, 0, 0); bg.addColorStop(0, lighten(body, 0.4)); bg.addColorStop(1, body);
-    ctx.fillStyle = bg; ctx.strokeStyle = edge; ctx.lineWidth = 3; rr(-14, -34 + bob, 28, 34 - bob, 12); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = skin === 'ninja' ? '#3d405b' : 'rgba(255,255,255,.62)'; ctx.beginPath(); ctx.ellipse(1, -9, 8.5, 8, 0, 0, 6.3); ctx.fill();
-    const fo = run ? Math.sin(ph) * 4 : 0, fy = air ? -4 : -2;
-    ctx.fillStyle = edge; ctx.beginPath(); ctx.ellipse(-6 + fo, fy, 6, 3.2, 0, 0, 6.3); ctx.ellipse(7 - fo, fy, 6, 3.2, 0, 0, 6.3); ctx.fill();
-    ctx.fillStyle = body; ctx.strokeStyle = edge; ctx.lineWidth = 2;
-    const ay = -14 + bob + (run ? Math.sin(ph + 3.14) * 2.5 : air ? -4 : 0);
-    ctx.beginPath(); ctx.ellipse(11, ay, 3.2, 5.2, 0.3, 0, 6.3); ctx.fill(); ctx.stroke();
+    const body = skin === 'ninja' ? '#2b2d42' : skin === 'king' ? '#e8d5f5' : col;
+    const edge = skin === 'ninja' ? '#12131f' : skin === 'king' ? '#9d6bc9' : dk;
+    ctx.save(); ctx.translate(-5, -30 + bob); ctx.rotate(-0.15 - earSwing);
+    ctx.fillStyle = body; ctx.strokeStyle = edge; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.ellipse(0, -10, 4.5, 12, 0, 0, 6.3); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = skin === 'ninja' ? '#00bfa5' : '#ffc1d4'; ctx.beginPath(); ctx.ellipse(0, -9, 2, 8, 0, 0, 6.3); ctx.fill(); ctx.restore();
+    ctx.save(); ctx.translate(6, -30 + bob); ctx.rotate(0.15 - earSwing);
+    ctx.fillStyle = body; ctx.strokeStyle = edge; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.ellipse(0, -10, 4.5, 12, 0, 0, 6.3); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = skin === 'ninja' ? '#00bfa5' : '#ffc1d4'; ctx.beginPath(); ctx.ellipse(0, -9, 2, 8, 0, 0, 6.3); ctx.fill(); ctx.restore();
+    ctx.fillStyle = body; ctx.strokeStyle = edge; ctx.lineWidth = 3; rr(-14, -34 + bob, 28, 34 - bob, 12); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = skin === 'ninja' ? '#3d405b' : 'rgba(255,255,255,.55)'; ctx.beginPath(); ctx.ellipse(0, -10, 8, 8, 0, 0, 6.3); ctx.fill();
+    ctx.fillStyle = edge; const fo = run ? Math.sin(o.runT * 3) * 3 : 0;
+    ctx.fillRect(-11 + fo, -3, 9, 3); ctx.fillRect(2 - fo, -3, 9, 3);
     if (skin === 'ninja') {
-      ctx.fillStyle = '#00f5d4'; ctx.fillRect(-14, -27 + bob, 28, 7);
-      ctx.fillStyle = 'rgba(255,255,255,.35)'; ctx.fillRect(-14, -27 + bob, 28, 2);
-      ctx.fillStyle = '#fff'; ctx.fillRect(1, -25.5 + bob, 5, 3.5); ctx.fillRect(8, -25.5 + bob, 5, 3.5);
-      ctx.fillStyle = '#12131f'; ctx.fillRect(3.5, -25 + bob, 2, 2.6); ctx.fillRect(10.5, -25 + bob, 2, 2.6);
-      ctx.fillStyle = '#00f5d4'; const tw = Math.sin(G.lt * 8) * 2.5;
-      ctx.beginPath(); ctx.moveTo(-14, -25 + bob); ctx.lineTo(-25, -21 + bob + tw); ctx.lineTo(-14, -21 + bob); ctx.fill();
-      ctx.beginPath(); ctx.moveTo(-14, -24 + bob); ctx.lineTo(-23, -15 + bob - tw); ctx.lineTo(-14, -20 + bob); ctx.fill();
+      ctx.fillStyle = '#00f5d4'; ctx.fillRect(-14, -26 + bob, 28, 6);
+      ctx.fillStyle = '#fff'; ctx.fillRect(1, -25 + bob, 5, 3); ctx.fillRect(8, -25 + bob, 5, 3);
+      ctx.fillStyle = '#00f5d4'; ctx.beginPath(); ctx.moveTo(-14, -24 + bob); ctx.lineTo(-24, -20 + bob + Math.sin(G.lt * 8) * 2); ctx.lineTo(-14, -20 + bob); ctx.fill();
     } else {
-      if (blink) {
-        ctx.strokeStyle = '#3b2a3f'; ctx.lineWidth = 2; ctx.beginPath();
-        ctx.moveTo(-0.5, -23 + bob); ctx.lineTo(6.5, -23 + bob); ctx.moveTo(7.5, -23 + bob); ctx.lineTo(14, -23 + bob); ctx.stroke();
-      } else {
-        const pxo = clamp(vx * 0.2, -1, 1.4) + 1.2, pyo = clamp(vy * 0.08, -1.2, 1.2);
-        ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(3, -23.5 + bob, 4.7, 0, 6.3); ctx.arc(10.5, -23.5 + bob, 4.7, 0, 6.3); ctx.fill();
-        ctx.fillStyle = '#3b2a3f'; ctx.beginPath(); ctx.arc(3 + pxo, -23 + bob + pyo, 2.5, 0, 6.3); ctx.arc(10.5 + pxo, -23 + bob + pyo, 2.5, 0, 6.3); ctx.fill();
-        ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(2.4 + pxo, -24 + bob + pyo, 1, 0, 6.3); ctx.arc(9.9 + pxo, -24 + bob + pyo, 1, 0, 6.3); ctx.fill();
-      }
-      ctx.fillStyle = 'rgba(255,100,140,.4)'; ctx.beginPath(); ctx.ellipse(-1.5, -16.5 + bob, 3.4, 2.2, 0, 0, 6.3); ctx.ellipse(13, -16.5 + bob, 3.2, 2.2, 0, 0, 6.3); ctx.fill();
-      ctx.fillStyle = '#ff7a9a'; ctx.beginPath(); ctx.ellipse(7.5, -18 + bob, 1.9, 1.4, 0, 0, 6.3); ctx.fill();
-      ctx.strokeStyle = '#3b2a3f'; ctx.lineWidth = 1.4;
-      if (air && vy < -1) { ctx.fillStyle = '#7a2e45'; ctx.beginPath(); ctx.ellipse(7.5, -14 + bob, 2.2, 2.6, 0, 0, 6.3); ctx.fill(); }
-      else { ctx.beginPath(); ctx.arc(5.3, -16.2 + bob, 2.2, 0.2, 2.6); ctx.arc(9.7, -16.2 + bob, 2.2, 0.5, 2.9); ctx.stroke(); }
-      ctx.strokeStyle = 'rgba(0,0,0,.25)'; ctx.lineWidth = 1.1; ctx.beginPath();
-      ctx.moveTo(12, -17.5 + bob); ctx.lineTo(19, -19.5 + bob); ctx.moveTo(12, -15.5 + bob); ctx.lineTo(19, -15 + bob); ctx.stroke();
+      ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(3, -23 + bob, 4.2, 0, 6.3); ctx.arc(10, -23 + bob, 4.2, 0, 6.3); ctx.fill();
+      ctx.fillStyle = '#3b2a3f'; ctx.beginPath(); ctx.arc(4.4, -22.5 + bob, 2.1, 0, 6.3); ctx.arc(11.4, -22.5 + bob, 2.1, 0, 6.3); ctx.fill();
+      ctx.fillStyle = '#ff7a9a'; ctx.beginPath(); ctx.arc(7, -18 + bob, 1.6, 0, 6.3); ctx.fill();
     }
     if (skin === 'king') {
       ctx.fillStyle = '#ffd43b'; ctx.strokeStyle = '#b8860b'; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.moveTo(-10, -33 + bob); ctx.lineTo(-11, -44 + bob); ctx.lineTo(-5, -38 + bob); ctx.lineTo(0, -47 + bob); ctx.lineTo(5, -38 + bob); ctx.lineTo(11, -44 + bob); ctx.lineTo(10, -33 + bob); ctx.closePath(); ctx.fill(); ctx.stroke();
       ctx.fillStyle = '#ff5252'; ctx.beginPath(); ctx.arc(0, -39 + bob, 2.2, 0, 6.3); ctx.fill();
-      ctx.fillStyle = '#4dabf7'; ctx.beginPath(); ctx.arc(-6, -37 + bob, 1.4, 0, 6.3); ctx.arc(6, -37 + bob, 1.4, 0, 6.3); ctx.fill();
     }
   }
   ctx.restore();
   if (o.shield) {
-    ctx.save(); const pul = 1 + Math.sin(G.lt * 6) * 0.04;
-    ctx.strokeStyle = 'rgba(120,220,255,.9)'; ctx.fillStyle = 'rgba(120,220,255,.2)'; ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.ellipse(x + PW / 2, y + PH / 2, 24 * pul, 27 * pul, 0, 0, 6.3); ctx.fill(); ctx.stroke(); ctx.restore();
+    ctx.save(); ctx.strokeStyle = 'rgba(120,220,255,.9)'; ctx.fillStyle = 'rgba(120,220,255,.2)'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.ellipse(x + PW / 2, y + PH / 2, 24, 27, 0, 0, 6.3); ctx.fill(); ctx.stroke(); ctx.restore();
   }
   if (o.name) {
     ctx.font = '700 12px sans-serif'; ctx.textAlign = 'center';
@@ -1985,9 +2146,8 @@ function drawBunny(x, y, o) {
 
 function drawTether() {
   if (G.mode !== 'coop' || !G.remotes.size) return;
-  const mq = ipos(G.me);
-  const ents = [{ slot: G.myslot, x: mq.x, y: mq.y, dead: G.me.dead }];
-  for (const r of G.remotes.values()) { const rq = ipos(r); ents.push({ slot: r.slot, x: rq.x, y: rq.y, dead: r.dead }); }
+  const ents = [{ slot: G.myslot, x: G.me.x, y: G.me.y, dead: G.me.dead, tg: G.me.tetherGrace }];
+  for (const r of G.remotes.values()) ents.push({ slot: r.slot, x: r.x, y: r.y, dead: r.dead, tg: r.tetherGrace });
   ents.sort((a, b) => a.slot - b.slot);
   for (let i = 0; i < ents.length - 1; i++) {
     const a = ents[i], b = ents[i + 1];
@@ -1997,13 +2157,16 @@ function drawTether() {
     const tension = clamp((d - TETHER) / 120, 0, 1);
     const mx = (ax + bx) / 2, my = (ay + by) / 2 + sag;
     const grad = ctx.createLinearGradient(ax, ay, bx, by);
-    grad.addColorStop(0, COLORS[a.slot % 4]); grad.addColorStop(1, COLORS[b.slot % 4]);
+    grad.addColorStop(0, COLORS[a.slot % COLORS.length]); grad.addColorStop(1, COLORS[b.slot % COLORS.length]);
     ctx.lineCap = 'round';
+    ctx.save();
+    if ((a.tg && a.tg > 0) || (b.tg && b.tg > 0)) ctx.globalAlpha = 0.35;
     ctx.strokeStyle = 'rgba(60,30,60,.55)'; ctx.lineWidth = 7;
     ctx.beginPath(); ctx.moveTo(ax, ay); ctx.quadraticCurveTo(mx, my, bx, by); ctx.stroke();
     ctx.strokeStyle = tension > 0.05 ? 'rgb(255,' + Math.round(210 - tension * 150) + ',' + Math.round(210 - tension * 150) + ')' : grad;
     ctx.lineWidth = 4.5 - tension * 1.5;
     ctx.beginPath(); ctx.moveTo(ax, ay); ctx.quadraticCurveTo(mx, my, bx, by); ctx.stroke();
+    ctx.restore();
   }
 }
 
@@ -2017,7 +2180,6 @@ function render(dt) {
   const shk = G.shake > 0.2 ? G.shake : 0; G.shake *= 0.88;
   const ox = shk ? rnd(-shk, shk) : 0, oy = shk ? rnd(-shk, shk) : 0;
   ctx.setTransform(dpr * cam.sc, 0, 0, dpr * cam.sc, -(cam.x + ox) * dpr * cam.sc, -(cam.y + oy) * dpr * cam.sc);
-  const ltR = G.lt - STEP * (1 - (G.alpha === undefined ? 1 : G.alpha));
   const x0 = cam.x - 120, x1 = cam.x + cam.vw + 120;
   const vis = (x, w) => x + w > x0 && x < x1;
 
@@ -2029,32 +2191,23 @@ function render(dt) {
   for (const f of L.flags) if (vis(f.x, 40)) drawFlag(f);
   drawExit(L);
   L.ropes.forEach((R, i) => { if (vis(R.ax - 300, 600)) drawRope(R, i); });
-  for (const c of L.crushers) if (vis(c.x, c.w)) drawCrusher(c, crusherBottom(c, ltR));
+  for (const c of L.crushers) if (vis(c.x, c.w)) drawCrusher(c);
   for (const s of L.spikes) if (vis(s.x, s.w)) drawSpikes(s);
-  for (const b of L.boulders) if (vis(b.x0 - 60, b.x1 - b.x0 + 120)) { const bx = pingPong(b.x0, b.x1, b.speed, b.off, ltR); drawBoulder(b, bx, b.rot + (bx - b.cx) / b.r); }
+  for (const b of L.boulders) if (vis(b.x0 - 60, b.x1 - b.x0 + 120)) drawBoulder(b);
   for (const c of L.coins) if (vis(c.x - 20, 40)) drawCoin(c);
   if (!G.keyGot) { const k = keyPos(); drawKeyIcon(k.x, k.y, G.lt); }
   drawTether();
 
   for (const r of G.remotes.values()) {
     if (r.dead) continue;
-    const rp = ipos(r);
-    drawShadow(rp.x, rp.y);
-    drawBunny(rp.x, rp.y, { slot: r.slot, skin: G.skins[r.slot], face: r.face, vx: r.tvx, vy: r.tvy, ground: r.onGround, runT: r.runT, sq: r.sq, inv: r.inv, shield: r.shield, name: G.names[r.slot] });
+    drawBunny(r.x, r.y, { slot: r.slot, skin: G.skins[r.slot], face: r.face, vx: r.tvx, vy: r.tvy, ground: r.onGround, runT: r.runT, sq: r.sq, inv: r.inv, shield: r.shield, name: G.names[r.slot] });
   }
 
   const me = G.me;
-  if (!me.dead) {
-    const mp = ipos(me);
-    drawShadow(mp.x, mp.y);
-    drawBunny(mp.x, mp.y, { slot: me.slot, skin: G.skins[me.slot] || Save.equipped(), face: me.face, vx: me.vx, vy: me.vy, ground: me.onGround, runT: me.runT, sq: me.sq, inv: me.inv > 0, shield: me.shield, name: G.mode === 'coop' ? G.names[me.slot] : null });
-  }
+  if (!me.dead) drawBunny(me.x, me.y, { slot: me.slot, skin: G.skins[me.slot] || Save.equipped(), face: me.face, vx: me.vx, vy: me.vy, ground: me.onGround, runT: me.runT, sq: me.sq, inv: me.inv > 0, shield: me.shield, name: G.mode === 'coop' ? G.names[me.slot] : null });
   for (const s of L.sweepers) drawSweeper(s, cam);
   drawParts();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
-  const vg = ctx.createRadialGradient(canvas.width / 2, canvas.height / 2, Math.min(canvas.width, canvas.height) * 0.45, canvas.width / 2, canvas.height / 2, Math.max(canvas.width, canvas.height) * 0.78);
-  vg.addColorStop(0, 'rgba(70,20,80,0)'); vg.addColorStop(1, 'rgba(70,20,80,.22)');
-  ctx.fillStyle = vg; ctx.fillRect(0, 0, canvas.width, canvas.height);
 }
 
 // ============================================================================
@@ -2071,7 +2224,6 @@ function frame(t) {
     let n = 0;
     while (acc >= STEP && n < 5) { stepRemotes(); stepPlayer(); updateWorld(); acc -= STEP; n++; }
     if (n === 5) acc = 0;
-    G.alpha = clamp(acc / STEP, 0, 1);
     sendPos(t);
     updateParts(dt);
     updateCamera(dt);
@@ -2083,6 +2235,304 @@ function frame(t) {
 }
 
 // ============================================================================
+
+// ============================================================================
+// SETTINGS MODAL (GOM NÚT ÂM THANH, RESET, HOME & CHẶNG SPAM)
+// ============================================================================
+function buildSettingsModal() {
+  if ($('settingsModal')) return;
+  const st = document.createElement('style');
+  st.textContent = `
+    .sm-wrap{position:fixed;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;background:rgba(20,10,30,.65);backdrop-filter:blur(4px);padding:14px}
+    .sm-card{width:min(420px,94%);background:#fff8fb;border:4px solid #5b3a5e;border-radius:24px;padding:20px;box-shadow:0 8px 0 rgba(0,0,0,.25);text-align:center;font-family:var(--font,sans-serif)}
+    .sm-title{font-size:20px;font-weight:800;color:#5b3a5e;margin-bottom:16px;display:flex;align-items:center;justify-content:center;gap:8px}
+    .sm-grid{display:flex;flex-direction:column;gap:10px}
+    .sm-btn{font-size:15px;font-weight:700;padding:12px 14px;border:3px solid #5b3a5e;border-radius:14px;background:#fff;cursor:pointer;color:#5b3a5e;box-shadow:0 3px 0 #5b3a5e;display:flex;align-items:center;justify-content:center;gap:8px;transition:all .1s}
+    .sm-btn:active{transform:translateY(2px);box-shadow:0 1px 0 #5b3a5e}
+    .sm-btn.pri{background:#ffe066}
+    .sm-btn.danger{background:#ffc9c9}
+    .sm-btn.close{margin-top:8px;background:#e9ecef;border-color:#868e96;color:#495057;box-shadow:0 3px 0 #868e96}
+    .sm-btn.host-tag::after{content:'★ Chủ phòng';font-size:11px;background:#ff922b;color:#fff;padding:2px 6px;border-radius:8px;margin-left:6px}
+  `;
+  document.head.appendChild(st);
+  const el = document.createElement('div');
+  el.id = 'settingsModal'; el.className = 'sm-wrap hidden';
+  el.innerHTML = `
+    <div class="sm-card">
+      <div class="sm-title">⚙️ CÀI ĐẶT TRÒ CHƠI</div>
+      <div class="sm-grid">
+        <button id="smSoundBtn" class="sm-btn">🔊 Âm thanh: BẬT</button>
+        <button id="smRestartBtn" class="sm-btn pri host-tag">🔄 Khởi động lại màn</button>
+        <button id="smAutoMapBtn" class="sm-btn host-tag">🎲 Tạo màn ngẫu nhiên</button>
+        <button id="smEditorBtn" class="sm-btn">🛠️ Trình tạo màn (Editor)</button>
+        <button id="smUnstickBtn" class="sm-btn">🆘 Kẹt map? Hồi sinh ngay</button>
+        <button id="smExitBtn" class="sm-btn danger">🏠 Thoát về Menu chính</button>
+        <button id="smCloseBtn" class="sm-btn close">✕ Đóng</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(el);
+
+  $('smSoundBtn').onclick = () => {
+    Snd.init();
+    const muted = Snd.toggleMute();
+    $('smSoundBtn').textContent = muted ? '🔇 Âm thanh: TẮT' : '🔊 Âm thanh: BẬT';
+    $('muteBtn').textContent = muted ? '🔇' : '🔊';
+  };
+  $('smRestartBtn').onclick = () => {
+    if (G.mode !== 'solo' && !isHostSlot()) {
+      toast('⚠️ Chỉ Chủ phòng (Host ★) mới có quyền Reset màn!');
+      return;
+    }
+    show('settingsModal', false);
+    if (G.mode !== 'solo') netEv({ t: 'restart', lv: G.lvIdx });
+    loadLevel(G.lvIdx);
+    toast('🔄 Đã khởi động lại màn chơi!');
+  };
+  $('smAutoMapBtn').onclick = () => {
+    if (G.mode !== 'solo' && !isHostSlot()) {
+      toast('⚠️ Chỉ Chủ phòng (Host ★) mới có quyền đổi Màn Ngẫu Nhiên!');
+      return;
+    }
+    show('settingsModal', false);
+    const randLvl = generateRandomLevel(G.mode);
+    if (G.mode !== 'solo') netEv({ t: 'custom_lvl', data: randLvl });
+    loadLevel(-1, randLvl);
+    toast('🎲 Đã sinh màn ngẫu nhiên mới!');
+  };
+  $('smEditorBtn').onclick = () => {
+    show('settingsModal', false);
+    openEditor();
+  };
+  $('smUnstickBtn').onclick = () => {
+    show('settingsModal', false);
+    respawn();
+    toast('🆘 Đã hồi sinh về điểm an toàn!');
+  };
+  $('smExitBtn').onclick = () => {
+    show('settingsModal', false);
+    leaveToMenu(false);
+  };
+  $('smCloseBtn').onclick = () => show('settingsModal', false);
+
+  // Group top bar HUD: hide separate restart, mute, menu buttons and put Settings gear
+  const rst = $('restartBtn'), mut = $('muteBtn'), mnu = $('menuBtn');
+  if (rst) rst.style.display = 'none';
+  if (mut) mut.style.display = 'none';
+  if (mnu) mnu.style.display = 'none';
+
+  let hudGear = $('hudGearBtn');
+  if (!hudGear) {
+    hudGear = document.createElement('button');
+    hudGear.id = 'hudGearBtn';
+    hudGear.className = 'hbtn';
+    hudGear.title = 'Cài đặt';
+    hudGear.textContent = '⚙️';
+    hudGear.style.fontSize = '18px';
+    hudGear.onclick = () => {
+      show('settingsModal', true);
+      $('smSoundBtn').textContent = Snd.isMuted() ? '🔇 Âm thanh: TẮT' : '🔊 Âm thanh: BẬT';
+    };
+    const hud = $('hud');
+    if (hud) hud.appendChild(hudGear);
+  }
+}
+
+// ============================================================================
+// LEVEL EDITOR (TRÌNH TẠO MÀN TRỰC QUAN & CHIA SẺ VỚI PHÒNG)
+// ============================================================================
+let editorActive = false;
+let editorTool = 'solid';
+let editorLevel = null;
+let editorScrollX = 0;
+
+function buildEditorUI() {
+  if ($('levelEditorOverlay')) return;
+  const st = document.createElement('style');
+  st.textContent = `
+    .ed-wrap{position:fixed;inset:0;z-index:70;display:flex;flex-direction:column;background:#2b2d42;color:#fff;font-family:var(--font,sans-serif)}
+    .ed-bar{display:flex;align-items:center;gap:8px;padding:8px 12px;background:#1a1b26;border-bottom:2px solid #3d405b;flex-wrap:wrap}
+    .ed-tool{font-size:13px;font-weight:700;padding:6px 10px;border:2px solid #5b3a5e;border-radius:10px;background:#fff;color:#5b3a5e;cursor:pointer}
+    .ed-tool.sel{background:#ffe066;border-color:#e65100;transform:scale(1.05)}
+    .ed-action{font-size:13px;font-weight:700;padding:6px 12px;border:2px solid #fff;border-radius:10px;cursor:pointer}
+    .ed-play{background:#70e000;color:#1a4d00;border-color:#38b000}
+    .ed-share{background:#4ea8de;color:#03045e;border-color:#0077b6}
+    .ed-close{background:#e63946;color:#fff;border-color:#d90429;margin-left:auto}
+    .ed-canvas{flex:1;width:100%;height:100%;cursor:crosshair;touch-action:none}
+  `;
+  document.head.appendChild(st);
+  const el = document.createElement('div');
+  el.id = 'levelEditorOverlay'; el.className = 'ed-wrap hidden';
+  el.innerHTML = `
+    <div class="ed-bar">
+      <span style="font-weight:800;color:#ffe066">🛠️ MAP EDITOR</span>
+      <button class="ed-tool sel" data-tool="solid">🟩 Đất</button>
+      <button class="ed-tool" data-tool="spike">🔺 Gai</button>
+      <button class="ed-tool" data-tool="crumble">🟫 Nứt</button>
+      <button class="ed-tool" data-tool="spring">🟡 Lò xo</button>
+      <button class="ed-tool" data-tool="crusher">🔨 Búa</button>
+      <button class="ed-tool" data-tool="plate">🔴 Nút</button>
+      <button class="ed-tool" data-tool="flag">⚑ Checkpoint</button>
+      <button class="ed-tool" data-tool="key">🔑 Chìa khóa</button>
+      <button class="ed-tool" data-tool="exit">🚪 Đích</button>
+      <button class="ed-tool" data-tool="eraser">🧹 Xóa</button>
+      <button id="edPlayBtn" class="ed-action ed-play">▶ Chơi thử</button>
+      <button id="edShareBtn" class="ed-action ed-share">📤 Mời cả phòng</button>
+      <button id="edCloseBtn" class="ed-action ed-close">✕ Đóng</button>
+    </div>
+    <canvas id="editorCanvas" class="ed-canvas"></canvas>
+  `;
+  document.body.appendChild(el);
+
+  el.querySelectorAll('.ed-tool').forEach((btn) => {
+    btn.onclick = () => {
+      el.querySelectorAll('.ed-tool').forEach((b) => b.classList.remove('sel'));
+      btn.classList.add('sel');
+      editorTool = btn.dataset.tool;
+    };
+  });
+
+  $('edPlayBtn').onclick = () => {
+    closeEditor();
+    loadLevel(-1, compileEditorLevel());
+    toast('▶ Đang chơi thử map tự tạo!');
+  };
+
+  $('edShareBtn').onclick = () => {
+    if (G.mode !== 'solo') {
+      const lvlData = compileEditorLevel();
+      netEv({ t: 'custom_lvl', data: lvlData });
+      closeEditor();
+      loadLevel(-1, lvlData);
+      toast('📤 Đã chia sẻ map cho cả phòng cùng chơi!');
+    } else {
+      toast('⚠️ Hãy tạo phòng Co-op hoặc Party để mời bạn bè!');
+    }
+  };
+
+  $('edCloseBtn').onclick = closeEditor;
+  setupEditorCanvas();
+}
+
+function openEditor() {
+  buildEditorUI();
+  editorActive = true;
+  editorLevel = {
+    w: 3200, h: WORLD_H,
+    solids: [[0, 700, 3200, 200]],
+    spikes: [], crumbles: [], springs: [], crushers: [], boulders: [],
+    plates: [], gates: [], flags: [{ x: 1000, y: 700 }],
+    key: { x: 2600, y: 644 }, exit: { x: 3000, y: 626, w: 54, h: 74 },
+    spawn: [80, 664]
+  };
+  show('levelEditorOverlay', true);
+  resizeEditor();
+}
+
+function closeEditor() {
+  editorActive = false;
+  show('levelEditorOverlay', false);
+}
+
+function compileEditorLevel() {
+  const b = new LB('Custom Map', 'Bản đồ tự tạo bởi người chơi', 180, G.mode === 'coop');
+  b.w = editorLevel.w;
+  b.solids = editorLevel.solids;
+  b.spikes = editorLevel.spikes;
+  b.crumbles = editorLevel.crumbles;
+  b.springs = editorLevel.springs;
+  b.crushers = editorLevel.crushers;
+  b.boulders = editorLevel.boulders;
+  b.plates = editorLevel.plates;
+  b.gates = editorLevel.gates;
+  b.ropes = [];
+  b.flags = editorLevel.flags.map(f => ({ x: f.x, y: f.y, on: false }));
+  b.coins = [{ x: 500, y: 640, id: 0 }, { x: 1500, y: 640, id: 1 }, { x: 2200, y: 640, id: 2 }];
+  b.key = editorLevel.key;
+  b.exit = editorLevel.exit;
+  b.spawn = editorLevel.spawn;
+  return b.finish(520, 56);
+}
+
+function setupEditorCanvas() {
+  const ec = $('editorCanvas');
+  if (!ec) return;
+  let isDown = false;
+  const onPointerDown = (e) => {
+    isDown = true;
+    handleEditorAction(e.clientX, e.clientY);
+  };
+  const onPointerMove = (e) => {
+    if (isDown) handleEditorAction(e.clientX, e.clientY);
+  };
+  const onPointerUp = () => { isDown = false; };
+  ec.addEventListener('mousedown', onPointerDown);
+  ec.addEventListener('mousemove', onPointerMove);
+  window.addEventListener('mouseup', onPointerUp);
+  ec.addEventListener('touchstart', (e) => { if (e.touches.length) onPointerDown(e.touches[0]); }, { passive: false });
+  ec.addEventListener('touchmove', (e) => { if (e.touches.length) onPointerMove(e.touches[0]); }, { passive: false });
+  window.addEventListener('touchend', onPointerUp);
+}
+
+function handleEditorAction(cx, cy) {
+  const ec = $('editorCanvas');
+  if (!ec || !editorActive || !editorLevel) return;
+  const rect = ec.getBoundingClientRect();
+  const wx = Math.round((cx - rect.left + editorScrollX) / 30) * 30;
+  const wy = Math.round((cy - rect.top) / 30) * 30;
+  if (editorTool === 'solid') editorLevel.solids.push([wx, wy, 120, 30]);
+  else if (editorTool === 'spike') editorLevel.spikes.push({ x: wx, y: wy - 22, w: 90, h: 22, dir: 'up' });
+  else if (editorTool === 'crumble') editorLevel.crumbles.push({ x: wx, y: wy, w: 90, h: 20, st: 0, t: 0, fy: 0 });
+  else if (editorTool === 'spring') editorLevel.springs.push({ x: wx, y: wy - 14, w: 56, h: 14, power: 17.5, sq: 0 });
+  else if (editorTool === 'crusher') editorLevel.crushers.push({ x: wx, w: 76, h: 130, top: wy - 400, restB: wy - 80, downB: wy, period: 3.0, off: 0, cb: wy - 80, shake: 0 });
+  else if (editorTool === 'flag') editorLevel.flags.push({ x: wx, y: wy });
+  else if (editorTool === 'key') editorLevel.key = { x: wx, y: wy };
+  else if (editorTool === 'exit') editorLevel.exit = { x: wx, y: wy - 74, w: 54, h: 74 };
+  else if (editorTool === 'eraser') {
+    editorLevel.solids = editorLevel.solids.filter(s => Math.hypot(s[0] - wx, s[1] - wy) > 50);
+    editorLevel.spikes = editorLevel.spikes.filter(s => Math.hypot(s.x - wx, s.y - wy) > 50);
+    editorLevel.crumbles = editorLevel.crumbles.filter(s => Math.hypot(s.x - wx, s.y - wy) > 50);
+    editorLevel.springs = editorLevel.springs.filter(s => Math.hypot(s.x - wx, s.y - wy) > 50);
+  }
+  drawEditor();
+}
+
+function resizeEditor() {
+  const ec = $('editorCanvas');
+  if (!ec) return;
+  ec.width = ec.clientWidth; ec.height = ec.clientHeight;
+  drawEditor();
+}
+
+function drawEditor() {
+  const ec = $('editorCanvas');
+  if (!ec || !editorActive || !editorLevel) return;
+  const ctx2 = ec.getContext('2d');
+  ctx2.clearRect(0, 0, ec.width, ec.height);
+  // draw grid
+  ctx2.strokeStyle = 'rgba(255,255,255,.08)'; ctx2.lineWidth = 1;
+  for (let x = 0; x < ec.width; x += 30) { ctx2.beginPath(); ctx2.moveTo(x, 0); ctx2.lineTo(x, ec.height); ctx2.stroke(); }
+  for (let y = 0; y < ec.height; y += 30) { ctx2.beginPath(); ctx2.moveTo(0, y); ctx2.lineTo(ec.width, y); ctx2.stroke(); }
+  // draw solids
+  ctx2.fillStyle = '#6d4c41';
+  for (const s of editorLevel.solids) ctx2.fillRect(s[0] - editorScrollX, s[1], s[2], s[3]);
+  // draw spikes
+  ctx2.fillStyle = '#e63946';
+  for (const s of editorLevel.spikes) ctx2.fillRect(s.x - editorScrollX, s.y, s.w, s.h);
+  // draw springs
+  ctx2.fillStyle = '#ffd54f';
+  for (const s of editorLevel.springs) ctx2.fillRect(s.x - editorScrollX, s.y, s.w, s.h);
+  // draw crumbles
+  ctx2.fillStyle = '#d7b899';
+  for (const c of editorLevel.crumbles) ctx2.fillRect(c.x - editorScrollX, c.y, c.w, c.h);
+  // draw flags
+  ctx2.fillStyle = '#4dabf7';
+  for (const f of editorLevel.flags) ctx2.fillRect(f.x - editorScrollX, f.y - 40, 14, 40);
+  // draw key & exit
+  if (editorLevel.key) { ctx2.fillStyle = '#ffd43b'; ctx2.beginPath(); ctx2.arc(editorLevel.key.x - editorScrollX, editorLevel.key.y, 10, 0, 6.3); ctx2.fill(); }
+  if (editorLevel.exit) { ctx2.fillStyle = '#70e000'; ctx2.fillRect(editorLevel.exit.x - editorScrollX, editorLevel.exit.y, editorLevel.exit.w, editorLevel.exit.h); }
+}
+
 // BOOT
 // ============================================================================
 resize();
