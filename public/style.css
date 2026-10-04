@@ -332,3 +332,14 @@ body.is-touch .touch:not(.hidden) { display: flex; }
 .tbuffs .tbf small { font: 700 11px var(--font); line-height: 1; margin-top: 1px; }
 .tbuffs .tbf.hidden { display: none; }
 @media (max-height: 520px) { .touch .tbf { width: 48px; height: 48px; font-size: 18px; } }
+
+/* v10: smart pause badge + multi-page pagination */
+.pause-badge { position: fixed; left: 50%; top: 14px; transform: translateX(-50%); z-index: 45; padding: 6px 14px; border-radius: 999px;
+  background: rgba(91, 58, 94, .92); color: #fff; font: 700 14px var(--font, sans-serif); pointer-events: none; box-shadow: 0 3px 0 rgba(0,0,0,.25); }
+.pause-badge.hidden { display: none; }
+.lp-wrap { scroll-behavior: smooth; -webkit-overflow-scrolling: touch; }
+.lp-nav { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin-bottom: 10px; }
+.lp-pg { font: 700 13px var(--font, sans-serif); border: 3px solid var(--ink, #5b3a5e); background: #fff; color: var(--ink, #5b3a5e); border-radius: 10px; padding: 4px 9px; cursor: pointer; }
+.lp-pg.on { background: #ffe066; box-shadow: 0 3px 0 var(--ink, #5b3a5e); }
+.lp-pg:disabled { opacity: .4; cursor: default; }
+.lp-cell.tower { background-image: linear-gradient(160deg, rgba(255,255,255,.35), rgba(120,90,200,.18)); border-style: double; }

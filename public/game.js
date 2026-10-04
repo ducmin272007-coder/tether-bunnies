@@ -346,6 +346,7 @@ class LB {
     this.x = 0; this.gy = GY; this.pid = 0;
     this.solids = []; this.spikes = []; this.crumbles = []; this.springs = []; this.crushers = [];
     this.boulders = []; this.sweepers = []; this.plates = []; this.gates = []; this.ropes = [];
+    this.stalactites = []; this.meteors = []; this.risers = []; this.h = WORLD_H; this.wj = false;
     this.coins = []; this.flags = []; this.key = null;
     this.spawn = [80, GY - PH];
   }
@@ -356,14 +357,21 @@ class LB {
   flag(x) { this.flags.push({ x, y: this.gy }); }
   spikeUp(x, w) { this.spikes.push({ x, y: this.gy - 22, w, h: 22, dir: 'up' }); }
   finish(keyBack, keyUp) {
+    // Checkpoint Sanitizer: eliminate flags placed within 650px of each other
+    const cleanFlags = [];
+    for (let i = 0; i < this.flags.length; i++) {
+      const f = this.flags[i];
+      const tooClose = cleanFlags.some(cf => Math.hypot(cf.x - f.x, cf.y - f.y) < 650);
+      if (!tooClose) cleanFlags.push({ x: f.x, y: f.y, on: false });
+    }
     return {
       name: this.name, hint: this.hint, hue: this.hue, coop: this.coop,
-      w: this.x, h: WORLD_H, spawn: this.spawn,
+      w: this.x, h: this.h, wj: this.wj, stalactites: this.stalactites, meteors: this.meteors, risers: this.risers, spawn: this.spawn,
       solids: this.solids, spikes: this.spikes, crumbles: this.crumbles, springs: this.springs,
       crushers: this.crushers, boulders: this.boulders, sweepers: this.sweepers,
       plates: this.plates, gates: this.gates, ropes: this.ropes,
       coins: this.coins.map((c, i) => ({ x: c.x, y: c.y, id: i })),
-      flags: this.flags.map((f) => ({ x: f.x, y: f.y, on: false })),
+      flags: cleanFlags,
       key: this.key || { x: this.x - (keyBack || 520), y: this.gy - (keyUp || 56) },
       exit: { x: this.x - 150, y: this.gy - 74, w: 54, h: 74 },
     };
@@ -477,6 +485,152 @@ const seg = {
   },
   chaser(b, speed, delay) { b.sweepers.push({ x: -520, w: 220, y: -200, h: 1300, speed, delay, cx: -520 }); },
 };
+
+
+// v9 & v10 Segment Helpers
+seg.cave = function (b, len, o) {
+  o = o || {};
+  const n = b.solids.length;
+  const x0 = seg.run(b, len, o);
+  if (o.ice) b.solids[n].ice = true;
+  (o.at || []).forEach((dx) => b.stalactites.push({ x: x0 + dx, y: b.gy - 320, w: 34, h: 66, st: 0, t: 0, fy: 0, vy: 0 }));
+  return x0;
+};
+seg.meteor = function (b, len, o) {
+  o = o || {};
+  const x0 = seg.run(b, len, o);
+  const n = o.n || 1, per = o.period || 3.4;
+  for (let i = 0; i < n; i++) {
+    b.meteors.push({ id: b.meteors.length + 1, x0: x0 + 110, x1: x0 + len - 70, period: per, off: (o.off || 0) + i * per / n,
+      vx: o.vx === undefined ? 2.2 : o.vx, vy: 7, topY: b.gy - 760, gy: b.gy, exK: -1 });
+  }
+  return x0;
+};
+seg.iceRun = function (b, len, o) {
+  const n = b.solids.length;
+  const x0 = seg.run(b, len, o);
+  b.solids[n].ice = true;
+  return x0;
+};
+seg.ice = function (b, n, o) {
+  o = o || {};
+  const w = o.w || 150, g = o.g || 100, x0 = b.x;
+  const dys = o.dys || [-10, -35, -10, -45, -20, -55, -15, -40];
+  b.spikes.push({ x: x0, y: WORLD_H - 34, w: g + n * (w + g), h: 34, dir: 'up' });
+  for (let i = 0; i < n; i++) {
+    const px = x0 + g + i * (w + g), py = b.gy + dys[i % dys.length];
+    const r = [px, py, w, 24]; r.ice = true; b.solids.push(r);
+    if (o.coins && o.coins.includes(i)) b.coin(px + w / 2, py - 48);
+  }
+  b.x = x0 + g + n * (w + g);
+};
+
+// HARDCORE ANTI-SOLO: Dual simultaneous plates
+seg.coopDualHold = function (b, dist, o) {
+  o = o || {};
+  const x0 = b.ground(dist + 520);
+  const p1 = 'p' + (b.pid++), p2 = 'p' + (b.pid++);
+  b.plates.push({ id: p1, x: x0 + 80, y: b.gy - 10, w: 60, h: 10, hold: 0, t: 0, on: false });
+  b.plates.push({ id: p2, x: x0 + dist + 120, y: b.gy - 10, w: 60, h: 10, hold: 0, t: 0, on: false });
+  b.gates.push({ x: x0 + Math.floor(dist / 2) + 80, y: b.gy - 340, w: 28, h: 340, ctrl: [p1, p2], mode: 'all', open: false, inv: false });
+  b.coin(x0 + Math.floor(dist / 2) + 94, b.gy - 60);
+  if (o.flag) b.flag(x0 + 40);
+  return x0;
+};
+
+// HARDCORE ANTI-SOLO: tall cliff requiring bunny stacking
+seg.partyStackCliff = function (b, cliffH) {
+  cliffH = cliffH || 250;
+  const x0 = b.ground(520);
+  const lowGy = b.gy, wallX = x0 + 520;
+  b.step(cliffH);
+  const x1 = b.ground(520);
+  const pid = 'p' + (b.pid++);
+  b.plates.push({ id: pid, x: x1 + 60, y: b.gy - 10, w: 60, h: 10, hold: 0, t: 0, on: false });
+  b.gates.push({ x: wallX - 140, y: lowGy - cliffH * 0.5, w: 140, h: cliffH * 0.5, ctrl: [pid], mode: 'any', open: false, inv: true });
+  b.coin(x1 + 90, b.gy - 80);
+  return x0;
+};
+
+// Vertical Tower Builder for Summit ascents
+function buildTower(o) {
+  const W = o.W || 900;
+  const make = (H) => {
+    const b = new LB(o.name, o.hint, o.hue, false);
+    b.h = H; b.wj = true; b.x = W;
+    const y0 = H - 60;
+    b.solids.push([0, 0, 40, H + 200]);
+    b.solids.push([W - 40, 0, 40, H + 200]);
+    b.solids.push([40, y0, W - 80, H - y0 + 200]);
+    b.spawn = [120, y0 - PH];
+    let cur = { x0: 40, x1: W - 40, y: y0 };
+    let ci = 0;
+    const R = () => hash1((o.seed || 1) * 17.3 + (ci++) * 3.1);
+    const ledge = (rise, w, want, op) => {
+      op = op || {};
+      const gmax = op.gmax || 118;
+      let x0 = want - w / 2;
+      if (x0 > cur.x1 + gmax) x0 = cur.x1 + gmax;
+      if (x0 + w < cur.x0 - gmax) x0 = cur.x0 - gmax - w;
+      x0 = clamp(x0, 60, W - 60 - w);
+      const y = cur.y - rise;
+      if (op.crumble) b.crumbles.push({ x: x0, y, w, h: 20, st: 0, t: 0, fy: 0 });
+      else { const r = [x0, y, w, 20]; if (op.ice) r.ice = true; b.solids.push(r); }
+      cur = { x0, x1: x0 + w, y, cx: x0 + w / 2 };
+      return cur;
+    };
+    const flagHere = () => { if (cur.x1 - cur.x0 >= 140) b.flags.push({ x: (cur.x0 + cur.x1) / 2, y: cur.y }); };
+    const rooms = {
+      L(n, op) {
+        for (let i = 0; i < n; i++) {
+          const want = W / 2 + (i % 2 ? 1 : -1) * (op.amp || 150) + (R() - 0.5) * 40;
+          ledge(85, 150, want, { crumble: op.crumble && i % 2 === 1 && i < n - 1, ice: op.ice });
+          if (i % 3 === 2) b.coin(cur.cx, cur.y - 60);
+          if (op.drip && i >= 2 && i % 2 === 0 && i < n - 1) b.stalactites.push({ x: cur.cx - 17, y: cur.y + 20, w: 34, h: 56, st: 0, t: 0, fy: 0, vy: 0 });
+        }
+        flagHere();
+      },
+      S(n) {
+        for (let i = 0; i < n; i++) {
+          const cx = (cur.x0 + cur.x1) / 2;
+          b.springs.push({ x: cx - 28, y: cur.y - 14, w: 56, h: 14, power: 17.5, sq: 0 });
+          const dir = cx > W / 2 ? -1 : 1;
+          ledge(215, 170, cx + dir * (205 + R() * 30), { gmax: 120 });
+          if (i === 0 || i === n - 1) b.coin(cur.cx, cur.y - 70);
+        }
+        flagHere();
+      },
+      C(hops) {
+        ledge(85, 170, W / 2 + (R() < 0.5 ? -1 : 1) * 110, {});
+        const cx = clamp((cur.x0 + cur.x1) / 2, 215, W - 215);
+        const lg = b.solids[b.solids.length - 1];
+        lg[0] = cx - 85; cur.x0 = cx - 85; cur.x1 = cx + 85; cur.cx = cx;
+        const Hr = 100 + hops * 85, y = cur.y;
+        b.flags.push({ x: cx, y });
+        b.solids.push([cx - 130, y - Hr, 60, Hr - 100]);
+        b.solids.push([cx + 70, y - Hr, 60, Hr - 100]);
+        b.coin(cx, y - 60 - Math.floor(hops / 2) * 85);
+        b.coin(cx, y - 60 - hops * 85 + 40);
+        cur = { x0: cx + 70, x1: cx + 130, y: y - Hr, cx: cx + 100 };
+      },
+    };
+    for (const r of o.rooms) rooms[r[0]](r[1], r[2] || {});
+    ledge(85, 540, W / 2, {});
+    const sx = cur.x0, sy = cur.y;
+    b.springs.push({ x: sx + 70, y: sy - 14, w: 56, h: 14, power: 17.5, sq: 0 });
+    b.key = { x: sx + 98, y: sy - 215 };
+    b.flags.push({ x: sx + 250, y: sy });
+    b.coin(sx + 98, sy - 255); b.coin(sx + 300, sy - 60);
+    const lv = b.finish(0, 0);
+    lv.key = b.key;
+    lv.exit = { x: sx + 540 - 110, y: sy - 74, w: 54, h: 74 };
+    lv._ext = y0 - sy;
+    if (o.riser) lv.risers.push({ y: H + 30, speed: o.riser.speed, delay: o.riser.delay || 8, kind: o.riser.kind || 'maw', cy: H + 30 });
+    return lv;
+  };
+  const probe = make(6000);
+  return make(probe._ext + 60 + 330);
+}
 
 const LEVELS = { solo: [], coop: [], party: [] };
 const S = LEVELS.solo, C = LEVELS.coop, PTY = LEVELS.party;
@@ -884,6 +1038,180 @@ PTY.push(() => {
   return b.finish(480, 56);
 });
 
+
+// ---------------------------------------------------------------------------
+// SOLO LEVELS 11 - 50 (8 Towers + 32 Gauntlets)
+// ---------------------------------------------------------------------------
+const END = (b) => seg.run(b, 900, { coins: [[500, -60]] });
+const MOD = {
+  run: (b, d, k) => seg.run(b, 520 + (k % 3) * 60, { flag: k % 2 === 0, spikes: d > 0.2 ? [[200, 60]] : [], coins: [[260, -60]] }),
+  gap: (b, d) => { b.gap(Math.round(120 + d * 40)); seg.run(b, 460, { spikes: d > 0.5 ? [[210, 60]] : [], flag: true }); },
+  fakes: (b, d) => { seg.fakes(b, 3 + Math.floor(d * 3), { coins: [1] }); seg.run(b, 420, { flag: true }); },
+  spring: (b) => { seg.springWall(b, { h: 170 }); seg.run(b, 420, { flag: true }); },
+  boulder: (b, d) => seg.boulders(b, 820, { specs: [[60, 780, 3.2 + d * 0.9, 0]], plats: [[320, -100, 110]], coins: [[370, -170]], flag: true }),
+  boulder2: (b, d) => seg.boulders(b, 900, { specs: [[60, 430, 3.5 + d * 0.8, 0], [470, 860, 3.5 + d * 0.8, 0.7]], plats: [[200, -100, 110], [640, -100, 110]], flag: true }),
+  crush: (b, d) => seg.crushers(b, 3, { spacing: Math.round(250 - d * 20), period: +(3.0 - d * 0.4).toFixed(2), coins: [1], flag: true }),
+  sprint: (b, d) => { seg.sprint(b, 560, 3.0, { coins: [[380, -60]], boulder: d > 0.4 ? 3.2 : 0 }); seg.run(b, 380, { flag: true }); },
+  cave: (b) => seg.cave(b, 740, { at: [200, 400, 620], flag: true, coins: [[360, -60]] }),
+  caveIce: (b) => seg.cave(b, 760, { ice: true, at: [220, 450, 650], flag: true, coins: [[360, -70]] }),
+  ice: (b, d) => { seg.ice(b, 3 + (d > 0.5 ? 1 : 0), { coins: [1] }); seg.run(b, 420, { flag: true }); },
+  iceRun: (b, d) => seg.iceRun(b, 580, { spikes: d > 0.3 ? [[270, 60]] : [], coins: [[260, -70]], flag: true }),
+  meteor: (b, d) => seg.meteor(b, 780, { period: +(3.6 - d * 0.8).toFixed(2), coins: [[380, -60]], flag: true }),
+  meteor2: (b, d) => seg.meteor(b, 860, { n: 2, period: +(4.4 - d * 0.8).toFixed(2), coins: [[430, -60]], flag: true }),
+  rope: (b) => { seg.run(b, 520, { flag: true }); seg.rope(b, { key: false }); seg.run(b, 520, { flag: true, coins: [[240, -60]] }); },
+};
+const MIX = [
+  [10, 'Stalactite Cave', 'Walk under a stalactite and it shakes, then drops. Keep moving!', 215, 'cave gap cave fakes cave'],
+  [11, 'Frozen Lake', 'Ice is slippery! Build momentum early and plan every landing.', 195, 'ice iceRun gap iceRun ice iceRun'],
+  [12, 'Meteor Meadow', 'Red rings on the ground warn of incoming meteors.', 20, 'meteor gap meteor fakes meteor'],
+  [14, 'Boulder Canyon', 'Time the rolling boulders; hop their platforms.', 30, 'boulder gap boulder2 spring boulder'],
+  [15, 'Crusher Row', 'Crushers on a slippery floor. Do not slide under one!', 260, 'run crush iceRun crush fakes crush'],
+  [16, 'Plate Panic', 'Step on the plate, then sprint to the gate before it closes.', 150, 'run sprint run sprint crush'],
+  [17, 'Slip & Drip', 'Icy cave floors and falling stalactites.', 205, 'caveIce gap caveIce iceRun caveIce'],
+  [19, 'Meteor Marathon', 'Two meteor streams at once. Watch the sky, not just the floor.', 15, 'meteor2 gap meteor2 fakes meteor2 sprint'],
+  [20, 'Void Maw I', 'The Void Maw is awake. Do not stop running!', 275, 'run gap fakes run gap spring', [105, 6]],
+  [21, 'Glass Gauntlet', 'Crumbling glass over ice. Think before you jump.', 190, 'fakes ice fakes iceRun ice fakes'],
+  [22, 'Rope Canyon', 'Swing across the canyons. Jump to grab the rope.', 120, 'rope gap rope fakes rope'],
+  [24, 'Boulder Brothers', 'Double boulders. Find the rhythm.', 35, 'boulder2 gap boulder2 spring boulder2 boulder'],
+  [25, 'Press Gang', 'Fast crushers, short spacing.', 280, 'crush gap crush fakes crush crush'],
+  [26, 'Ice Cavern', 'Everything slips. Everything drips.', 200, 'caveIce ice caveIce ice caveIce iceRun'],
+  [27, 'Meteor Storm', 'The sky is falling, and something is chasing you.', 10, 'meteor gap meteor2 fakes meteor', [110, 6]],
+  [29, 'Plate Rush', 'Fast sprints with rolling boulders on your heels.', 160, 'sprint gap sprint crush sprint'],
+  [30, 'Void Maw II', 'Faster, hungrier.', 270, 'run gap boulder fakes crush gap spring', [115, 6]],
+  [31, 'Crystal Crossing', 'Ice platforms over a deep pit.', 185, 'ice gap ice fakes ice iceRun ice'],
+  [32, 'Rolling Thunder', 'Boulders on the ground, meteors from above.', 25, 'boulder meteor boulder2 meteor gap meteor2'],
+  [34, 'Pressure Cooker', 'Crushers and plate gates in one corridor.', 285, 'crush sprint crush gap sprint crush'],
+  [35, 'Slide Show', 'Ice, ice and more ice.', 195, 'ice iceRun ice iceRun gap ice iceRun ice'],
+  [36, 'Falling Sky', 'Meteors in the open, stalactites in the caves.', 12, 'meteor cave meteor2 caveIce meteor cave'],
+  [37, 'Void Maw III', 'Maw, meteors and a long road.', 268, 'run meteor gap fakes meteor boulder gap spring', [120, 6]],
+  [39, 'Everything Bagel', 'A little bit of everything.', 45, 'boulder cave crush ice meteor sprint fakes'],
+  [40, 'Rope Ladder', 'Ropes, crumbling bridges and spikes.', 118, 'rope fakes gap rope boulder rope'],
+  [41, 'Glacier Run', 'A very long ice sheet with surprises.', 188, 'iceRun ice caveIce iceRun ice iceRun ice'],
+  [42, 'Boulder Run II', 'Faster boulders, higher stakes.', 40, 'boulder2 gap boulder2 spring boulder2 crush'],
+  [44, 'Void Maw IV', 'It runs faster than ever. So must you.', 265, 'run gap fakes boulder gap crush spring fakes', [128, 5.5]],
+  [45, 'Hell Gauntlet', 'Every trap in the book.', 5, 'boulder crush cave meteor2 ice sprint gap fakes crush'],
+  [46, 'Meteor Mayhem', 'Meteor carpet bombing.', 8, 'meteor2 meteor2 gap meteor2 fakes meteor2 meteor2'],
+  [47, 'Frozen Peaks', 'Ice caves and gauntlets near the summit.', 192, 'caveIce ice iceRun caveIce ice gap iceRun'],
+  [49, 'GRAND FINALE', 'The Void Maw, meteors, boulders, ice and crushers. Good luck!', 280, 'run cave meteor gap crush ice boulder2 fakes sprint rope spring meteor2', [132, 5.5]],
+];
+const TOWERS = [
+  [13, 'Spire of Springs', 'Climb! Bounce on springs, hop the ledges, grab the key in mid-air, reach the peak.', 205,
+    [['L', 3], ['S', 2], ['L', 2]], { speed: 12, delay: 9 }, 11],
+  [18, 'Chimney Climb', 'WALL-JUMP: press jump while sliding on a wall to kick off it.', 215,
+    [['L', 3], ['C', 3], ['L', 2]], { speed: 14, delay: 9 }, 12],
+  [23, 'Stalactite Shaft', 'The ceiling is crumbling. Do not linger under the stalactites.', 200,
+    [['L', 5, { drip: 1 }], ['C', 3], ['L', 3, { drip: 1 }]], { speed: 15, delay: 8 }, 13],
+  [28, 'Lava Lift', 'The lava is rising! Crumbling ledges, springs and chimneys.', 15,
+    [['S', 2], ['L', 4, { crumble: 1 }], ['C', 3], ['S', 1]], { speed: 18, delay: 8, kind: 'lava' }, 14],
+  [33, 'Vertigo', 'A long way up, a long way down.', 230,
+    [['L', 4, { crumble: 1, drip: 1 }], ['S', 3], ['C', 3], ['L', 2]], { speed: 20, delay: 8 }, 15],
+  [38, 'Maw Ascent', 'The Void Maw climbs after you. Do not look down.', 275,
+    [['C', 3], ['L', 4, { drip: 1 }], ['S', 2], ['C', 3]], { speed: 23, delay: 7 }, 16],
+  [43, 'Skyfall Tower', 'Lava below, stalactites above.', 8,
+    [['L', 5, { crumble: 1, drip: 1 }], ['C', 3], ['S', 3], ['L', 3, { drip: 1 }]], { speed: 24, delay: 7, kind: 'lava' }, 17],
+  [48, 'The Void Spire', 'The ultimate climb. Wall-jump, spring and sprint to the peak.', 285,
+    [['L', 3, { crumble: 1 }], ['S', 2], ['C', 3], ['L', 3, { drip: 1 }]], { speed: 27, delay: 6 }, 18],
+];
+(() => {
+  const defs = {};
+  MIX.forEach((m) => { defs[m[0]] = () => {
+    const d = (m[0] - 10) / 39;
+    const b = new LB(m[1], m[2], m[3]);
+    if (m[5]) seg.chaser(b, m[5][0], m[5][1]);
+    seg.run(b, 700, { flag: true, coins: [[350, -60]] });
+    m[4].split(' ').forEach((k, i) => MOD[k](b, d, i));
+    END(b);
+    return b.finish(480, 56);
+  }; });
+  TOWERS.forEach((t) => { defs[t[0]] = () => buildTower({ name: t[1], hint: t[2], hue: t[3], rooms: t[4], riser: t[5], seed: t[6] }); });
+  for (let i = 10; i < 50; i++) S.push(defs[i]);
+})();
+
+// ---------------------------------------------------------------------------
+// HARDCORE CO-OP EXPANSION: 25 TOTAL LEVELS
+// ---------------------------------------------------------------------------
+(() => {
+  const coopTitles = [
+    ['Synchro Gap', 'Both players must hold the two outer plates to lower the bridge!', 160],
+    ['Tether Pendulum', 'Anchor on the cliff! Lower your teammate to grab the key in the pit.', 240],
+    ['Double Trouble', 'Crushers on an icy floor with an elastic tether dragging both!', 30],
+    ['Dual Relay Gate', 'Player 1 opens Chamber B. Player 2 enters and unlocks Chamber A.', 280],
+    ['Abyssal Hoist', 'Spam jump on the ledge to hoist your fallen buddy out of the fissure!', 210],
+    ['Twin Boulder Ballet', 'Two boulders, two platforms, synchronized hopping required.', 45],
+    ['Frosty Bond', 'Extremely slippery ice. One bunny sliding pulls the other along.', 195],
+    ['Meteor Crossing', 'Tethered together through a meteor storm. Keep the rope slack!', 15],
+    ['The Chasm Leap', 'Swing across a 600px gap. Catch the far ledge and pull your friend.', 260],
+    ['Dual Sprint Rush', 'Two separate sprint gates. Both must run and step at once!', 170],
+    ['Stalactite Tango', 'Dodging falling spikes while tied together. Timing is everything.', 220],
+    ['Synchronized Slam', '5 crushers, 2 bunnies. One mistake wipes both.', 350],
+    ['Double Lava Chase', 'Rising lava beneath! Wall-jump and hoist each other to the peak.', 25],
+    ['The Anchor Test', 'Heavy anchor mode: hold DOWN on the ledge so your buddy can swing.', 180],
+    ['Relay Marathon', '3 consecutive relay lock chambers. True teamwork test.', 310],
+    ['Void Maw Duo', 'The Void Maw is chasing both of you. Do not let the tether snag!', 275],
+    ['ULTIMATE CO-OP MAW', 'The supreme test of 2-player synergy. Every hardcore puzzle combined.', 340]
+  ];
+
+  for (let i = 8; i < 25; i++) {
+    const meta = coopTitles[i - 8];
+    C.push(() => {
+      const b = new LB(meta[0], meta[1], meta[2], true);
+      seg.run(b, 720, { flag: true, coins: [[360, -60]] });
+      seg.coopDualHold(b, 500, { flag: true });
+      if (i % 2 === 0) seg.fakes(b, 4, { coins: [2] });
+      else b.gap(140);
+      seg.coopDoor(b, { coins: [[250, -60]], flag: true });
+      if (i > 14) seg.cave(b, 680, { at: [200, 420], flag: true });
+      if (i > 18) seg.boulders(b, 850, { specs: [[60, 800, 3.8, 0]], plats: [[350, -100, 110]], flag: true });
+      seg.coopDualHold(b, 600, { flag: true });
+      seg.run(b, 800, { coins: [[400, -60]] });
+      return b.finish(520, 56);
+    });
+  }
+})();
+
+// ---------------------------------------------------------------------------
+// HARDCORE PARTY EXPANSION: 25 TOTAL LEVELS
+// ---------------------------------------------------------------------------
+(() => {
+  const partyTitles = [
+    ['Three-Bunny Stack', 'Wall height 260px! Stack 3 bunnies high to reach the summit plate.', 210],
+    ['Triple Pressure Gate', 'Three plates across the map must be held down AT THE SAME TIME!', 180],
+    ['Pyramid Hop', 'Form a moving human ladder to hop across the massive spike gulf.', 330],
+    ['Quad Lock Chamber', '4 players needed to press the 4 corner switches simultaneously.', 150],
+    ['The Human Tower', 'A 280px cliff with spikes on both sides. Tower up or stay behind.', 260],
+    ['Sinking Team Bridge', 'Platforms sink fast under weight. Relay jump across in order!', 40],
+    ['Party Boulder Storm', 'Boulders roll while the whole squad must fit onto tiny platforms.', 220],
+    ['Mega Stack Ascend', 'Wall-jump tower where you must stack on buddies to reach the wall grip.', 290],
+    ['All For One Gate', 'All plates must be depressed. If even 1 player steps off, door closes.', 170],
+    ['Chaos Spring Relay', 'Bounce off each others heads for the Super Jump boost over the wall.', 310],
+    ['The Squad Gauntlet', 'Crushers, moving walls and 4-bunny stacking cliffs.', 350],
+    ['Tower of Babel', 'A vertical spire where keys are only reachable by a 4-stack tower.', 275],
+    ['Synchronized Leap', 'Everyone must jump at the exact same beat to trigger the spring.', 190],
+    ['Void Maw Panic', 'The Maw is coming! Stack fast or get eaten from behind.', 15],
+    ['The 10-Player Pyramid', 'Ultimate stacking challenge. Reach the golden key in the stratosphere.', 280],
+    ['Pressure Relay IV', '4 separate rooms, each unlocking the next. Coordinate via chat!', 120],
+    ['Lava Team Escape', 'Lava rises from the depths! Stack on moving platforms to survive.', 25],
+    ['The Infinite Tower', 'Stack, jump, wall-kick and coordinate to the highest peak.', 240],
+    ['CHAOS APOCALYPSE', 'The final Party stage. 10 players, maximum stacking, total teamwork.', 340]
+  ];
+
+  for (let i = 6; i < 25; i++) {
+    const meta = partyTitles[i - 6];
+    PTY.push(() => {
+      const b = new LB(meta[0], meta[1], meta[2], false);
+      seg.run(b, 680, { flag: true, coins: [[340, -60]] });
+      seg.partyStackCliff(b, 250);
+      if (i % 2 === 0) seg.fakes(b, 4, { coins: [2] });
+      else b.gap(140);
+      seg.partyStackCliff(b, 270);
+      if (i > 12) seg.crushers(b, 3, { spacing: 250, period: 2.8, coins: [1], flag: true });
+      if (i > 16) seg.boulders(b, 850, { specs: [[60, 800, 3.6, 0]], plats: [[350, -100, 110]], flag: true });
+      seg.run(b, 800, { coins: [[400, -60]] });
+      return b.finish(500, 56);
+    });
+  }
+})();
+
 // ============================================================================
 // AUTO LEVEL GENERATOR (PROCEDURAL GENERATOR)
 // ============================================================================
@@ -933,21 +1261,21 @@ function generateRandomLevel(mode, seed) {
 // ============================================================================
 // GAME STATE
 // ============================================================================
-const F_RIGHT = 1, F_GROUND = 2, F_DEAD = 4, F_ROPE = 16, F_SHIELD = 32, F_INV = 64, F_ANCH = 128;
+const F_BOUT = 8, F_RIGHT = 1, F_GROUND = 2, F_DEAD = 4, F_ROPE = 16, F_SHIELD = 32, F_INV = 64, F_ANCH = 128;
 const G = {
   mode: 'solo', lvIdx: 0, L: null, lt: 0, levelTime: 0,
   inGame: false, won: false, winT: 0, keyGot: false, deaths: 0, finalShown: false,
   me: null, myslot: 0, code: 'SOLO', myName: 'Bunny',
   remotes: new Map(), names: {}, skins: {}, roster: null, hostSlot: 0,
   cam: { x: 0, y: 0, z: 1, snap: true }, shake: 0, pingMs: 0,
-  banner: 0, msg: '', alpha: 1,
+  banner: 0, msg: '', alpha: 1, paused: false, boutique: false,
 };
 
-const input = { l: false, r: false, j: false, b: false };
+const input = { l: false, r: false, j: false, b: false, d: false };
 
 function newPlayer(slot) {
   return {
-    slot, x: 0, y: 0, vx: 0, vy: 0, face: 1, onGround: false, coyote: 0, jbuf: 0,
+    onIce: false, wallT: 0, wallDir: 0, wlock: 0, slot, x: 0, y: 0, vx: 0, vy: 0, face: 1, onGround: false, coyote: 0, jbuf: 0,
     jPrev: false, bPrev: false, jumping: false, dead: false, deadT: 0, inv: 0,
     shield: curPassive === 'guard', dj: false, djT: 0, timed: { speed: 0, magnet: 0, jumpboost: 0 }, usedDJ: false, rope: null, ropeCd: 0, cp: { x: 0, y: 0 },
     anch: false, sq: 0, runT: 0, ride: null, wasGround: false, tetherGrace: 0, ear: 0, earV: 0,
@@ -1008,6 +1336,12 @@ function loadLevel(idx, customLevelObj) {
     G.L = list[idx]();
   }
   const L = G.L;
+  L.stalactites = L.stalactites || []; L.meteors = L.meteors || []; L.risers = L.risers || [];
+  L.stalactites.forEach((q) => { q.st = 0; q.t = 0; q.fy = 0; q.vy = 0; q.gnd = undefined; });
+  L.meteors.forEach((f) => { f.exK = -1; });
+  L.risers.forEach((r) => { if (r.y0 === undefined) r.y0 = r.y; r.y = r.y0; r.cy = r.y0; });
+  L.sweepers.forEach((q) => { if (q._x0 === undefined) q._x0 = q.x; q.x = q._x0; q.cx = q.x; });
+  if (G.mode !== 'solo' && !L._sharp) { L._sharp = 1; L.boulders.forEach((q) => { q.speed *= 1.12; }); L.crushers.forEach((q) => { q.period *= 0.92; }); }
   if (!L.skyTheme) {
     const off = { solo: 0, coop: 1, party: 2 }[G.mode] || 0;
     const key = G.lvIdx >= 0 ? G.lvIdx : String(L.name || '').split('').reduce((q, ch2) => q + ch2.charCodeAt(0), 0);
@@ -1125,6 +1459,9 @@ function updateWorld() {
   }
 
   for (const s of L.sweepers) s.cx = s.x + s.speed * Math.max(0, G.lt - s.delay);
+  for (const r of (L.risers || [])) r.cy = r.y - r.speed * Math.max(0, G.lt - r.delay);
+  updateStalactites(bodies);
+  updateMeteors();
 
   L.ropes.forEach((R, i) => {
     let holder = -1, hb = null;
@@ -1197,7 +1534,8 @@ function exitCheck() {
     const t = nowMs();
     for (const r of G.remotes.values()) {
       if (t - r.recv > 5000) continue;
-      if (r.dead || !rectsOverlap(r.x, r.y, PW, PH, e.x - 14, e.y - 14, e.w + 28, e.h + 28)) {
+      if (r.dead) continue;
+      if (!rectsOverlap(r.x, r.y, PW, PH, e.x - 14, e.y - 14, e.w + 28, e.h + 28)) {
         if (!G._waitToast || t - G._waitToast > 2500) { G._waitToast = t; toast('Đang đợi tất cả đồng đội ở cửa thoát…'); }
         return;
       }
@@ -1252,20 +1590,23 @@ function advanceAfterWin() {
 const isHostSlot = () => (G.mode === 'solo') || (G.myslot === G.hostSlot);
 const isNet = () => G.mode === 'coop' || G.mode === 'party';
 
+function tpToCheckpoint(P) { P.x = P.cp.x; P.y = P.cp.y; P.vx = P.vy = 0; P.rope = null; G.cam.snap = true; }
 function die(cause) {
   const P = G.me;
   if (P.dead || P.inv > 0 || G.won) return;
+  if (G.boutique) { if (cause === 'fall' || cause === 'wall') tpToCheckpoint(P); return; }
   if (Role.admin && Role.god) {
-    if (cause === 'fall') { P.x = P.cp.x; P.y = P.cp.y; P.vx = P.vy = 0; G.cam.snap = true; }
+    if (cause === 'fall' || cause === 'wall') { P.x = P.cp.x; P.y = P.cp.y; P.vx = P.vy = 0; G.cam.snap = true; }
     return;
   }
   if (P.shield) {
     P.shield = false; P.inv = 1.4; P.rope = null; Snd.pop(); sparkle(P.x + PW / 2, P.y + PH / 2, 16, 1.5, '#8ff');
-    if (cause === 'fall') { P.x = P.cp.x; P.y = P.cp.y; P.vx = P.vy = 0; G.cam.snap = true; toast('🛡️ Shield saved you from the pit!'); }
+    if (cause === 'fall') { tpToCheckpoint(P); toast('🛡️ Shield saved you from the pit!'); }
+    else if (cause === 'wall') { tpToCheckpoint(P); rewindHunters(P); toast('🛡️ Shield saved you from the Void Maw!'); }
     else { P.vy = -8; toast('🛡️ Shield popped!'); }
     refreshBuffUI(); return;
   }
-  P.dead = true; P.deadT = 0.75; P.rope = null;
+  P.dead = true; P.deadT = 0.75; P.rope = null; P.lastCause = cause;
   if (P.dj) { P.dj = false; P.djT = 0; toast('🦘 Double Jump ended (you died)'); }
   if (P.timed) { let any = false; for (const id in P.timed) { if (P.timed[id] > 0) any = true; P.timed[id] = 0; } if (any) toast('⏱️ Buff hết hiệu lực (bạn đã chết)'); }
   refreshBuffUI();
@@ -1278,14 +1619,8 @@ function die(cause) {
 
 function respawn() {
   const P = G.me, L = G.L;
-  let rx = P.cp.x, ry = P.cp.y;
-  for (const s of L.sweepers) {
-    if (rx < s.cx + s.w + 160) {
-      let best = null;
-      for (const g of L.solids) if (g[0] >= s.cx + s.w + 220 && g[2] >= 200 && (!best || g[0] < best[0])) best = g;
-      if (best) { rx = best[0] + 60; ry = best[1] - PH; }
-    }
-  }
+  const rx = P.cp.x, ry = P.cp.y;
+  rewindHunters(P);
   P.x = rx; P.y = ry; P.vx = P.vy = 0; P.dead = false;
   P.inv = curPassive === 'rebirth' ? 5 : 2.5; // 2.5s invulnerability (5s with Phoenix passive)
   if (curPassive === 'guard' && !P.shield) { P.shield = true; refreshBuffUI(); }
@@ -1349,7 +1684,8 @@ function applyTether(P) {
     if (d > TETHER) {
       const st = d - TETHER;
       // Cap pulling force smoothly so players aren't violently launched into pits
-      const f = Math.min(st * 0.008 + (st > 120 ? 0.2 : 0), 1.2);
+      const res = (P.onGround || input.d) ? 0.1 : 1;
+      const f = Math.min(st * 0.008 + (st > 120 ? 0.2 : 0), 1.2) * res;
       P.vx += (dx / d) * f;
       P.vy += (dy / d) * f * (dy < 0 ? 0.7 : 0.25);
     }
@@ -1411,8 +1747,15 @@ function hazardCheck(P) {
     const nx = clamp(bx, hx, hx + hw), ny = clamp(by, hy, hy + hh);
     if (Math.hypot(bx - nx, by - ny) < b.r - 4) return 'boulder';
   }
-  for (const s of L.sweepers) if (hx < s.cx + s.w - 10 && hx + hw > s.cx) return 'wall';
-  if (P.y > WORLD_H + 90) return 'fall';
+  for (const s of L.sweepers) if (hx < s.cx + s.w - 10) return 'wall';
+  for (const r of (L.risers || [])) if (hy + hh > r.cy + 6) return 'wall';
+  for (const q of (L.stalactites || [])) if (q.st === 2 && rectsOverlap(hx, hy, hw, hh, q.x + 6, q.y + q.fy, q.w - 12, q.h)) return 'stalactite';
+  for (const f of (L.meteors || [])) {
+    const m = meteorAt(f, G.lt);
+    if (m.fly) { if (circleHitsRect(m.x, m.y, 15, hx, hy, hw, hh)) return 'meteor'; }
+    else if (m.age - m.T < 0.3 && circleHitsRect(m.ix, f.gy - 10, 42, hx, hy, hw, hh)) return 'meteor';
+  }
+  if (P.y > (L.h || WORLD_H) + 90) return 'fall';
   return null;
 }
 
@@ -1445,25 +1788,40 @@ function stepPlayer() {
   P.bPrev = input.b;
   if (P.rope) { stepRope(P, ax); if (P.jbuf > 0) P.jbuf--; P.anch = false; const h = hazardCheck(P); if (h) die(h); return; }
 
-  if (ax !== 0) {
-    const acc = P.onGround ? 1.0 : (curPassive === 'featherfall' ? 0.85 : 0.65);
+  if (P.wlock > 0) { P.wlock--; } else if (ax !== 0) {
+    const acc = P.onGround ? (P.onIce ? 0.16 : 1.0) : (curPassive === 'featherfall' ? 0.85 : 0.65);
     const tgt = ax * runMax(P);
     P.vx += clamp(tgt - P.vx, -acc, acc);
     P.face = ax;
-  } else P.vx *= P.onGround ? 0.72 : 0.95;
+  } else P.vx *= P.onGround ? (P.onIce ? 0.985 : 0.72) : 0.95;
   if (Math.abs(P.vx) < 0.04) P.vx = 0;
   applyTether(P);
 
   { const rm = runMax(P); P.vx = clamp(P.vx, -rm - 4, rm + 4); }
   P.vy = Math.min(P.vy + GRAV, curPassive === 'featherfall' ? MAXFALL * 0.7 : MAXFALL);
+  if (L.wj && !P.onGround) {
+    const wl = nearSolids(P.x - 3, P.y + 6, 3, PH - 12).length > 0;
+    const wr = wl ? false : nearSolids(P.x + PW, P.y + 6, 3, PH - 12).length > 0;
+    if (wl || wr) {
+      P.wallDir = wl ? -1 : 1; P.wallT = 7;
+      if (P.vy > 2.4) { P.vy = 2.4; if (Math.random() < 0.3) puff(P.x + (wl ? 0 : PW), P.y + PH * 0.6, 1, '#e8e0d8', 0.4); }
+    } else if (P.wallT > 0) P.wallT--;
+  } else if (P.onGround) P.wallT = 0;
 
   if (P.onGround) { P.coyote = 6; P.usedDJ = false; } else if (P.coyote > 0) P.coyote--;
+  if (P.jbuf === 7 && G.mode === 'coop' && (P.onGround || input.d)) {
+    const hf = hangingFriend(P);
+    if (hf) { P.jbuf = 0; doHoist(P, hf); }
+  }
   if (P.jbuf > 0) {
     if (P.coyote > 0) {
       const isFromHead = !!P.ride;
       P.vy = (isFromHead ? -JUMP * 1.15 : -JUMP) * jumpMul(P); // 15% super jump boost off head!
       P.coyote = 0; P.jbuf = 0; P.jumping = true; P.onGround = false; P.sq = -0.25;
       Snd.jump(P.slot); puff(P.x + PW / 2, P.y + PH, isFromHead ? 6 : 4, isFromHead ? '#ffe066' : '#fff');
+    } else if (L.wj && P.wallT > 0 && !P.onGround) {
+      P.vy = -JUMP * 0.96 * jumpMul(P); P.vx = -P.wallDir * 6.4; P.wallT = 0; P.wlock = 9; P.face = -P.wallDir; P.jbuf = 0; P.jumping = true; P.usedDJ = false;
+      Snd.jump(P.slot); puff(P.x + (P.wallDir > 0 ? PW : 0), P.y + PH * 0.6, 5, '#fff', 1);
     } else if (P.dj && !P.usedDJ && !P.onGround) {
       P.vy = -JUMP * 0.92 * jumpMul(P); P.usedDJ = true; P.jbuf = 0; P.jumping = true; Snd.djump(); sparkle(P.x + PW / 2, P.y + PH, 8, 1, '#9ef');
     } else P.jbuf--;
@@ -1490,12 +1848,12 @@ function stepPlayer() {
 
   const feet0 = P.y + PH;
   P.y += P.vy;
-  P.wasGround = P.onGround; P.onGround = false; P.ride = null; P.anch = false;
+  P.wasGround = P.onGround; P.onGround = false; P.onIce = false; P.ride = null; P.anch = false;
   hits = nearSolids(P.x, P.y, PW, PH);
   for (let i = 0; i < hits.length; i++) {
     const s = hits[i];
     if (P.vy > 0) {
-      P.y = s[1] - PH; P.onGround = true;
+      P.y = s[1] - PH; P.onGround = true; P.onIce = !!s.ice;
     } else if (P.vy < 0) {
       P.y = s[1] + s[3];
     } else {
@@ -1567,6 +1925,7 @@ function packFlags(P) {
   if (P.shield) f |= F_SHIELD;
   if (P.inv > 0) f |= F_INV;
   if (P.anch) f |= F_ANCH;
+  if (G.boutique) f |= F_BOUT;
   return f;
 }
 
@@ -1586,7 +1945,7 @@ function newRemote(slot) {
 
 function applyRemoteFlags(r, f) {
   r.flags = f; r.face = (f & F_RIGHT) ? 1 : -1; r.onGround = !!(f & F_GROUND); r.dead = !!(f & F_DEAD);
-  r.ropeOn = !!(f & F_ROPE); r.ropeId = f >> 8; r.shield = !!(f & F_SHIELD); r.inv = !!(f & F_INV); r.anch = !!(f & F_ANCH);
+  r.ropeOn = !!(f & F_ROPE); r.ropeId = f >> 8; r.shield = !!(f & F_SHIELD); r.inv = !!(f & F_INV); r.anch = !!(f & F_ANCH); r.bout = !!(f & F_BOUT);
 }
 
 function ensureSocket() {
@@ -1652,6 +2011,13 @@ function onNetEv(e) {
       if (e.data) {
         loadLevel(-1, e.data);
         toast('🗺️ Đã tải màn chơi từ ' + (G.names[e.s] || 'Chủ phòng') + '!');
+      }
+      break;
+    case 'hoist':
+      if (e.lv === G.lvIdx && e.to === G.myslot && G.me && !G.me.dead) {
+        const M = G.me;
+        if (M.rope) M.rope.len = Math.max(150, M.rope.len - 7); else M.vy = Math.max(M.vy - 1.8, -9);
+        sparkle(M.x + PW / 2, M.y + PH / 2, 4, 0.8, '#fff3a0');
       }
       break;
     case 'key': if (e.lv === G.lvIdx) collectKey(false, e.s); break;
@@ -1750,7 +2116,7 @@ setInterval(() => {
 // ============================================================================
 const LV_META = {};
 function levelMeta(mode) {
-  if (!LV_META[mode]) LV_META[mode] = LEVELS[mode].map((f) => { const L = f(); return { name: L.name, w: L.w, coins: L.coins.length }; });
+  if (!LV_META[mode]) LV_META[mode] = LEVELS[mode].map((f) => { const L = f(); return { name: L.name, w: L.w, h: L.h, tower: L.h > WORLD_H, coins: L.coins.length }; });
   return LV_META[mode];
 }
 
@@ -1798,23 +2164,43 @@ function buildPicker() {
   $('lpShop').onclick = () => openShop();
 }
 
+let lpPage = 0;
+const LP_PER = 10;
 function showPicker(mode) {
   buildPicker();
   const meta = levelMeta(mode), un = Save.unlocked(mode);
-  setText('lpTitle', mode === 'solo' ? '🌟 SOLO HARDCORE — choose a level' : '🤝 CO-OP CHAOS');
+  const pages = Math.max(1, Math.ceil(meta.length / LP_PER));
+  setText('lpTitle', mode === 'solo' ? '🌟 SOLO HARDCORE — ' + meta.length + ' levels' : mode === 'party' ? '🐰 PARTY STACKING — ' + meta.length + ' levels' : '🤝 CO-OP CHAOS — ' + meta.length + ' levels');
   setText('lpCoins', Save.coins());
-  const grid = $('lpGrid'); grid.innerHTML = '';
-  meta.forEach((m, i) => {
-    const locked = i + 1 > un, cleared = Save.cleared(mode, i), best = Save.best(mode, i);
-    const b = document.createElement('button');
-    b.className = 'lp-cell' + (locked ? ' locked' : '') + (cleared ? ' cleared' : '');
-    b.innerHTML = '<div class=\"lp-num\"></div><div class=\"lp-name\"></div><div class=\"lp-meta\"></div>' + (locked ? '<div class=\"lp-lock\">🔒</div>' : cleared ? '<div class=\"lp-lock\">⭐</div>' : '');
-    b.children[0].textContent = String(i + 1);
-    b.children[1].textContent = m.name;
-    b.children[2].textContent = locked ? 'Beat level ' + i + ' first' : (best ? '⏱ ' + best.toFixed(1) + 's' : 'Not cleared') + ' · 🪙 ' + Save.coinsGot(mode, i).length + '/' + m.coins;
-    b.onclick = () => { if (locked) { toast('🔒 Beat level ' + i + ' to unlock!'); return; } Snd.init(); show('levelPicker', false); beginGame(mode, i); };
-    grid.appendChild(b);
-  });
+  let nav = $('lpNav');
+  if (!nav) {
+    nav = document.createElement('div'); nav.id = 'lpNav'; nav.className = 'lp-nav';
+    $('lpGrid').parentNode.insertBefore(nav, $('lpGrid'));
+  }
+  const draw = () => {
+    lpPage = clamp(lpPage, 0, pages - 1);
+    nav.innerHTML = '';
+    const mk = (txt, fn, dis, cls) => { const b = document.createElement('button'); b.className = 'lp-pg ' + (cls || ''); b.textContent = txt; b.disabled = !!dis; b.onclick = fn; return b; };
+    nav.appendChild(mk('‹', () => { lpPage--; draw(); }, lpPage === 0));
+    for (let p = 0; p < pages; p++) nav.appendChild(mk(String(p * LP_PER + 1) + '-' + Math.min(meta.length, (p + 1) * LP_PER), () => { lpPage = p; draw(); }, false, p === lpPage ? 'on' : ''));
+    nav.appendChild(mk('›', () => { lpPage++; draw(); }, lpPage === pages - 1));
+    const grid = $('lpGrid'); grid.innerHTML = '';
+    for (let i = lpPage * LP_PER; i < Math.min(meta.length, (lpPage + 1) * LP_PER); i++) {
+      const m = meta[i], locked = i + 1 > un, cleared = Save.cleared(mode, i), best = Save.best(mode, i);
+      const b = document.createElement('button');
+      b.className = 'lp-cell' + (locked ? ' locked' : '') + (cleared ? ' cleared' : '') + (m.tower ? ' tower' : '');
+      b.innerHTML = '<div class="lp-num"></div><div class="lp-name"></div><div class="lp-meta"></div>' + (locked ? '<div class="lp-lock">🔒</div>' : cleared ? '<div class="lp-lock">⭐</div>' : '');
+      b.children[0].textContent = String(i + 1) + (m.tower ? ' 🗼' : '');
+      b.children[1].textContent = m.name;
+      b.children[2].textContent = locked ? 'Beat level ' + i + ' first' : (best ? '⏱ ' + best.toFixed(1) + 's' : 'Not cleared') + ' · 🪙 ' + Save.coinsGot(mode, i).length + '/' + m.coins;
+      b.onclick = () => { if (locked) { toast('🔒 Beat level ' + i + ' to unlock!'); return; } Snd.init(); show('levelPicker', false); beginGame(mode, i); };
+      grid.appendChild(b);
+    }
+    const wrap = $('levelPicker'); if (wrap && wrap.scrollTo) wrap.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+  let first = 0; while (first < meta.length - 1 && first + 1 <= un && Save.cleared(mode, first)) first++;
+  lpPage = Math.floor(Math.min(first, un - 1 < 0 ? 0 : un - 1) / LP_PER);
+  draw();
   show('lobby', false); show('levelPicker', true);
 }
 
@@ -1921,9 +2307,9 @@ function changeLevel(n) {
 }
 
 
-const kb = { l: false, r: false, j: false, b: false }, tc = { l: false, r: false, j: false, b: false };
-function recompute() { input.l = kb.l || tc.l; input.r = kb.r || tc.r; input.j = kb.j || tc.j; input.b = kb.b || tc.b; }
-const KEYMAP = { ArrowLeft: 'l', KeyA: 'l', ArrowRight: 'r', KeyD: 'r', ArrowUp: 'j', KeyW: 'j', Space: 'j', KeyE: 'b' };
+const kb = { l: false, r: false, j: false, b: false, d: false }, tc = { l: false, r: false, j: false, b: false, d: false };
+function recompute() { input.l = kb.l || tc.l; input.r = kb.r || tc.r; input.j = kb.j || tc.j; input.b = kb.b || tc.b; input.d = kb.d || tc.d; }
+const KEYMAP = { ArrowLeft: 'l', KeyA: 'l', ArrowRight: 'r', KeyD: 'r', ArrowUp: 'j', KeyW: 'j', Space: 'j', KeyE: 'b', ArrowDown: 'd', KeyS: 'd' };
 window.addEventListener('keydown', (e) => {
   if (e.target && e.target.tagName === 'INPUT') return;
   Snd.init();
@@ -1935,7 +2321,7 @@ window.addEventListener('keydown', (e) => {
   else if (e.code === 'KeyM' && !e.repeat) $('muteBtn').click();
 });
 window.addEventListener('keyup', (e) => { const k = KEYMAP[e.code]; if (k) { kb[k] = false; recompute(); } });
-window.addEventListener('blur', () => { kb.l = kb.r = kb.j = kb.b = false; tc.l = tc.r = tc.j = tc.b = false; recompute(); });
+window.addEventListener('blur', () => { kb.l = kb.r = kb.j = kb.b = kb.d = false; tc.l = tc.r = tc.j = tc.b = tc.d = false; recompute(); });
 
 const touchBtns = [...document.querySelectorAll('.tbtn')];
 let touchBuffDown = new Set();
@@ -2190,6 +2576,7 @@ function drawBackground(L, cam) {
 }
 
 function drawSolid(L, s) {
+  if (s.ice) { drawIceSolid(L, s); return; }
   const x = s[0], y = s[1], w = s[2], h = s[3];
   const sh = curEnv ? curEnv.solidHue : L.hue + 25, gh = curEnv ? curEnv.grassHue : 105;
   const gr = ctx.createLinearGradient(0, y, 0, y + Math.min(h, 280));
@@ -2277,20 +2664,363 @@ function drawBoulder(b, bcx, brot) {
   ctx.restore();
 }
 
+
+
+// ============================================================================
+// v9 & v10 ENGINE: smart pause, boutique shield, Void Maw rewinding, hoisting,
+//                 stalactites, meteors, ice, wall-jump, juicy art
+// ============================================================================
+const MODAL_IDS = ['shopModal', 'settingsModal', 'nickModal', 'syncModal', 'adminModal'];
+function modalOpen() {
+  for (let i = 0; i < MODAL_IDS.length; i++) { const e = document.getElementById(MODAL_IDS[i]); if (e && !e.classList.contains('hidden')) return true; }
+  return false;
+}
+
+function rewindHunters(P) {
+  const L = G.L;
+  for (const s of L.sweepers) {
+    const tgt = P.cp.x - 320;
+    if (s.cx > tgt) { s.x = tgt; s.cx = tgt; s.delay = G.lt + 2.5; }
+  }
+  for (const r of (L.risers || [])) {
+    if (r.y0 === undefined) r.y0 = r.y;
+    const tgt = Math.min(r.y0, P.cp.y + PH + 380);
+    if (r.cy < tgt) { r.y = tgt; r.cy = tgt; r.delay = G.lt + 2.5; }
+  }
+}
+
+function groundBelow(x0, x1, y) {
+  let best = (G.L.h || WORLD_H) + 200;
+  for (const s of G.L.solids) if (s[0] < x1 && s[0] + s[2] > x0 && s[1] >= y - 2 && s[1] < best) best = s[1];
+  return best;
+}
+
+function updateStalactites(bodies) {
+  const L = G.L;
+  for (const s of (L.stalactites || [])) {
+    if (s.st === 0) {
+      for (const b of bodies) {
+        const cx = b.x + PW / 2;
+        if (cx > s.x - 56 && cx < s.x + s.w + 56 && b.y > s.y + s.h * 0.5 && b.y < s.y + s.h + 520) { s.st = 1; s.t = 0.4; Snd.shake(); break; }
+      }
+    } else if (s.st === 1) {
+      s.t -= STEP;
+      if (Math.random() < 0.6) puff(s.x + rnd(-4, s.w + 4), s.y + s.h * 0.5, 1, '#bcaaa4', 0.5);
+      if (s.t <= 0) { s.st = 2; s.vy = 2; s.fy = 0; if (s.gnd === undefined) s.gnd = groundBelow(s.x, s.x + s.w, s.y + s.h); }
+    } else if (s.st === 2) {
+      s.vy = Math.min(s.vy + 0.9, 20); s.fy += s.vy;
+      if (s.y + s.h + s.fy >= s.gnd) {
+        s.fy = Math.max(0, s.gnd - s.y - s.h); s.st = 3; s.t = 3.2;
+        debris(s.x - 8, s.gnd - 8, s.w + 16, 8, 12, '#8d7b73'); puff(s.x + s.w / 2, s.gnd, 8, '#d7ccc8', 1.4);
+        G.shake = Math.max(G.shake, 4); Snd.crumble();
+      }
+    } else { s.t -= STEP; if (s.t <= 0) { s.st = 0; s.fy = 0; s.vy = 0; } }
+  }
+}
+
+function meteorGeom(f, k) {
+  const T = (f.gy - f.topY) / (f.vy * 60);
+  const ix = f.x0 + hash1(k * 7.31 + f.id * 13.7) * (f.x1 - f.x0);
+  return { sx: ix - f.vx * 60 * T, sy: f.topY, T, ix };
+}
+function meteorAt(f, lt) {
+  const t = lt + f.off, k = Math.floor(t / f.period), age = t - k * f.period, g = meteorGeom(f, k);
+  const a = Math.min(age, g.T);
+  g.k = k; g.age = age; g.x = g.sx + f.vx * 60 * a; g.y = g.sy + f.vy * 60 * a; g.fly = age < g.T;
+  return g;
+}
+function updateMeteors() {
+  const cam = G.cam, mid = cam.x + (cam.vw || 800) / 2, rng = (cam.vw || 800) * 0.9;
+  for (const f of (G.L.meteors || [])) {
+    const m = meteorAt(f, G.lt);
+    if (m.fly) {
+      if (Math.abs(m.x - mid) < rng) {
+        puff(m.x - f.vx * 5, m.y - f.vy * 5, 1, Math.random() < 0.5 ? '#ff9f43' : '#6d6d6d', 0.6);
+        if (Math.random() < 0.5) sparkle(m.x - f.vx * 8, m.y - f.vy * 8, 1, 0.4, '#ffd43b');
+      }
+    } else if (f.exK !== m.k) {
+      f.exK = m.k;
+      if (m.age - m.T < 0.3) {
+        debris(m.ix - 20, f.gy - 10, 40, 10, 14, '#ff8a3d'); puff(m.ix, f.gy - 6, 14, '#ffb74d', 2.2); sparkle(m.ix, f.gy - 14, 16, 2.2, '#ffd43b');
+        if (Math.abs(m.ix - mid) < rng) { G.shake = Math.max(G.shake, 7); Snd.slam(); }
+      }
+    }
+  }
+}
+function circleHitsRect(cx, cy, r, hx, hy, hw, hh) {
+  return Math.hypot(cx - clamp(cx, hx, hx + hw), cy - clamp(cy, hy, hy + hh)) < r;
+}
+
+function hangingFriend(P) {
+  let best = null, bd = 1e9;
+  for (const r of G.remotes.values()) {
+    if (r.dead || (r.onGround && !r.ropeOn) || r.y < P.y + 30) continue;
+    const d = Math.hypot(r.x - P.x, r.y - P.y);
+    if (d > TETHER + 90 || d < TETHER * 0.5) continue;
+    if (d < bd) { bd = d; best = r; }
+  }
+  return best;
+}
+function doHoist(P, r) {
+  netEv({ t: 'hoist', to: r.slot, s: P.slot });
+  Snd.grab(); sparkle(P.x + PW / 2, P.y + PH * 0.4, 5, 0.8, '#fff3a0');
+  for (let i = 1; i <= 3; i++) sparkle(lerp(P.x + PW / 2, r.x + PW / 2, i / 4), lerp(P.y + PH / 2, r.y + PH / 2, i / 4), 1, 0.3, '#ffe066');
+  P.sq = 0.2;
+}
+
+function star4(x, y, r, rot) {
+  ctx.save(); ctx.translate(x, y); ctx.rotate(rot);
+  ctx.beginPath(); ctx.moveTo(0, -r); ctx.quadraticCurveTo(r * 0.12, -r * 0.12, r, 0); ctx.quadraticCurveTo(r * 0.12, r * 0.12, 0, r);
+  ctx.quadraticCurveTo(-r * 0.12, r * 0.12, -r, 0); ctx.quadraticCurveTo(-r * 0.12, -r * 0.12, 0, -r); ctx.fill(); ctx.restore();
+}
+
+function drawKeyIcon(x, y, t) {
+  const cy = y + Math.sin(t * 2.4) * 4;
+  ctx.save(); ctx.globalCompositeOperation = 'lighter';
+  const gl = ctx.createRadialGradient(x, cy, 2, x, cy, 52);
+  gl.addColorStop(0, 'rgba(255,230,120,.55)'); gl.addColorStop(1, 'rgba(255,200,60,0)');
+  ctx.fillStyle = gl; ctx.beginPath(); ctx.arc(x, cy, 52, 0, 6.3); ctx.fill();
+  for (let i = 0; i < 2; i++) {
+    const ph = (t * 0.7 + i * 0.5) % 1;
+    ctx.strokeStyle = 'rgba(255,236,150,' + (0.7 * (1 - ph)) + ')'; ctx.lineWidth = 2.2;
+    ctx.beginPath(); ctx.arc(x, cy, 16 + ph * 30, 0, 6.3); ctx.stroke();
+  }
+  ctx.fillStyle = '#fff6b0';
+  for (let i = 0; i < 5; i++) { const a = t * 1.8 + i * 1.2566; star4(x + Math.cos(a) * 28, cy + Math.sin(a) * 16, 3.5 + Math.sin(t * 5 + i) * 1.2, a * 2); }
+  ctx.restore();
+  ctx.save(); ctx.translate(x, cy);
+  ctx.scale(0.62 + 0.38 * Math.abs(Math.cos(t * 1.5)), 1);
+  ctx.fillStyle = '#ffd43b'; ctx.strokeStyle = '#b8860b'; ctx.lineWidth = 2.5;
+  ctx.beginPath(); ctx.arc(-6, 0, 9, 0, 6.3); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#fff8e1'; ctx.beginPath(); ctx.arc(-6, 0, 3.5, 0, 6.3); ctx.fill();
+  ctx.fillStyle = '#ffd43b'; ctx.fillRect(1, -3, 17, 6); ctx.strokeRect(1, -3, 17, 6); ctx.fillRect(12, 3, 4, 7); ctx.fillRect(7, 3, 3, 5);
+  ctx.fillStyle = 'rgba(255,255,255,.7)'; ctx.fillRect(-10, -6, 3, 4);
+  ctx.restore();
+  if (!G.paused && Math.random() < 0.22) sparkle(x + rnd(-20, 20), cy + rnd(-20, 20), 1, 0.35, '#ffe98a');
+}
+
+function drawExit(L) {
+  const e = L.exit, open = G.keyGot, t = G.lt, cx = e.x + e.w / 2, cy = e.y + e.h / 2;
+  if (open) {
+    ctx.save(); ctx.globalCompositeOperation = 'lighter';
+    const gl = ctx.createRadialGradient(cx, cy, 6, cx, cy, 90 + Math.sin(t * 3) * 8);
+    gl.addColorStop(0, 'rgba(160,120,255,.45)'); gl.addColorStop(1, 'rgba(120,200,255,0)');
+    ctx.fillStyle = gl; ctx.beginPath(); ctx.arc(cx, cy, 100, 0, 6.3); ctx.fill(); ctx.restore();
+  }
+  ctx.fillStyle = '#5d4037'; ctx.fillRect(e.x - 16, e.y + e.h - 6, e.w + 32, 10);
+  ctx.fillStyle = '#8d6e63'; rr(e.x - 12, e.y - 14, 14, e.h + 14, 4); ctx.fill(); rr(e.x + e.w - 2, e.y - 14, 14, e.h + 14, 4); ctx.fill();
+  ctx.fillStyle = '#6d4c41'; ctx.beginPath(); ctx.moveTo(e.x - 12, e.y + 10); ctx.quadraticCurveTo(cx, e.y - 44, e.x + e.w + 12, e.y + 10); ctx.lineTo(e.x + e.w + 12, e.y - 4); ctx.quadraticCurveTo(cx, e.y - 56, e.x - 12, e.y - 4); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = open ? '#ffd43b' : '#a1887f'; ctx.beginPath(); ctx.arc(cx, e.y - 28, 6, 0, 6.3); ctx.fill();
+  ctx.save();
+  ctx.beginPath(); ctx.moveTo(e.x, e.y + e.h); ctx.lineTo(e.x, e.y + 14); ctx.quadraticCurveTo(cx, e.y - 24, e.x + e.w, e.y + 14); ctx.lineTo(e.x + e.w, e.y + e.h); ctx.closePath(); ctx.clip();
+  if (open) {
+    const bg = ctx.createRadialGradient(cx, cy, 2, cx, cy, e.h * 0.7);
+    bg.addColorStop(0, '#ffffff'); bg.addColorStop(0.35, '#b39bff'); bg.addColorStop(1, '#2a1a6e');
+    ctx.fillStyle = bg; ctx.fillRect(e.x, e.y - 30, e.w, e.h + 40);
+    ctx.translate(cx, cy); ctx.scale(1, e.h / e.w * 0.95);
+    for (let i = 0; i < 7; i++) {
+      ctx.save(); ctx.rotate(t * (1.6 + i * 0.35) * (i % 2 ? -1 : 1));
+      ctx.strokeStyle = 'hsla(' + (250 + i * 18) + ',90%,' + (70 + i * 3) + '%,' + (0.85 - i * 0.07) + ')'; ctx.lineWidth = 3.2;
+      ctx.beginPath(); ctx.arc(0, 0, 5 + i * 5.5, 0, Math.PI * 1.35); ctx.stroke(); ctx.restore();
+    }
+  } else {
+    ctx.fillStyle = '#263238'; ctx.fillRect(e.x, e.y - 30, e.w, e.h + 40);
+    ctx.fillStyle = 'rgba(255,255,255,.06)'; for (let i = 0; i < 4; i++) ctx.fillRect(e.x + 6 + i * 12, e.y + 10, 2, e.h);
+  }
+  ctx.restore();
+  if (open) {
+    if (!G.paused && Math.random() < 0.35) sparkle(cx + rnd(-e.w, e.w), cy + rnd(-e.h * 0.6, e.h * 0.6), 1, 0.5, Math.random() < 0.5 ? '#d0c0ff' : '#aef');
+  } else {
+    ctx.fillStyle = '#ffd43b'; ctx.beginPath(); ctx.arc(cx, cy + 4, 7, 0, 6.3); ctx.fill(); ctx.fillRect(cx - 3, cy + 6, 6, 12);
+  }
+}
+
+function drawIceSolid(L, s) {
+  const x = s[0], y = s[1], w = s[2], h = s[3], t = G.lt;
+  const gr = ctx.createLinearGradient(0, y, 0, y + Math.min(h, 240));
+  gr.addColorStop(0, '#bfeaff'); gr.addColorStop(0.35, '#6cc4f2'); gr.addColorStop(1, '#2a73b8');
+  ctx.fillStyle = gr; ctx.fillRect(x, y, w, h);
+  ctx.fillStyle = 'rgba(255,255,255,.22)';
+  for (let px = x + 16; px < x + w - 14; px += 46) { const ph = (px * 7) % 40; ctx.beginPath(); ctx.moveTo(px, y + 14 + ph); ctx.lineTo(px + 10, y + 6 + ph); ctx.lineTo(px + 20, y + 14 + ph); ctx.lineTo(px + 14, y + 30 + ph); ctx.lineTo(px + 4, y + 30 + ph); ctx.closePath(); ctx.fill(); }
+  ctx.fillStyle = '#e8f8ff'; rr(x - 3, y - 4, w + 6, 10, 5); ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,.95)';
+  for (let px = x + 8; px < x + w - 6; px += 30) { const bh = 5 + ((px * 13) % 8); ctx.beginPath(); ctx.moveTo(px, y - 3); ctx.lineTo(px + 5, y - 3 - bh); ctx.lineTo(px + 10, y - 3); ctx.fill(); }
+  if (h < 80) { ctx.fillStyle = 'rgba(190,235,255,.9)'; for (let px = x + 10; px < x + w - 8; px += 26) { const ih = 8 + ((px * 11) % 12); ctx.beginPath(); ctx.moveTo(px, y + h); ctx.lineTo(px + 5, y + h + ih); ctx.lineTo(px + 10, y + h); ctx.fill(); } }
+  const gx = x + ((t * 90 + x) % (w + 120)) - 60;
+  ctx.save(); ctx.beginPath(); ctx.rect(x, y - 4, w, 12); ctx.clip();
+  ctx.fillStyle = 'rgba(255,255,255,.75)'; ctx.beginPath(); ctx.moveTo(gx, y + 8); ctx.lineTo(gx + 16, y - 4); ctx.lineTo(gx + 30, y - 4); ctx.lineTo(gx + 14, y + 8); ctx.closePath(); ctx.fill(); ctx.restore();
+}
+
+function drawStalactite(s) {
+  if (s.st === 3 && s.gnd !== undefined) {
+    ctx.save(); ctx.globalAlpha = clamp(s.t / 1.2, 0, 1); ctx.fillStyle = '#8d7b73';
+    for (let i = 0; i < 4; i++) { ctx.beginPath(); ctx.moveTo(s.x + i * 9 - 4, s.gnd); ctx.lineTo(s.x + i * 9 + 3, s.gnd - 8 - (i % 2) * 5); ctx.lineTo(s.x + i * 9 + 10, s.gnd); ctx.fill(); }
+    ctx.restore();
+  }
+  ctx.fillStyle = '#5d4e48'; rr(s.x - 12, s.y - 16, s.w + 24, 20, 8); ctx.fill();
+  if (s.st === 3) return;
+  const sh = s.st === 1 ? Math.sin(G.lt * 90) * 2.4 : 0, y0 = s.y + (s.st === 2 ? s.fy : 0);
+  const gr = ctx.createLinearGradient(s.x, y0, s.x + s.w, y0);
+  gr.addColorStop(0, '#6d5d57'); gr.addColorStop(0.5, '#b8a59d'); gr.addColorStop(1, '#6d5d57');
+  ctx.fillStyle = gr; ctx.strokeStyle = '#3e2f2a'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(s.x + sh, y0); ctx.lineTo(s.x + s.w + sh, y0); ctx.lineTo(s.x + s.w / 2 + sh, y0 + s.h); ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = 'rgba(255,255,255,.28)'; ctx.beginPath(); ctx.moveTo(s.x + 7 + sh, y0 + 3); ctx.lineTo(s.x + 13 + sh, y0 + 3); ctx.lineTo(s.x + s.w / 2 + sh, y0 + s.h * 0.7); ctx.closePath(); ctx.fill();
+  if (s.st === 2) { ctx.strokeStyle = 'rgba(255,255,255,.55)'; ctx.lineWidth = 2; for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.moveTo(s.x + 6 + i * 11, y0 - 8); ctx.lineTo(s.x + 6 + i * 11, y0 - 30 - i * 6); ctx.stroke(); } }
+  if (s.st === 1) { ctx.fillStyle = 'rgba(255,80,80,.9)'; ctx.font = '700 16px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('!', s.x + s.w / 2, s.y - 22); }
+}
+
+function drawMeteors(cam) {
+  for (const f of (G.L.meteors || [])) {
+    if (f.x1 < cam.x - 400 || f.x0 > cam.x + cam.vw + 400) continue;
+    const m = meteorAt(f, G.lt);
+    if (m.fly) {
+      if (m.age > m.T - 1.3) {
+        const pr = 1 - (m.T - m.age) / 1.3;
+        ctx.save(); ctx.strokeStyle = 'rgba(255,70,50,' + (0.35 + pr * 0.55) + ')'; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.ellipse(m.ix, f.gy - 3, 54 - pr * 20, 10, 0, 0, 6.3); ctx.stroke();
+        ctx.fillStyle = 'rgba(255,70,50,' + (0.12 + pr * 0.25) + ')'; ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,.9)'; ctx.font = '700 18px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('!', m.ix, f.gy - 18); ctx.restore();
+      }
+      const tx = m.x - f.vx * 60 * 0.4, ty = m.y - f.vy * 60 * 0.4;
+      ctx.save(); ctx.globalCompositeOperation = 'lighter';
+      const tg = ctx.createLinearGradient(tx, ty, m.x, m.y);
+      tg.addColorStop(0, 'rgba(255,120,30,0)'); tg.addColorStop(1, 'rgba(255,190,70,.9)');
+      ctx.strokeStyle = tg; ctx.lineWidth = 16; ctx.lineCap = 'round'; ctx.beginPath(); ctx.moveTo(tx, ty); ctx.lineTo(m.x, m.y); ctx.stroke();
+      const gl = ctx.createRadialGradient(m.x, m.y, 2, m.x, m.y, 34);
+      gl.addColorStop(0, 'rgba(255,200,80,.8)'); gl.addColorStop(1, 'rgba(255,90,20,0)');
+      ctx.fillStyle = gl; ctx.beginPath(); ctx.arc(m.x, m.y, 34, 0, 6.3); ctx.fill(); ctx.restore();
+      ctx.save(); ctx.translate(m.x, m.y); ctx.rotate(G.lt * 5);
+      ctx.fillStyle = '#4e342e'; ctx.strokeStyle = '#ff8f3d'; ctx.lineWidth = 2.5;
+      ctx.beginPath(); for (let i = 0; i < 8; i++) { const a = i * 0.785, r = 14 + (i % 2) * 3.5; ctx.lineTo(Math.cos(a) * r, Math.sin(a) * r); } ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#ffab40'; ctx.beginPath(); ctx.arc(-4, -3, 3, 0, 6.3); ctx.fill(); ctx.restore();
+    } else if (m.age - m.T < 0.5) {
+      const p = (m.age - m.T) / 0.5;
+      ctx.save(); ctx.globalCompositeOperation = 'lighter';
+      const gl = ctx.createRadialGradient(m.ix, f.gy - 10, 4, m.ix, f.gy - 10, 30 + p * 60);
+      gl.addColorStop(0, 'rgba(255,240,170,' + (0.9 * (1 - p)) + ')'); gl.addColorStop(0.5, 'rgba(255,120,30,' + (0.6 * (1 - p)) + ')'); gl.addColorStop(1, 'rgba(255,60,0,0)');
+      ctx.fillStyle = gl; ctx.beginPath(); ctx.arc(m.ix, f.gy - 10, 30 + p * 60, 0, 6.3); ctx.fill(); ctx.restore();
+    }
+  }
+}
+
 function drawSweeper(s, cam) {
-  const x = s.cx, y = cam.y - 100, h = cam.vh + 200;
-  ctx.fillStyle = 'rgba(60,0,20,.9)'; ctx.fillRect(x, y, s.w, h);
-  const g = ctx.createLinearGradient(x + s.w - 60, 0, x + s.w + 40, 0);
-  g.addColorStop(0, 'rgba(255,40,60,.0)'); g.addColorStop(1, 'rgba(255,40,60,.5)');
-  ctx.fillStyle = g; ctx.fillRect(x + s.w - 60, y, 100, h);
-  ctx.fillStyle = '#ff5252';
-  for (let yy = Math.floor(y / 40) * 40; yy < y + h; yy += 40) {
-    ctx.beginPath(); ctx.moveTo(x + s.w - 4, yy); ctx.lineTo(x + s.w + 30, yy + 20); ctx.lineTo(x + s.w - 4, yy + 40); ctx.closePath(); ctx.fill();
+  const T = G.lt, front = s.cx + s.w, y = cam.y - 100, h = cam.vh + 200;
+  const roar = T < s.delay, my = cam.y + cam.vh * 0.52;
+  const shk = roar ? Math.sin(T * 60) * 2 : 0;
+  ctx.save(); ctx.translate(shk, 0);
+  const bg = ctx.createLinearGradient(front - 520, 0, front, 0);
+  bg.addColorStop(0, 'rgba(8,0,18,.97)'); bg.addColorStop(1, 'rgba(30,0,50,.9)');
+  ctx.fillStyle = bg; ctx.fillRect(front - 1400, y, 1400, h);
+  for (let i = 0; i < 16; i++) {
+    const a = T * (0.5 + (i % 4) * 0.12) + i * 1.7, bx = front - 20 - ((i * 53) % 260) + Math.cos(a) * 34, by = cam.y + ((i * 137 + 60 * Math.sin(T * 0.6 + i)) % h + h) % h - 100, r = 70 + (i % 5) * 20;
+    const g = ctx.createRadialGradient(bx, by, 4, bx, by, r);
+    g.addColorStop(0, i % 3 ? 'rgba(120,30,170,.38)' : 'rgba(200,20,60,.28)'); g.addColorStop(1, 'rgba(60,0,100,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(bx, by, r, 0, 6.3); ctx.fill();
   }
-  if (G.lt < s.delay) {
+  ctx.strokeStyle = 'rgba(190,110,255,.22)'; ctx.lineWidth = 3;
+  for (let i = 0; i < 4; i++) { ctx.beginPath(); ctx.arc(front - 150, my, 60 + i * 45, T * (1.2 - i * 0.2) + i, T * (1.2 - i * 0.2) + i + 2.2); ctx.stroke(); }
+  const eg = ctx.createLinearGradient(front - 70, 0, front + 60, 0);
+  eg.addColorStop(0, 'rgba(255,40,90,0)'); eg.addColorStop(1, 'rgba(255,40,90,.45)');
+  ctx.fillStyle = eg; ctx.fillRect(front - 70, y, 130, h);
+  const snap = roar ? 1 : 0.5 + 0.5 * Math.sin(T * 4.4);
+  const gp = 46 + snap * 96, tipX = front + 52;
+  const jaw = (dir) => {
+    ctx.fillStyle = '#12001f'; ctx.strokeStyle = '#7a1fa2'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(front - 340, my + dir * (gp + 330)); ctx.quadraticCurveTo(front - 120, my + dir * (gp + 120), tipX, my + dir * gp); ctx.lineTo(tipX - 30, my + dir * (gp + 56)); ctx.quadraticCurveTo(front - 130, my + dir * (gp + 170), front - 340, my + dir * (gp + 400)); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#efe6ff'; ctx.strokeStyle = '#4a2a66'; ctx.lineWidth = 1.5;
+    for (let k = 0; k < 7; k++) {
+      const u = k / 7, bx = lerp(front - 230, tipX - 8, u), by = my + dir * (gp + 8 + (1 - u) * (1 - u) * 110), th = 20 + u * 30 + (k % 2) * 6;
+      ctx.beginPath(); ctx.moveTo(bx - 11, by + dir * 6); ctx.lineTo(bx + 11, by + dir * 6); ctx.lineTo(bx + 2, by - dir * th); ctx.closePath(); ctx.fill(); ctx.stroke();
+    }
+  };
+  jaw(-1); jaw(1);
+  ctx.fillStyle = '#efe6ff'; ctx.strokeStyle = '#4a2a66'; ctx.lineWidth = 1.5;
+  for (let yy = Math.floor(y / 44) * 44; yy < y + h; yy += 44) {
+    if (Math.abs(yy + 22 - my) < gp + 130) continue;
+    ctx.beginPath(); ctx.moveTo(front - 6, yy); ctx.lineTo(front + 22 + snap * 10, yy + 22); ctx.lineTo(front - 6, yy + 44); ctx.closePath(); ctx.fill(); ctx.stroke();
+  }
+  ctx.save(); ctx.globalCompositeOperation = 'lighter';
+  for (let e = 0; e < 3; e++) {
+    const gx = front - 190 + (e % 2) * 24, gy2 = e === 2 ? my + gp + 110 : my - gp - 130 - (e === 1 ? 70 : 0);
+    const pul = 0.75 + 0.25 * Math.sin(T * 5 + e);
+    const g = ctx.createRadialGradient(gx, gy2, 2, gx, gy2, 46);
+    g.addColorStop(0, 'rgba(255,60,90,' + pul + ')'); g.addColorStop(0.4, 'rgba(200,30,200,.55)'); g.addColorStop(1, 'rgba(120,0,200,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(gx, gy2, 46, 0, 6.3); ctx.fill();
+  }
+  ctx.restore();
+  for (let e = 0; e < 3; e++) {
+    const gx = front - 190 + (e % 2) * 24, gy2 = e === 2 ? my + gp + 110 : my - gp - 130 - (e === 1 ? 70 : 0);
+    ctx.fillStyle = '#ff2d55'; ctx.beginPath(); ctx.ellipse(gx, gy2, 17, 8 + 2 * Math.sin(T * 3 + e), 0.3, 0, 6.3); ctx.fill();
+    ctx.fillStyle = '#12001f'; ctx.beginPath(); ctx.ellipse(gx + 3, gy2, 3.5, 8, 0, 0, 6.3); ctx.fill();
+  }
+  ctx.restore();
+  if (roar) {
     ctx.fillStyle = '#fff'; ctx.font = '700 22px sans-serif'; ctx.textAlign = 'left';
-    ctx.fillText('RUN! ' + Math.max(0, s.delay - G.lt).toFixed(1), Math.max(x + 20, cam.x + 24), cam.y + 90);
+    ctx.fillText('THE MAW ROARS! RUN! ' + Math.max(0, s.delay - G.lt).toFixed(1), Math.max(front + 40, cam.x + 24), cam.y + 90);
   }
+}
+
+function drawRiser(r, cam) {
+  const T = G.lt, y = r.cy;
+  if (y > cam.y + cam.vh + 120) return;
+  const x0 = cam.x - 60, x1 = cam.x + cam.vw + 60, bot = cam.y + cam.vh + 140, wd = x1 - x0;
+  const roar = T < r.delay;
+  if (r.kind === 'lava') {
+    const g = ctx.createLinearGradient(0, y - 20, 0, y + 400);
+    g.addColorStop(0, '#ffb300'); g.addColorStop(0.15, '#ff6d00'); g.addColorStop(1, '#8e1600');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(x0, bot);
+    for (let x = x0; x <= x1; x += 16) ctx.lineTo(x, y + Math.sin(x * 0.03 + T * 2.4) * 7 + Math.sin(x * 0.011 - T * 1.3) * 5);
+    ctx.lineTo(x1, bot); ctx.closePath(); ctx.fill();
+    ctx.save(); ctx.globalCompositeOperation = 'lighter';
+    const gl = ctx.createLinearGradient(0, y - 160, 0, y + 10); gl.addColorStop(0, 'rgba(255,120,0,0)'); gl.addColorStop(1, 'rgba(255,150,30,.45)');
+    ctx.fillStyle = gl; ctx.fillRect(x0, y - 160, wd, 170); ctx.restore();
+    ctx.fillStyle = 'rgba(255,230,120,.8)';
+    for (let i = 0; i < 12; i++) { const bx = x0 + ((i * 173 + T * 20 * (1 + i % 3)) % wd), by = y + 20 + ((i * 61 + T * 40) % 160); ctx.beginPath(); ctx.arc(bx, by, 2 + i % 4, 0, 6.3); ctx.fill(); }
+    if (!G.paused && Math.random() < 0.4) sparkle(x0 + Math.random() * wd, y - 4, 1, 1, '#ffb74d');
+  } else {
+    const g = ctx.createLinearGradient(0, y - 30, 0, y + 340);
+    g.addColorStop(0, 'rgba(60,0,90,.92)'); g.addColorStop(0.3, 'rgba(14,0,28,.97)'); g.addColorStop(1, 'rgba(6,0,14,1)');
+    ctx.fillStyle = g; ctx.fillRect(x0, y, wd, bot - y + 10);
+    for (let i = 0; i < 14; i++) {
+      const bx = x0 + ((i * 211 + T * 14) % wd), by = y + 20 + ((i * 97) % 240) + Math.sin(T * 0.8 + i) * 26, rr0 = 60 + (i % 4) * 22;
+      const gg = ctx.createRadialGradient(bx, by, 4, bx, by, rr0); gg.addColorStop(0, i % 3 ? 'rgba(130,40,180,.38)' : 'rgba(210,30,70,.28)'); gg.addColorStop(1, 'rgba(60,0,100,0)');
+      ctx.fillStyle = gg; ctx.beginPath(); ctx.arc(bx, by, rr0, 0, 6.3); ctx.fill();
+    }
+    const snap = roar ? 1 : 0.5 + 0.5 * Math.sin(T * 4.4);
+    ctx.fillStyle = '#efe6ff'; ctx.strokeStyle = '#4a2a66'; ctx.lineWidth = 1.5;
+    for (let x = Math.floor(x0 / 46) * 46; x < x1; x += 46) {
+      const th = 26 + snap * 14 + ((x / 46) % 3) * 6;
+      ctx.beginPath(); ctx.moveTo(x, y + 6); ctx.lineTo(x + 23, y - th); ctx.lineTo(x + 46, y + 6); ctx.closePath(); ctx.fill(); ctx.stroke();
+    }
+    ctx.save(); ctx.globalCompositeOperation = 'lighter';
+    const n = 4;
+    for (let e = 0; e < n; e++) {
+      const ex = x0 + (e + 0.5) * (wd / n) + Math.sin(T * 0.7 + e) * 30, ey = y + 54 + (e % 2) * 24;
+      const gg = ctx.createRadialGradient(ex, ey, 2, ex, ey, 44); gg.addColorStop(0, 'rgba(255,60,90,.9)'); gg.addColorStop(0.45, 'rgba(200,30,200,.5)'); gg.addColorStop(1, 'rgba(120,0,200,0)');
+      ctx.fillStyle = gg; ctx.beginPath(); ctx.arc(ex, ey, 44, 0, 6.3); ctx.fill();
+    }
+    ctx.restore();
+    for (let e = 0; e < n; e++) {
+      const ex = x0 + (e + 0.5) * (wd / n) + Math.sin(T * 0.7 + e) * 30, ey = y + 54 + (e % 2) * 24;
+      ctx.fillStyle = '#ff2d55'; ctx.beginPath(); ctx.ellipse(ex, ey, 18, 8, e % 2 ? 0.25 : -0.25, 0, 6.3); ctx.fill();
+      ctx.fillStyle = '#12001f'; ctx.beginPath(); ctx.ellipse(ex, ey, 3.5, 8, 0, 0, 6.3); ctx.fill();
+    }
+  }
+  if (roar) { ctx.fillStyle = '#fff'; ctx.font = '700 22px sans-serif'; ctx.textAlign = 'center'; ctx.fillText((r.kind === 'lava' ? 'LAVA RISING IN ' : 'THE MAW RISES IN ') + Math.max(0, r.delay - T).toFixed(1), cam.x + cam.vw / 2, Math.min(y - 40, cam.y + cam.vh - 40)); }
+}
+
+function drawBoutiqueAura(x, y, label) {
+  const t = G.lt, cx = x + PW / 2, cy = y + PH / 2;
+  ctx.save(); ctx.globalCompositeOperation = 'lighter';
+  const g = ctx.createRadialGradient(cx, cy, 6, cx, cy, 46);
+  g.addColorStop(0, 'rgba(210,190,255,.45)'); g.addColorStop(1, 'rgba(160,120,255,0)');
+  ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, 46, 0, 6.3); ctx.fill(); ctx.restore();
+  ctx.save(); ctx.strokeStyle = 'rgba(225,210,255,.9)'; ctx.lineWidth = 2; ctx.setLineDash([6, 5]); ctx.lineDashOffset = -t * 20;
+  ctx.fillStyle = 'rgba(190,160,255,.14)'; ctx.beginPath(); ctx.ellipse(cx, cy, 27, 33, 0, 0, 6.3); ctx.fill(); ctx.stroke(); ctx.setLineDash([]);
+  ctx.fillStyle = '#fff6b0';
+  for (let i = 0; i < 4; i++) { const a = t * 1.6 + i * 1.57; star4(cx + Math.cos(a) * 34, cy + Math.sin(a) * 26, 3, a); }
+  ctx.font = '700 15px sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#fff'; ctx.fillText(label || '🛍️', cx, y - 14);
+  ctx.restore();
 }
 
 function drawCoin(c) {
@@ -2362,22 +3092,7 @@ function drawFlag(f) {
   ctx.beginPath(); ctx.moveTo(f.x, f.y - 62); ctx.quadraticCurveTo(f.x + 18, f.y - 58 + w, f.x + 34, f.y - 50); ctx.lineTo(f.x, f.y - 36); ctx.closePath(); ctx.fill();
 }
 
-function drawKeyIcon(x, y, t) {
-  ctx.save(); ctx.translate(x, y + Math.sin(t * 3) * 3);
-  ctx.fillStyle = '#ffd43b'; ctx.strokeStyle = '#b8860b'; ctx.lineWidth = 2.5;
-  ctx.beginPath(); ctx.arc(-6, 0, 9, 0, 6.3); ctx.fill(); ctx.stroke();
-  ctx.fillStyle = '#fff8e1'; ctx.beginPath(); ctx.arc(-6, 0, 3.5, 0, 6.3); ctx.fill();
-  ctx.fillStyle = '#ffd43b'; ctx.fillRect(1, -3, 17, 6); ctx.strokeRect(1, -3, 17, 6); ctx.fillRect(12, 3, 4, 7); ctx.fillRect(7, 3, 3, 5);
-  ctx.restore();
-}
 
-function drawExit(L) {
-  const e = L.exit, open = G.keyGot;
-  ctx.fillStyle = '#6d4c41'; rr(e.x - 6, e.y - 8, e.w + 12, e.h + 8, 10); ctx.fill();
-  ctx.fillStyle = open ? '#fff59d' : '#37474f'; rr(e.x, e.y, e.w, e.h, 8); ctx.fill();
-  if (open) { ctx.fillStyle = 'rgba(255,255,255,.55)'; rr(e.x + 8, e.y + 10, e.w - 16, e.h - 10, 6); ctx.fill(); sparkle(e.x + rnd(0, e.w), e.y + rnd(0, e.h), 0, 1); }
-  else { ctx.fillStyle = '#ffd43b'; ctx.beginPath(); ctx.arc(e.x + e.w / 2, e.y + e.h / 2 + 4, 7, 0, 6.3); ctx.fill(); ctx.fillRect(e.x + e.w / 2 - 3, e.y + e.h / 2 + 6, 6, 12); }
-}
 
 const lighten = (hex, a) => {
   const n = parseInt(hex.slice(1), 16), r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
@@ -2550,7 +3265,9 @@ function render(dt) {
   drawExit(L);
   L.ropes.forEach((R, i) => { if (vis(R.ax - 300, 600)) drawRope(R, i); });
   for (const c of L.crushers) if (vis(c.x, c.w)) drawCrusher(c, crusherBottom(c, ltR));
+  for (const q of (L.stalactites || [])) if (vis(q.x - 20, q.w + 40)) drawStalactite(q);
   for (const s of L.spikes) if (vis(s.x, s.w)) drawSpikes(s);
+  drawMeteors(cam);
   for (const b of L.boulders) if (vis(b.x0 - 60, b.x1 - b.x0 + 120)) { const bx = pingPong(b.x0, b.x1, b.speed, b.off, ltR); drawBoulder(b, bx, b.rot + (bx - b.cx) / b.r); }
   for (const c of L.coins) if (vis(c.x - 20, 40)) drawCoin(c);
   if (!G.keyGot) { const k = keyPos(); drawKeyIcon(k.x, k.y, G.lt); }
@@ -2569,7 +3286,10 @@ function render(dt) {
     drawShadow(mp.x, mp.y);
     drawBunny(mp.x, mp.y, { ear: me.ear, slot: me.slot, skin: G.skins[me.slot] || Save.equipped(), face: me.face, vx: me.vx, vy: me.vy, ground: me.onGround, runT: me.runT, sq: me.sq, inv: me.inv > 0, shield: me.shield, name: isNet() ? G.names[me.slot] : null });
   }
+  for (const rp of G.remotes.values()) if (rp.bout && !rp.dead) { const q = ipos(rp); drawBoutiqueAura(q.x, q.y, '🛍️ ' + (G.names[rp.slot] || '')); }
+  if (G.boutique && !me.dead) { const q = ipos(me); drawBoutiqueAura(q.x, q.y, '🛍️ Shop shield'); }
   for (const s of L.sweepers) drawSweeper(s, cam);
+  for (const rs of (L.risers || [])) drawRiser(rs, cam);
   drawParts();
   drawEnvFX();
   ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -2590,15 +3310,21 @@ function frame(t) {
   if (!(dt > 0)) return;
   if (dt > 0.1) dt = 0.1;
   if (G.inGame && G.L && G.me) {
-    acc += dt;
-    let n = 0;
-    while (acc >= STEP && n < 5) { stepRemotes(); stepPlayer(); updateWorld(); acc -= STEP; n++; }
-    if (n === 5) acc = 0;
-    G.alpha = clamp(acc / STEP, 0, 1);
-    sendPos(t);
-    updateParts(dt);
-    updateEnvFX(dt);
-    spawnSkinTrails();
+    const modal = modalOpen();
+    G.paused = modal && G.mode === 'solo';
+    G.boutique = modal && isNet();
+    const pb = $('pauseBadge'); if (pb) pb.classList.toggle('hidden', !G.paused);
+    if (!G.paused) {
+      acc += dt;
+      let n = 0;
+      while (acc >= STEP && n < 5) { stepRemotes(); stepPlayer(); updateWorld(); acc -= STEP; n++; }
+      if (n === 5) acc = 0;
+      G.alpha = clamp(acc / STEP, 0, 1);
+      sendPos(t);
+      updateParts(dt);
+      updateEnvFX(dt);
+      spawnSkinTrails();
+    } else { acc = 0; lastSend = 0; }
     updateCamera(dt);
     render(dt);
   } else {
