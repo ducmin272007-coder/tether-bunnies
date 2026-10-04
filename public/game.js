@@ -403,19 +403,19 @@ S.push(() => {
 S.push(() => {
   const b = new LB('Troll Springs', 'Bounce up the walls - but hold RIGHT right away. Spikes love the ceiling.', 330);
   seg.run(b, 640, { flag: true, coins: [[330, -60]] });
-  seg.springWall(b);
+  seg.springWall(b, { h: 130 });
   seg.run(b, 560, { flag: true, spikes: [[260, 70]], coins: [[300, -60]] });
   b.gap(140);
   seg.run(b, 300);
-  seg.springWall(b, { h: 200 });
+  seg.springWall(b, { h: 140 });
   seg.run(b, 460, { spikes: [[200, 64]] });
   seg.fakes(b, 3, { coins: [1] });
   seg.run(b, 320, { flag: true });
-  seg.springWall(b, { h: 210 });
+  seg.springWall(b, { h: 140 });
   seg.run(b, 420, { coins: [[210, -60]] });
   b.gap(150);
   seg.run(b, 300);
-  seg.springWall(b, { h: 190 });
+  seg.springWall(b, { h: 140 });
   seg.run(b, 900, { coins: [[500, -60]] });
   return b.finish(540, 56);
 });
@@ -2240,7 +2240,7 @@ function drawShadow(x, y) {
 
 function drawBunny(x, y, o) {
   const slot = o.slot || 0, skin = o.skin || 'classic';
-  const col = COLORS[slot % COLORS.length], dk = DARKS[slot % COLORS.length];
+  const col = COLORS[slot % COLORS.length], dk = DARKS[slot % DARKS.length];
   const face = o.face >= 0 ? 1 : -1, sq = clamp(o.sq || 0, -0.4, 0.4);
   const run = o.ground && Math.abs(o.vx) > 0.8, air = !o.ground;
   const ph = o.runT * 3, bob = run ? -Math.abs(Math.sin(ph)) * 2.4 : 0;
