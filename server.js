@@ -18,9 +18,15 @@ const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: '*' }, perMessageDeflate: false });
+const io = new Server(server, { cors: { origin: '*' }, perMessageDeflate: false, pingInterval: 10000, pingTimeout: 30000, maxHttpBufferSize: 2e6 });
 
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, 'public'), {
+  setHeaders: (res, filePath) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+  }
+}));
 app.get('/health', (req, res) => res.json({ ok: true, rooms: rooms.size }));
 
 const rooms = new Map();
@@ -66,6 +72,7 @@ function broadcastRoster(room) {
 }
 
 function attach(socket, room, name, skin) {
+  if (room.reap) { clearTimeout(room.reap); room.reap = null; }
   const slot = freeSlot(room);
   if (slot < 0) return -1;
   room.players.set(socket.id, { slot, name: cleanName(name, slot), skin: skin || 'classic', socket });
@@ -80,7 +87,7 @@ io.on('connection', (socket) => {
     if (typeof cb !== 'function') return;
     if (socket.data.code) return cb({ ok: false, error: 'Already in a room.' });
     const code = genCode();
-    const mode = (data && data.mode) || 'coop';
+    const mode = (data && data.mode) === 'party' ? 'party' : 'coop';
     const room = {
       code,
       mode,
@@ -127,10 +134,11 @@ io.on('connection', (socket) => {
     const p = room.players.get(socket.id);
     if (!p) return;
     e.s = p.slot;
-    if (e.t === 'lvl' && (socket.id === room.hostId || room.mode === 'solo')) {
-      room.lv = e.n | 0;
+    if (e.t === 'lvl' || e.t === 'restart' || e.t === 'custom_lvl') {
+      if (socket.id !== room.hostId) return;          // anti-spam: host only
+      if (e.t === 'lvl') room.lv = e.n | 0;
     }
-    io.to(code).emit('ev', e);
+    socket.to(code).emit('ev', e);
   });
 
   socket.on('skin', (skin) => {
@@ -156,7 +164,9 @@ io.on('connection', (socket) => {
     if (p) room.positions.delete(p.slot);
     room.players.delete(socket.id);
     if (room.players.size === 0) {
-      rooms.delete(code);
+      // keep the room 45s so a short network blip can rejoin without losing progress
+      room.hostId = null;
+      room.reap = setTimeout(() => { if (room.players.size === 0) rooms.delete(code); }, 45000);
       return;
     }
     if (room.hostId === socket.id) {

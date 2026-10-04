@@ -1,7 +1,7 @@
 {
   "name": "tether-bunnies-coop-chaos",
-  "version": "1.0.0",
-  "description": "Tether Bunnies: Co-op Chaos - a 2D cooperative multiplayer puzzle-platformer",
+  "version": "7.0.0",
+  "description": "Tether Bunnies: Co-op Chaos & Party Stacking (2-10 players)",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
@@ -9,7 +9,6 @@
   "license": "MIT",
   "dependencies": {
     "express": "^4.19.2",
-    "matter-js": "^0.20.0",
     "socket.io": "^4.7.5"
   },
   "engines": {
