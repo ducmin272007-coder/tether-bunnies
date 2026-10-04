@@ -197,12 +197,18 @@
       <button id="tRight" class="tbtn" data-k="r">▶</button>
     </div>
     <div class="touch-actions">
-      <button id="tBuff" class="tbtn tbuff hidden" data-k="b" title="Use Buff">🛡️</button>
+      <div id="tBuffs" class="tbuffs">
+        <button id="tb_shield" class="tbtn tbf hidden" data-buff="shield" title="Bubble Shield">🛡️</button>
+        <button id="tb_doublejump" class="tbtn tbf hidden" data-buff="doublejump" title="Double Jump">🦘</button>
+        <button id="tb_speed" class="tbtn tbf hidden" data-buff="speed" title="Speed Boost">👟</button>
+        <button id="tb_magnet" class="tbtn tbf hidden" data-buff="magnet" title="Coin Magnet">🧲</button>
+        <button id="tb_jumpboost" class="tbtn tbf hidden" data-buff="jumpboost" title="Jump Boost">🚀</button>
+      </div>
       <button id="tJump" class="tbtn tjump" data-k="j">▲<br>JUMP</button>
     </div>
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
-  <script src="game.js?v=7.0"></script>
+  <script src="game.js?v=8.2"></script>
 </body>
 </html>

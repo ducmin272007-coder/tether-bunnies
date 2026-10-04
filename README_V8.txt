@@ -9,3 +9,6 @@ ADMIN: dat bien moi truong ADMIN_KEY (neu khong, server tu tao mat khau tam thoi
   Mo bang: bam 5 lan lien tiep vao logo o sanh, hoac Ctrl+Shift+Alt+A.
 LUU TRU: ma dong bo luu o ./data/saves.json (hoac DATA_DIR). Goi Free cua Render xoa dia moi lan deploy -> gan Persistent Disk
   va dat DATA_DIR neu muon giu save lau dai.
+
+BUFF: phim 1 = Khien, phim 2 = Nhay doi, E = tu chon (khien truoc). Tren dien thoai co 2 nut rieng.
+ADMIN tren dien thoai: o sanh, cham nhanh 5 lan vao logo "Tether Bunnies" roi nhap mat khau.

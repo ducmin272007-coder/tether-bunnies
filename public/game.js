@@ -84,6 +84,33 @@ const SKINS = {
     passive: { id: 'magnet', name: 'Star Magnet', desc: 'Collect coins, 💎 and the key from much farther away.' },
     trail: ['#c9b8ff', '#ffe9a8', '#8ecae6'],
   },
+  mint:    { tier: 'common', name: 'Mint Bunny',  icon: '🍃', coins: 25, dia: 0 },
+  panda:   { tier: 'rare', name: 'Panda Bunny', icon: '🐼', coins: 45, dia: 2 },
+  ghost:   { tier: 'rare', name: 'Ghost Bunny', icon: '👻', coins: 50, dia: 3 },
+  blossom: {
+    tier: 'legendary', name: 'Blossom Bunny', icon: '🌸', coins: 0, dia: 11,
+    env: { name: 'Cherry Dusk', desc: 'twilight sakura sky, distant mountain, drifting petals', sky: 'sakura', solidHue: 325, grassHue: 150, tint: 'rgba(255,150,200,.06)', fx: 'petals', rate: 14 },
+    passive: { id: 'luck', name: 'Lucky Charm', desc: '20% chance every coin counts double.' },
+    trail: ['#ffb3d1', '#ffe0ec', '#ffffff'],
+  },
+  ocean: {
+    tier: 'legendary', name: 'Abyss Bunny', icon: '🌊', coins: 0, dia: 13,
+    env: { name: 'Abyssal Reef', desc: 'sunlit deep sea, fish shoals, kelp, rising bubbles', sky: 'ocean', solidHue: 195, grassHue: 165, tint: 'rgba(0,110,200,.10)', fx: 'bubbles', rate: 14 },
+    passive: { id: 'swift', name: 'Tidal Rush', desc: 'Run 12% faster.' },
+    trail: ['#9ff3ff', '#c8f7ff', '#ffffff'],
+  },
+  thunder: {
+    tier: 'legendary', name: 'Storm Bunny', icon: '⛈️', coins: 0, dia: 14,
+    env: { name: 'Storm Front', desc: 'black clouds, pouring rain, lightning strikes', sky: 'storm', solidHue: 225, grassHue: 120, tint: 'rgba(40,50,100,.12)', fx: 'rain', rate: 70 },
+    passive: { id: 'springlegs', name: 'Static Legs', desc: 'Jump 10% higher.' },
+    trail: ['#ffe066', '#ffffff', '#a5c8ff'],
+  },
+  neon: {
+    tier: 'legendary', name: 'Neon Bunny', icon: '🌃', coins: 0, dia: 16,
+    env: { name: 'Neon Night', desc: 'synthwave sun, glowing skyline, rising sparks', sky: 'neon', solidHue: 285, grassHue: 320, tint: 'rgba(255,0,200,.05)', fx: 'sparks', rate: 20 },
+    passive: { id: 'guard', name: 'Neon Guard', desc: 'Start every level and every respawn with a free Bubble Shield.' },
+    trail: ['#ff2bd6', '#00ffe0', '#ffffff'],
+  },
 };
 
 const SKIN_PAL = {
@@ -92,12 +119,24 @@ const SKIN_PAL = {
   phoenix: { body: '#ff9a3c', edge: '#b3300f', inner: '#ffe08a', belly: 'rgba(255,230,160,.8)' },
   aurora:  { body: '#9ff3e6', edge: '#2a8f9c', inner: '#e6fff9', belly: 'rgba(255,255,255,.7)' },
   cosmic:  { body: '#5a3fc0', edge: '#1d0f5c', inner: '#c9b8ff', belly: 'rgba(190,170,255,.55)' },
+  mint:    { body: '#9be3b4', edge: '#3c9a66', inner: '#e3fff0', belly: 'rgba(255,255,255,.7)' },
+  panda:   { body: '#f6f6f6', edge: '#2b2b2b', inner: '#a8a8a8', belly: 'rgba(255,255,255,.9)' },
+  ghost:   { body: '#eef2ff', edge: '#8aa0ff', inner: '#cdd6ff', belly: 'rgba(255,255,255,.85)' },
+  blossom: { body: '#ffc2d9', edge: '#c2457a', inner: '#fff0f6', belly: 'rgba(255,255,255,.8)' },
+  ocean:   { body: '#7fd3e8', edge: '#0f6e91', inner: '#d9f7ff', belly: 'rgba(255,255,255,.7)' },
+  thunder: { body: '#ffe066', edge: '#7a5b00', inner: '#fff3b0', belly: 'rgba(255,255,255,.65)' },
+  neon:    { body: '#2a0f4a', edge: '#ff2bd6', inner: '#00ffe0', belly: 'rgba(0,255,230,.35)' },
 };
 
 const BUFFS = {
   doublejump: { name: 'Double Jump',   icon: '🦘', price: 10, desc: 'One extra mid-air hop for ' + DJ_SECONDS + 's. Ends if you die or the level ends.' },
   shield:     { name: 'Bubble Shield', icon: '🛡️', price: 15, desc: 'Absorbs 1 hit (a pit fall returns you to checkpoint). Gone when the level ends.' },
+  speed:      { name: 'Speed Boost',  icon: '👟', price: 12, dur: 20, desc: 'Run 30% faster for 20s. Ends if you die or the level ends.' },
+  magnet:     { name: 'Coin Magnet',  icon: '🧲', price: 12, dur: 30, desc: 'Pull coins, 💎 and the key from far away for 30s.' },
+  jumpboost:  { name: 'Jump Boost',   icon: '🚀', price: 14, dur: 25, desc: 'Jump 25% higher for 25s. Ends if you die or the level ends.' },
 };
+const BUFF_IDS = ['shield', 'doublejump', 'speed', 'magnet', 'jumpboost'];
+const BUFF_KEYS = { Digit1: 'shield', Numpad1: 'shield', Digit2: 'doublejump', Numpad2: 'doublejump', Digit3: 'speed', Numpad3: 'speed', Digit4: 'magnet', Numpad4: 'magnet', Digit5: 'jumpboost', Numpad5: 'jumpboost' };
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -171,18 +210,25 @@ function refreshCoinUI() {
 }
 
 function refreshBuffUI() {
-  const dj = Save.buff('doublejump'), sh = Save.buff('shield'), P = G && G.me;
+  const P = G && G.me;
   const act = [];
   if (P && P.shield) act.push('🛡️');
   if (P && P.dj) act.push('🦘 ' + (Role.admin ? '∞' : Math.max(1, Math.ceil(P.djT)) + 's'));
+  ['speed', 'magnet', 'jumpboost'].forEach((id) => { if (P && P.timed && P.timed[id] > 0) act.push(BUFFS[id].icon + ' ' + (Role.admin ? '∞' : Math.ceil(P.timed[id]) + 's')); });
+  const inv = BUFF_IDS.filter((id) => Save.buff(id) > 0).map((id) => BUFFS[id].icon + '×' + Save.buff(id));
   let str = '';
   if (act.length) str = act.join(' ') + ' ACTIVE';
-  else if (Role.admin) str = '🛡️🦘 ∞ (E)';
-  else if (sh > 0 || dj > 0) str = ((sh ? '🛡️×' + sh + ' ' : '') + (dj ? '🦘×' + dj : '')).trim() + ' (E)';
+  else if (Role.admin) str = '🛡️🦘👟🧲🚀 ∞ (1-5)';
+  else if (inv.length) str = inv.join(' ') + ' (1-5)';
   const badge = $('buffBadge');
   if (badge) { badge.textContent = str; badge.classList.toggle('hidden', !str); }
-  const tb = $('tBuff');
-  if (tb) { tb.classList.toggle('hidden', !(str && isTouchDevice)); tb.textContent = (sh > 0 || Role.admin || (P && P.shield)) ? '🛡️' : '🦘'; }
+  BUFF_IDS.forEach((id) => {
+    const btn = $('tb_' + id); if (!btn) return;
+    const n = Save.buff(id);
+    const live = P && (id === 'shield' ? P.shield : id === 'doublejump' ? P.dj : (P.timed && P.timed[id] > 0));
+    btn.classList.toggle('hidden', !(isTouchDevice && (Role.admin || n > 0 || live)));
+    btn.innerHTML = BUFFS[id].icon + (Role.admin ? '' : '<small>×' + n + '</small>');
+  });
 }
 
 // ============================================================================
@@ -903,7 +949,7 @@ function newPlayer(slot) {
   return {
     slot, x: 0, y: 0, vx: 0, vy: 0, face: 1, onGround: false, coyote: 0, jbuf: 0,
     jPrev: false, bPrev: false, jumping: false, dead: false, deadT: 0, inv: 0,
-    shield: false, dj: false, djT: 0, usedDJ: false, rope: null, ropeCd: 0, cp: { x: 0, y: 0 },
+    shield: curPassive === 'guard', dj: false, djT: 0, timed: { speed: 0, magnet: 0, jumpboost: 0 }, usedDJ: false, rope: null, ropeCd: 0, cp: { x: 0, y: 0 },
     anch: false, sq: 0, runT: 0, ride: null, wasGround: false, tetherGrace: 0, ear: 0, earV: 0,
   };
 }
@@ -1109,14 +1155,14 @@ function updateWorld() {
       }
     }
     const cx = me.x + PW / 2, cy = me.y + PH / 2;
-    const mg = curPassive === 'magnet' ? 2.3 : 1;
+    const mg = (curPassive === 'magnet' || timedOn(me, 'magnet')) ? 2.3 : 1;
     for (const c of L.coins) {
       if (c.pop > 0) c.pop -= STEP;
       if (c.got) continue;
       if (Math.abs(cx - c.x) < 24 * mg && Math.abs(cy - c.y) < 28 * mg) {
         c.got = true; c.pop = 0.5;
         const dia = c.kind === 'diamond';
-        if (G.lvIdx >= 0) { Save.markCoin(G.mode, G.lvIdx, c.id); if (dia) Save.addDiamonds(1); else Save.addCoins(1); }
+        if (G.lvIdx >= 0) { Save.markCoin(G.mode, G.lvIdx, c.id); if (dia) Save.addDiamonds(1); else { Save.addCoins(1); if (curPassive === 'luck' && Math.random() < 0.2) { Save.addCoins(1); sparkle(c.x, c.y - 12, 6, 1, '#ffb3d1'); } } }
         if (dia) { Snd.key(); sparkle(c.x, c.y, 18, 1.4, '#7ee8ff'); toast('💎 Diamond found!'); }
         else { Snd.coin(); sparkle(c.x, c.y, 10, 1); }
       }
@@ -1163,7 +1209,7 @@ function exitCheck() {
 function triggerWin(send) {
   if (G.won) return;
   G.won = true; G.winT = 0;
-  if (G.me) { G.me.shield = false; G.me.dj = false; G.me.djT = 0; refreshBuffUI(); }
+  if (G.me) { G.me.shield = false; G.me.dj = false; G.me.djT = 0; if (G.me.timed) for (const id in G.me.timed) G.me.timed[id] = 0; refreshBuffUI(); }
   const L = G.L, e = L.exit;
   Snd.win(); confetti(e.x + e.w / 2, e.y, 160, 90);
   const first = !Save.cleared(G.mode, G.lvIdx);
@@ -1221,6 +1267,7 @@ function die(cause) {
   }
   P.dead = true; P.deadT = 0.75; P.rope = null;
   if (P.dj) { P.dj = false; P.djT = 0; toast('🦘 Double Jump ended (you died)'); }
+  if (P.timed) { let any = false; for (const id in P.timed) { if (P.timed[id] > 0) any = true; P.timed[id] = 0; } if (any) toast('⏱️ Buff hết hiệu lực (bạn đã chết)'); }
   refreshBuffUI();
   G.deaths++; setText('deaths', '💥 ' + G.deaths);
   Snd.die(); G.shake = Math.max(G.shake, 8);
@@ -1241,19 +1288,46 @@ function respawn() {
   }
   P.x = rx; P.y = ry; P.vx = P.vy = 0; P.dead = false;
   P.inv = curPassive === 'rebirth' ? 5 : 2.5; // 2.5s invulnerability (5s with Phoenix passive)
+  if (curPassive === 'guard' && !P.shield) { P.shield = true; refreshBuffUI(); }
   P.tetherGrace = 3.5; // 3.5s zero-tether pull on respawn!
   P.rope = null; P.ropeCd = 20; P.usedDJ = false;
   puff(P.x + PW / 2, P.y + PH, 12, '#fff');
   G.cam.snap = G.cam.snap || (Math.abs(G.cam.x - P.x) > 1400);
 }
 
-function useBuff() {
+function timedOn(P, id) { return !!(P && P.timed && P.timed[id] > 0); }
+function runMax(P) { return RUN * (curPassive === 'swift' ? 1.12 : 1) * (timedOn(P, 'speed') ? 1.3 : 1); }
+function jumpMul(P) { return (curPassive === 'springlegs' ? 1.1 : 1) * (timedOn(P, 'jumpboost') ? 1.25 : 1); }
+
+function useBuff(which) {
   const P = G.me;
-  if (P.dead || G.won) return;
+  if (!P || P.dead || G.won) return;
+  if (!P.timed) P.timed = { speed: 0, magnet: 0, jumpboost: 0 };
   const free = Role.admin;
-  if (!P.shield && (free || Save.buff('shield') > 0)) { if (!free) Save.useBuff('shield'); P.shield = true; toast('🛡️ Bubble Shield on!'); Snd.pop(); }
-  else if (!P.dj && (free || Save.buff('doublejump') > 0)) { if (!free) Save.useBuff('doublejump'); P.dj = true; P.djT = DJ_SECONDS; P.usedDJ = false; toast('🦘 Double Jump on for ' + DJ_SECONDS + 's!'); Snd.djump(); }
-  else if (!P.shield && !P.dj) toast('No charges - buy in the 🛍️ shop!');
+  const have = (id) => free || Save.buff(id) > 0;
+  const spend = (id) => { if (!free) Save.useBuff(id); };
+  if (!which) {
+    if (!P.shield && have('shield')) which = 'shield';
+    else if (!P.dj && have('doublejump')) which = 'doublejump';
+    else { if (!P.shield && !P.dj) toast('No charges - buy in the 🛍️ shop!'); refreshBuffUI(); return; }
+  }
+  const b = BUFFS[which]; if (!b) return;
+  if (which === 'shield') {
+    if (P.shield) toast('🛡️ Khiên đang bật rồi!');
+    else if (!have('shield')) toast('Hết khiên 🛡️ - mua thêm ở 🛍️ shop!');
+    else { spend('shield'); P.shield = true; toast('🛡️ Bubble Shield on!'); Snd.pop(); }
+  } else if (which === 'doublejump') {
+    if (P.dj) toast('🦘 Nhảy đôi đang bật rồi!');
+    else if (!have('doublejump')) toast('Hết thuốc nhảy đôi 🦘 - mua thêm ở 🛍️ shop!');
+    else { spend('doublejump'); P.dj = true; P.djT = DJ_SECONDS; P.usedDJ = false; toast('🦘 Double Jump on for ' + DJ_SECONDS + 's!'); Snd.djump(); }
+  } else {
+    if (P.timed[which] > 0) toast(b.icon + ' ' + b.name + ' đang bật rồi!');
+    else if (!have(which)) toast('Hết ' + b.name + ' ' + b.icon + ' - mua thêm ở 🛍️ shop!');
+    else {
+      spend(which); P.timed[which] = free ? 9999 : b.dur;
+      toast(b.icon + ' ' + b.name + ' on for ' + b.dur + 's!'); Snd.djump(); sparkle(P.x + PW / 2, P.y + PH / 2, 10, 1.2, '#fff3a0');
+    }
+  }
   refreshBuffUI();
 }
 
@@ -1354,6 +1428,14 @@ function stepPlayer() {
     if (P.djT <= 0) { P.dj = false; P.djT = 0; toast('🦘 Double Jump expired'); refreshBuffUI(); }
     else if (Math.ceil(P.djT) !== before) refreshBuffUI();
   }
+  if (P.timed && !Role.admin) {
+    for (const id in P.timed) {
+      if (P.timed[id] <= 0) continue;
+      const before = Math.ceil(P.timed[id]); P.timed[id] -= STEP;
+      if (P.timed[id] <= 0) { P.timed[id] = 0; toast(BUFFS[id].icon + ' ' + BUFFS[id].name + ' expired'); refreshBuffUI(); }
+      else if (Math.ceil(P.timed[id]) !== before) refreshBuffUI();
+    }
+  }
   if (G.won) { P.vx *= 0.8; }
   const ax = G.won ? 0 : (input.r ? 1 : 0) - (input.l ? 1 : 0);
 
@@ -1365,25 +1447,25 @@ function stepPlayer() {
 
   if (ax !== 0) {
     const acc = P.onGround ? 1.0 : (curPassive === 'featherfall' ? 0.85 : 0.65);
-    const tgt = ax * RUN;
+    const tgt = ax * runMax(P);
     P.vx += clamp(tgt - P.vx, -acc, acc);
     P.face = ax;
   } else P.vx *= P.onGround ? 0.72 : 0.95;
   if (Math.abs(P.vx) < 0.04) P.vx = 0;
   applyTether(P);
 
-  P.vx = clamp(P.vx, -RUN - 4, RUN + 4);
+  { const rm = runMax(P); P.vx = clamp(P.vx, -rm - 4, rm + 4); }
   P.vy = Math.min(P.vy + GRAV, curPassive === 'featherfall' ? MAXFALL * 0.7 : MAXFALL);
 
   if (P.onGround) { P.coyote = 6; P.usedDJ = false; } else if (P.coyote > 0) P.coyote--;
   if (P.jbuf > 0) {
     if (P.coyote > 0) {
       const isFromHead = !!P.ride;
-      P.vy = isFromHead ? -JUMP * 1.15 : -JUMP; // 15% super jump boost off head!
+      P.vy = (isFromHead ? -JUMP * 1.15 : -JUMP) * jumpMul(P); // 15% super jump boost off head!
       P.coyote = 0; P.jbuf = 0; P.jumping = true; P.onGround = false; P.sq = -0.25;
       Snd.jump(P.slot); puff(P.x + PW / 2, P.y + PH, isFromHead ? 6 : 4, isFromHead ? '#ffe066' : '#fff');
     } else if (P.dj && !P.usedDJ && !P.onGround) {
-      P.vy = -JUMP * 0.92; P.usedDJ = true; P.jbuf = 0; P.jumping = true; Snd.djump(); sparkle(P.x + PW / 2, P.y + PH, 8, 1, '#9ef');
+      P.vy = -JUMP * 0.92 * jumpMul(P); P.usedDJ = true; P.jbuf = 0; P.jumping = true; Snd.djump(); sparkle(P.x + PW / 2, P.y + PH, 8, 1, '#9ef');
     } else P.jbuf--;
   }
   if (!input.j && P.jumping && P.vy < -4.2) { P.vy = -4.2; P.jumping = false; }
@@ -1846,6 +1928,7 @@ window.addEventListener('keydown', (e) => {
   if (e.target && e.target.tagName === 'INPUT') return;
   Snd.init();
   if (e.ctrlKey && e.shiftKey && e.altKey && e.code === 'KeyA') { e.preventDefault(); openAdminEntry(); return; }
+  if (BUFF_KEYS[e.code] && G.inGame) { if (!e.repeat && G.me) useBuff(BUFF_KEYS[e.code]); e.preventDefault(); return; }
   const k = KEYMAP[e.code];
   if (k && G.inGame) { kb[k] = true; recompute(); e.preventDefault(); }
   else if (e.code === 'KeyR' && !e.repeat && G.inGame) changeLevel(G.lvIdx < 0 ? -1 : G.lvIdx);
@@ -1855,14 +1938,18 @@ window.addEventListener('keyup', (e) => { const k = KEYMAP[e.code]; if (k) { kb[
 window.addEventListener('blur', () => { kb.l = kb.r = kb.j = kb.b = false; tc.l = tc.r = tc.j = tc.b = false; recompute(); });
 
 const touchBtns = [...document.querySelectorAll('.tbtn')];
+let touchBuffDown = new Set();
 function updateTouch(touches) {
   const act = { l: false, r: false, j: false, b: false };
+  const cur = new Set();
   for (const t of touches) {
     const el = document.elementFromPoint(t.clientX, t.clientY);
     const b = el && el.closest ? el.closest('.tbtn') : null;
-    if (b) act[b.dataset.k] = true;
+    if (b) { if (b.dataset.buff) cur.add(b.dataset.buff); else act[b.dataset.k] = true; }
   }
-  touchBtns.forEach((b) => b.classList.toggle('down', !!act[b.dataset.k]));
+  touchBtns.forEach((b) => b.classList.toggle('down', b.dataset.buff ? cur.has(b.dataset.buff) : !!act[b.dataset.k]));
+  cur.forEach((id) => { if (!touchBuffDown.has(id)) useBuff(id); });
+  touchBuffDown = cur;
   tc.l = act.l; tc.r = act.r; tc.j = act.j; tc.b = act.b;
   recompute();
 }
@@ -1871,6 +1958,11 @@ const touchEl = $('touch');
 ['touchstart', 'touchmove'].forEach((n) => touchEl.addEventListener(n, (e) => { e.preventDefault(); Snd.init(); updateTouch(e.touches); }, { passive: false }));
 ['touchend', 'touchcancel'].forEach((n) => touchEl.addEventListener(n, (e) => { e.preventDefault(); updateTouch(e.touches); }, { passive: false }));
 touchBtns.forEach((btn) => {
+  if (btn.dataset.buff) {
+    btn.addEventListener('mousedown', (e) => { e.preventDefault(); useBuff(btn.dataset.buff); btn.classList.add('down'); });
+    ['mouseup', 'mouseleave'].forEach((n) => btn.addEventListener(n, () => btn.classList.remove('down')));
+    return;
+  }
   const k = btn.dataset.k;
   btn.addEventListener('mousedown', (e) => { e.preventDefault(); tc[k] = true; btn.classList.add('down'); recompute(); });
   ['mouseup', 'mouseleave'].forEach((n) => btn.addEventListener(n, () => { tc[k] = false; btn.classList.remove('down'); recompute(); }));
@@ -1954,6 +2046,10 @@ const SKY_CFG = {
   ember:  { stops: [[0, '#1a0606'], [0.4, '#5c1408'], [0.75, '#c2410c'], [1, '#ffb347']], hills: ['#5a1d10', '#3b110a', '#220806'], mote: 'rgba(255,170,80,.7)' },
   frost:  { stops: [[0, '#0b2a4a'], [0.5, '#2d6a9f'], [1, '#d8f3ff']], hills: ['#a9d6ee', '#7fb7d9', '#5d98c0'], mote: 'rgba(255,255,255,.8)' },
   cosmic: { stops: [[0, '#02010d'], [0.5, '#150a42'], [1, '#3b1478']], hills: ['#2a1668', '#1c0e48', '#0f0730'], mote: 'rgba(255,230,160,.7)' },
+  sakura: { stops: [[0, '#2b1442'], [0.45, '#b0488a'], [0.78, '#ff9fb0'], [1, '#ffd9b8']], hills: ['#8a3a6a', '#6a2a58', '#471a42'], mote: 'rgba(255,200,220,.8)' },
+  ocean:  { stops: [[0, '#0aa6c9'], [0.5, '#0a63a8'], [1, '#062f63']], hills: ['#0b4a7a', '#073a66', '#052a4d'], mote: 'rgba(200,245,255,.7)' },
+  storm:  { stops: [[0, '#0c0f1c'], [0.5, '#232b46'], [1, '#4a5678']], hills: ['#2a3350', '#1d2540', '#121830'], mote: 'rgba(180,200,255,.5)' },
+  neon:   { stops: [[0, '#07021a'], [0.5, '#2b0b5e'], [1, '#d02a9a']], hills: ['#3a0f78', '#240a52', '#14052e'], mote: 'rgba(255,120,220,.7)' },
 };
 const effTheme = (L) => (curEnv ? curEnv.sky : (L.skyTheme || 'meadow'));
 const STARS = Array.from({ length: 170 }, () => ({ x: Math.random(), y: Math.random() * 0.75, r: 0.5 + Math.random() * 1.5, ph: Math.random() * 6.28, sp: 1 + Math.random() * 3, par: 0.01 + Math.random() * 0.05 }));
@@ -3030,7 +3126,7 @@ function renderShop() {
       '<div class="skin-price">🪙 ' + b.price + ' · Kho ' + (Role.admin ? '∞' : Save.buff(id) + '/' + BUFF_CAP) + '</div>' +
       '<button class="skin-btn" data-act="buff" data-id="' + id + '">Buy charge</button></div>';
   });
-  h += '</div><div class="shop-foot">Kích hoạt buff bằng phím <b>E</b> (hoặc nút 🛡️ / 🦘 trên điện thoại).</div>';
+  h += '</div><div class="shop-foot">Kích hoạt: phím <b>1</b> = 🛡️ Khiên, phím <b>2</b> = 🦘 Nhảy đôi (E = tự chọn). Trên điện thoại có nút 🛡️ / 🦘 riêng.</div>';
   card.innerHTML = h;
   refreshCoinUI();
 }
@@ -3072,7 +3168,7 @@ function buyBuff(id) {
   if (Save.buff(id) >= BUFF_CAP) { toast('Đã đạt giới hạn tối đa (' + BUFF_CAP + ') ' + b.name); return; }
   if (!Save.spend(b.price)) { toast('Không đủ xu! (' + b.price + ' 🪙)'); return; }
   Save.addBuff(id, 1); Snd.key();
-  toast(b.icon + ' Đã mua ' + b.name + '! Nhấn E trong màn chơi để dùng.');
+  toast(b.icon + ' Đã mua ' + b.name + '! Trong màn chơi: phím 1 (🛡️) / 2 (🦘), hoặc E.');
   refreshShopUI();
 }
 
@@ -3119,8 +3215,12 @@ function updateEnvFX(dt) {
     let p;
     if (e.fx === 'embers') p = { x: cam.x + rnd(-30, vw + 30), y: cam.y + vh + 10, vx: rnd(-0.3, 0.9), vy: -rnd(0.7, 2.0), size: rnd(1.4, 3.4), col: ['#ff6a1a', '#ffb347', '#ffe08a'][(Math.random() * 3) | 0], kind: 0 };
     else if (e.fx === 'snow') p = { x: cam.x + rnd(-60, vw + 60), y: cam.y - 12, vx: rnd(-0.5, 0.3), vy: rnd(0.6, 1.5), size: rnd(1.6, 3.8), col: '#ffffff', kind: 0 };
+    else if (e.fx === 'petals') p = { x: cam.x + rnd(-60, vw + 60), y: cam.y - 12, vx: rnd(0.2, 1.3), vy: rnd(0.5, 1.3), size: rnd(2.4, 4.2), col: ['#ffb3d1', '#ffd6e6', '#ff8fb8'][(Math.random() * 3) | 0], kind: 3 };
+    else if (e.fx === 'bubbles') p = { x: cam.x + rnd(-20, vw + 20), y: cam.y + vh + 10, vx: rnd(-0.2, 0.2), vy: -rnd(0.5, 1.6), size: rnd(2, 6), col: '#d6f6ff', kind: 4 };
+    else if (e.fx === 'rain') p = { x: cam.x + rnd(-120, vw + 40), y: cam.y - 20, vx: -2.2, vy: rnd(11, 15), size: 0, col: '#bcd4ff', kind: 5 };
+    else if (e.fx === 'sparks') p = { x: cam.x + rnd(-20, vw + 20), y: cam.y + vh + 10, vx: rnd(-0.3, 0.3), vy: -rnd(0.8, 2.2), size: rnd(1.5, 3), col: ['#ff2bd6', '#00ffe0', '#ffffff'][(Math.random() * 3) | 0], kind: 2 };
     else p = { x: cam.x + rnd(0, vw), y: cam.y + rnd(0, vh), vx: rnd(-0.1, 0.1), vy: rnd(-0.1, 0.1), size: rnd(1.6, 3.6), col: ['#ffffff', '#ffe9a8', '#c9b8ff'][(Math.random() * 3) | 0], kind: 1 };
-    p.life = p.max = rnd(2, 4.5); p.ph = rnd(0, 6.3);
+    p.life = p.max = p.kind === 5 ? rnd(0.7, 1.1) : rnd(2, 4.5); p.ph = rnd(0, 6.3);
     envParts.push(p);
   }
   for (let i = envParts.length - 1; i >= 0; i--) {
@@ -3133,7 +3233,7 @@ function updateEnvFX(dt) {
 function drawEnvFX() {
   if (!curEnv || !envParts.length) return;
   ctx.save();
-  ctx.globalCompositeOperation = curEnv.fx === 'snow' ? 'source-over' : 'lighter';
+  ctx.globalCompositeOperation = (curEnv.fx === 'embers' || curEnv.fx === 'stars' || curEnv.fx === 'sparks') ? 'lighter' : 'source-over';
   for (const p of envParts) {
     ctx.globalAlpha = clamp(Math.sin(Math.PI * clamp(p.life / p.max, 0, 1)), 0, 1) * 0.9;
     ctx.fillStyle = p.col;
@@ -3141,6 +3241,17 @@ function drawEnvFX() {
       const s = p.size * (0.7 + 0.3 * Math.sin(G.lt * 5 + p.ph));
       ctx.fillRect(p.x - s * 2, p.y - 0.5, s * 4, 1); ctx.fillRect(p.x - 0.5, p.y - s * 2, 1, s * 4);
       ctx.beginPath(); ctx.arc(p.x, p.y, s * 0.6, 0, 6.3); ctx.fill();
+    } else if (p.kind === 2) {
+      ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
+    } else if (p.kind === 3) {
+      ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.ph + G.lt * 2);
+      ctx.beginPath(); ctx.ellipse(0, 0, p.size, p.size * 0.55, 0, 0, 6.3); ctx.fill(); ctx.restore();
+    } else if (p.kind === 4) {
+      ctx.strokeStyle = 'rgba(220,250,255,.85)'; ctx.fillStyle = 'rgba(200,240,255,.12)'; ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, 6.3); ctx.fill(); ctx.stroke();
+    } else if (p.kind === 5) {
+      ctx.strokeStyle = p.col; ctx.lineWidth = 1.3;
+      ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x - p.vx * 1.4, p.y - p.vy * 1.4); ctx.stroke();
     } else { ctx.beginPath(); ctx.arc(p.x, p.y, p.size, 0, 6.3); ctx.fill(); }
   }
   ctx.restore();
@@ -3154,6 +3265,12 @@ function drawEnvTint() {
 
 function spawnSkinTrails() {
   if (!G.inGame || !G.me) return;
+  const me0 = G.me;
+  if (!me0.dead) {
+    if (timedOn(me0, 'speed') && Math.abs(me0.vx) > 1 && Math.random() < 0.5) sparkle(me0.x + PW / 2 - Math.sign(me0.vx) * 10, me0.y + PH * 0.7 + rnd(-6, 6), 1, 0.4, '#ffd43b');
+    if (timedOn(me0, 'jumpboost') && !me0.onGround && Math.random() < 0.4) sparkle(me0.x + PW / 2 + rnd(-6, 6), me0.y + PH, 1, 0.4, '#8ce99a');
+    if (timedOn(me0, 'magnet') && Math.random() < 0.2) sparkle(me0.x + PW / 2 + rnd(-18, 18), me0.y + PH / 2 + rnd(-18, 18), 1, 0.4, '#ff8787');
+  }
   const ents = [];
   if (!G.me.dead) ents.push({ x: G.me.x, y: G.me.y, sp: Math.hypot(G.me.vx, G.me.vy), skin: G.skins[G.me.slot] || Save.equipped(), p: 0.3 });
   for (const r of G.remotes.values()) if (!r.dead) ents.push({ x: r.x, y: r.y, sp: Math.hypot(r.tvx, r.tvy), skin: G.skins[r.slot], p: 0.2 });
@@ -3165,9 +3282,10 @@ function spawnSkinTrails() {
   }
 }
 
-const SKY_LEGEND = { ember: 1, frost: 1, cosmic: 1 };
+const SKY_LEGEND = { ember: 1, frost: 1, cosmic: 1, sakura: 1, ocean: 1, storm: 1, neon: 1 };
 function drawLegendSky(theme, cam, T) {
   const L = G.L;
+  if (theme === 'sakura' || theme === 'ocean' || theme === 'storm' || theme === 'neon') { drawLegendSky2(theme, cam, T); return; }
   if (theme === 'ember') {
     const sx = cw * 0.7 - cam.x * 0.01, sy = ch * 0.34, r = Math.min(cw, ch) * 0.15;
     let g = ctx.createRadialGradient(sx, sy, r * 0.3, sx, sy, r * 4);
@@ -3230,6 +3348,93 @@ function drawLegendSky(theme, cam, T) {
   }
 }
 
+function drawLegendSky2(theme, cam, T) {
+  const L = G.L;
+  if (theme === 'sakura') {
+    const sx = cw * 0.3 - cam.x * 0.01, sy = ch * 0.3, r = Math.min(cw, ch) * 0.13;
+    let g = ctx.createRadialGradient(sx, sy, r * 0.4, sx, sy, r * 3.5);
+    g.addColorStop(0, 'rgba(255,235,220,.6)'); g.addColorStop(1, 'rgba(255,200,220,0)');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, cw, ch);
+    ctx.fillStyle = '#fff4e6'; ctx.beginPath(); ctx.arc(sx, sy, r, 0, 6.3); ctx.fill();
+    const mx = cw * 0.62 - cam.x * 0.02, mb = ch * 0.82, mw = cw * 0.55, mh = ch * 0.34;
+    ctx.fillStyle = '#7a3a78'; ctx.beginPath(); ctx.moveTo(mx - mw / 2, mb); ctx.lineTo(mx - mw * 0.06, mb - mh); ctx.lineTo(mx + mw * 0.06, mb - mh); ctx.lineTo(mx + mw / 2, mb); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#fff0f6'; ctx.beginPath(); ctx.moveTo(mx - mw * 0.06, mb - mh); ctx.lineTo(mx + mw * 0.06, mb - mh); ctx.lineTo(mx + mw * 0.13, mb - mh * 0.74); ctx.lineTo(mx + mw * 0.05, mb - mh * 0.8); ctx.lineTo(mx, mb - mh * 0.72); ctx.lineTo(mx - mw * 0.05, mb - mh * 0.8); ctx.lineTo(mx - mw * 0.13, mb - mh * 0.74); ctx.closePath(); ctx.fill();
+    drawSkyCloudLayer(L, cam, 0.06, ch * 0.1, 1.3, 'rgba(255,200,225,.35)', 4);
+    for (let v = 0; v < 2; v++) {
+      const f = 0.05 + v * 0.07, span = cw * 0.5, off = -((cam.x * f) % span), base = ch * (0.86 + v * 0.04);
+      for (let i = -1; i < 4; i++) {
+        const tx = off + i * span + span * 0.5, sc = (i & 1 ? 1.15 : 0.9) * (v ? 1.15 : 0.85);
+        ctx.fillStyle = v ? '#3a1530' : '#52203f'; ctx.fillRect(tx - 5 * sc, base - 70 * sc, 10 * sc, 70 * sc);
+        ctx.fillStyle = v ? 'rgba(235,110,160,.8)' : 'rgba(255,150,190,.6)';
+        [[0, -88, 34], [-26, -70, 26], [26, -72, 28], [-8, -108, 24]].forEach((b) => { ctx.beginPath(); ctx.arc(tx + b[0] * sc, base + b[1] * sc, b[2] * sc, 0, 6.3); ctx.fill(); });
+      }
+    }
+  } else if (theme === 'ocean') {
+    ctx.save(); ctx.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < 6; i++) {
+      const x0 = ((i * 0.2 * cw - cam.x * 0.02 + Math.sin(T * 0.2 + i) * 30) % (cw * 1.3) + cw * 1.3) % (cw * 1.3) - cw * 0.15, w = cw * 0.06 + (i % 3) * 14;
+      const g = ctx.createLinearGradient(0, 0, 0, ch * 0.9);
+      g.addColorStop(0, 'rgba(160,240,255,.28)'); g.addColorStop(1, 'rgba(160,240,255,0)');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(x0, 0); ctx.lineTo(x0 + w, 0); ctx.lineTo(x0 + w - cw * 0.12, ch * 0.9); ctx.lineTo(x0 - cw * 0.12, ch * 0.9); ctx.closePath(); ctx.fill();
+    }
+    ctx.restore();
+    for (let s = 0; s < 3; s++) {
+      const sp = 14 + s * 9, y0 = ch * (0.28 + s * 0.17), dir = s % 2 ? -1 : 1;
+      for (let k = 0; k < 5; k++) {
+        const x = (((T * sp * dir + k * cw * 0.28 + s * 113 - cam.x * (0.03 + s * 0.02)) % (cw * 1.4)) + cw * 1.4) % (cw * 1.4) - cw * 0.2;
+        const y = y0 + Math.sin(T * 1.3 + k + s) * 8 + (k % 2) * 18, wag = Math.sin(T * 8 + k) * 2;
+        ctx.save(); ctx.translate(x, y); ctx.scale(dir, 1);
+        ctx.fillStyle = 'rgba(10,60,110,' + (0.35 + s * 0.1) + ')';
+        ctx.beginPath(); ctx.ellipse(0, 0, 14 - s * 2, 6 - s, 0, 0, 6.3); ctx.fill();
+        ctx.beginPath(); ctx.moveTo(-12 + s, 0); ctx.lineTo(-22 + s, -6 + wag); ctx.lineTo(-22 + s, 6 + wag); ctx.closePath(); ctx.fill();
+        ctx.restore();
+      }
+    }
+    const step = cw * 0.17, koff = -((cam.x * 0.09) % step);
+    ctx.lineCap = 'round';
+    for (let i = -1; i < Math.ceil(cw / step) + 2; i++) {
+      const kx = koff + i * step, kh = ch * (0.18 + 0.1 * (i & 1)), base = ch * 0.92, sw = Math.sin(T * 1.2 + i) * 14;
+      ctx.strokeStyle = 'rgba(20,110,90,.55)'; ctx.lineWidth = 7;
+      ctx.beginPath(); ctx.moveTo(kx, base); ctx.quadraticCurveTo(kx + sw, base - kh * 0.5, kx - sw * 0.4, base - kh); ctx.stroke();
+    }
+  } else if (theme === 'storm') {
+    drawSkyCloudLayer(L, cam, 0.04, ch * 0.02, 1.8, 'rgba(30,36,60,.75)', 5);
+    drawSkyCloudLayer(L, cam, 0.09, ch * 0.14, 1.5, 'rgba(48,56,84,.7)', 5);
+    const per = 6.5, ph = T % per, idx = Math.floor(T / per);
+    const fl = ph < 0.14 ? 1 - ph / 0.14 : (ph > 0.32 && ph < 0.42 ? 0.55 * (1 - (ph - 0.32) / 0.1) : 0);
+    if (fl > 0) {
+      let bx = cw * (0.15 + 0.7 * hash1(idx * 13 + 1)), by = 0;
+      ctx.save(); ctx.strokeStyle = 'rgba(235,240,255,' + (0.4 + fl * 0.6) + ')'; ctx.lineWidth = 3; ctx.shadowColor = '#bcd0ff'; ctx.shadowBlur = 18;
+      ctx.beginPath(); ctx.moveTo(bx, by);
+      for (let k = 1; k <= 9; k++) { bx += (hash1(idx * 31 + k) - 0.5) * cw * 0.07; by = k * ch * 0.085; ctx.lineTo(bx, by); }
+      ctx.stroke(); ctx.restore();
+      ctx.fillStyle = 'rgba(220,230,255,' + (fl * 0.28) + ')'; ctx.fillRect(0, 0, cw, ch);
+    }
+    drawSkyCloudLayer(L, cam, 0.16, ch * 0.3, 1.2, 'rgba(24,28,48,.6)', 4);
+  } else {
+    drawStars(cam, T, 0.5);
+    const sx = cw * 0.5 - cam.x * 0.008, sy = ch * 0.42, r = Math.min(cw, ch) * 0.2;
+    const g = ctx.createLinearGradient(0, sy - r, 0, sy + r);
+    g.addColorStop(0, '#fff27a'); g.addColorStop(0.55, '#ff5fa2'); g.addColorStop(1, '#b537f2');
+    ctx.save(); ctx.beginPath(); ctx.arc(sx, sy, r, 0, 6.3); ctx.clip();
+    ctx.fillStyle = g; ctx.fillRect(sx - r, sy - r, r * 2, r * 2);
+    ctx.fillStyle = 'rgba(20,0,40,.9)';
+    for (let i = 0; i < 6; i++) ctx.fillRect(sx - r, sy + r * 0.05 + i * r * 0.17, r * 2, 2 + i * 1.6);
+    ctx.restore();
+    for (let v = 0; v < 2; v++) {
+      const f = 0.05 + v * 0.08, span = cw * 0.12, base = ch * (0.86 + v * 0.03), off = -((cam.x * f) % span), i0 = Math.floor(cam.x * f / span);
+      for (let i = -1; i < Math.ceil(cw / span) + 2; i++) {
+        const id = i + i0, bh = ch * (0.12 + 0.2 * hash1(id * 5 + v * 91)) * (v ? 0.8 : 1.2), bw = span * 0.9, bx = off + i * span;
+        ctx.fillStyle = v ? '#14052e' : '#220a45'; ctx.fillRect(bx, base - bh, bw, bh);
+        ctx.fillStyle = v ? 'rgba(0,255,230,.55)' : 'rgba(255,60,200,.6)';
+        for (let wy = 0; wy < bh - 8; wy += 14) for (let wx = 5; wx < bw - 6; wx += 12) if (hash1(id * 97 + wy * 3 + wx) > 0.62) ctx.fillRect(bx + wx, base - bh + wy + 4, 3, 4);
+        ctx.fillStyle = v ? '#00ffe0' : '#ff3cc8'; ctx.fillRect(bx, base - bh, bw, 2);
+      }
+    }
+    drawShootingStars(T);
+  }
+}
+
 function drawDiamond(c) {
   const t = G.lt * 3 + c.id;
   ctx.save(); ctx.translate(c.x, c.y + Math.sin(t * 0.8) * 4);
@@ -3252,7 +3457,7 @@ function diamondIndex(mode, lvIdx, n) {
   return Math.floor(hash1(lvIdx * 17 + off * 131 + 9) * n) % n;
 }
 
-function drawSkinAccents(skin, t, bob) {
+function drawSkinAccentsOld(skin, t, bob) {
   if (skin === 'cocoa') {
     ctx.fillStyle = '#d62839'; ctx.fillRect(-13, -17 + bob, 26, 5);
     ctx.fillStyle = '#9d0208'; ctx.fillRect(-13, -13 + bob, 26, 1.5);
@@ -3292,6 +3497,71 @@ function drawSkinAccents(skin, t, bob) {
   }
 }
 
+function drawSkinAccents(skin, t, bob) {
+  drawSkinAccentsOld(skin, t, bob);
+  if (skin === 'mint') {
+    ctx.save(); ctx.translate(-9, -34 + bob); ctx.rotate(-0.55);
+    ctx.fillStyle = '#74c69d'; ctx.strokeStyle = '#2d6a4f'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.ellipse(0, -5, 3.6, 7.5, 0, 0, 6.3); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, -1); ctx.lineTo(0, -11); ctx.stroke(); ctx.restore();
+  } else if (skin === 'panda') {
+    ctx.fillStyle = '#222'; ctx.beginPath(); ctx.ellipse(-7.5, -53 + bob, 3.6, 4.2, -0.15, 0, 6.3); ctx.ellipse(7.5, -53 + bob, 3.6, 4.2, 0.15, 0, 6.3); ctx.fill();
+    ctx.strokeStyle = '#222'; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(3, -23.5 + bob, 5.9, 0, 6.3); ctx.moveTo(16.4, -23.5 + bob); ctx.arc(10.5, -23.5 + bob, 5.9, 0, 6.3); ctx.stroke();
+  } else if (skin === 'ghost') {
+    ctx.save(); ctx.globalCompositeOperation = 'lighter';
+    const gg = ctx.createRadialGradient(0, -18 + bob, 4, 0, -18 + bob, 36);
+    gg.addColorStop(0, 'rgba(170,190,255,.38)'); gg.addColorStop(1, 'rgba(170,190,255,0)');
+    ctx.fillStyle = gg; ctx.beginPath(); ctx.arc(0, -18 + bob, 36, 0, 6.3); ctx.fill(); ctx.restore();
+  } else if (skin === 'blossom') {
+    ctx.save(); ctx.globalCompositeOperation = 'lighter';
+    const bg2 = ctx.createRadialGradient(0, -18 + bob, 4, 0, -18 + bob, 36);
+    bg2.addColorStop(0, 'rgba(255,170,210,.28)'); bg2.addColorStop(1, 'rgba(255,170,210,0)');
+    ctx.fillStyle = bg2; ctx.beginPath(); ctx.arc(0, -18 + bob, 36, 0, 6.3); ctx.fill(); ctx.restore();
+    ctx.save(); ctx.translate(-8, -40 + bob);
+    for (let i = 0; i < 5; i++) {
+      const a = i * 1.2566 + t * 0.8;
+      ctx.fillStyle = '#fff'; ctx.strokeStyle = '#e85d9b'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(Math.cos(a) * 3.6, Math.sin(a) * 3.6, 2.8, 0, 6.3); ctx.fill(); ctx.stroke();
+    }
+    ctx.fillStyle = '#ffd43b'; ctx.beginPath(); ctx.arc(0, 0, 2.2, 0, 6.3); ctx.fill(); ctx.restore();
+    for (let i = 0; i < 3; i++) {
+      const a = t * 1.8 + i * 2.094;
+      ctx.save(); ctx.translate(Math.cos(a) * 24, -20 + bob + Math.sin(a) * 10); ctx.rotate(a * 2);
+      ctx.fillStyle = '#ffb3d1'; ctx.beginPath(); ctx.ellipse(0, 0, 3.2, 1.8, 0, 0, 6.3); ctx.fill(); ctx.restore();
+    }
+  } else if (skin === 'ocean') {
+    ctx.save(); ctx.fillStyle = 'rgba(170,235,255,.14)'; ctx.strokeStyle = 'rgba(210,250,255,.75)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(0, -22 + bob, 18, 0, 6.3); ctx.fill(); ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,.8)'; ctx.lineWidth = 2.2; ctx.beginPath(); ctx.arc(0, -22 + bob, 13.5, 3.6, 4.5); ctx.stroke();
+    ctx.lineWidth = 1.2;
+    for (let i = 0; i < 2; i++) {
+      const bt = (t * 0.7 + i * 0.5) % 1; ctx.globalAlpha = 1 - bt;
+      ctx.beginPath(); ctx.arc((i ? 14 : -14) + Math.sin(t * 3 + i) * 3, -30 + bob - bt * 26, 2.2, 0, 6.3); ctx.stroke();
+    }
+    ctx.restore();
+  } else if (skin === 'thunder') {
+    ctx.save(); ctx.globalCompositeOperation = 'lighter';
+    const fl = 0.22 + 0.14 * Math.sin(t * 22);
+    const tg = ctx.createRadialGradient(0, -18 + bob, 4, 0, -18 + bob, 36);
+    tg.addColorStop(0, 'rgba(255,225,90,' + fl + ')'); tg.addColorStop(1, 'rgba(255,225,90,0)');
+    ctx.fillStyle = tg; ctx.beginPath(); ctx.arc(0, -18 + bob, 36, 0, 6.3); ctx.fill(); ctx.restore();
+    ctx.fillStyle = '#fff'; ctx.strokeStyle = '#e8a800'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(1, -47 + bob); ctx.lineTo(-4, -38 + bob); ctx.lineTo(0, -38 + bob); ctx.lineTo(-3, -30 + bob); ctx.lineTo(5, -41 + bob); ctx.lineTo(1, -41 + bob); ctx.closePath(); ctx.fill(); ctx.stroke();
+    if (Math.floor(t * 12) % 3 === 0) {
+      ctx.strokeStyle = 'rgba(255,245,160,.9)'; ctx.lineWidth = 1.6;
+      ctx.beginPath(); ctx.moveTo(-14, -10 + bob); ctx.lineTo(-20, -16 + bob); ctx.lineTo(-16, -20 + bob); ctx.lineTo(-23, -27 + bob);
+      ctx.moveTo(14, -10 + bob); ctx.lineTo(20, -16 + bob); ctx.lineTo(16, -20 + bob); ctx.lineTo(23, -27 + bob); ctx.stroke();
+    }
+  } else if (skin === 'neon') {
+    ctx.save(); ctx.globalCompositeOperation = 'lighter';
+    const ng = ctx.createRadialGradient(0, -18 + bob, 4, 0, -18 + bob, 38);
+    ng.addColorStop(0, 'rgba(255,43,214,.30)'); ng.addColorStop(1, 'rgba(255,43,214,0)');
+    ctx.fillStyle = ng; ctx.beginPath(); ctx.arc(0, -18 + bob, 38, 0, 6.3); ctx.fill(); ctx.restore();
+    ctx.save(); ctx.fillStyle = 'rgba(0,255,230,.45)'; ctx.strokeStyle = '#00ffe0'; ctx.lineWidth = 1.6;
+    rr(-2, -28.5 + bob, 18, 9, 4); ctx.fill(); ctx.stroke(); ctx.restore();
+  }
+}
+
 function injectV8Style() {
   if ($('tbV8Style')) return;
   const st = document.createElement('style'); st.id = 'tbV8Style';
@@ -3324,6 +3594,13 @@ function injectV8Style() {
     .preview-phoenix{background:#ff9a3c;border-color:#b3300f;box-shadow:0 0 12px #ff6a1a}
     .preview-aurora{background:#9ff3e6;border-color:#2a8f9c;box-shadow:0 0 12px #9ff3e6}
     .preview-cosmic{background:#3b1d8a;border-color:#c9b8ff;box-shadow:0 0 12px #8a6bff}
+    .preview-mint{background:#8fe3b0}
+    .preview-panda{background:#fff;border-color:#222}
+    .preview-ghost{background:#e6ebff;border-color:#8aa0ff;box-shadow:0 0 10px #b8c4ff}
+    .preview-blossom{background:#ffc2d9;border-color:#c2457a;box-shadow:0 0 12px #ff9ec4}
+    .preview-ocean{background:#7fd3e8;border-color:#0f6e91;box-shadow:0 0 12px #4cc9f0}
+    .preview-thunder{background:#ffe066;border-color:#7a5b00;box-shadow:0 0 12px #ffd43b}
+    .preview-neon{background:#2a0f4a;border-color:#ff2bd6;box-shadow:0 0 12px #ff2bd6}
   `;
   document.head.appendChild(st);
 }
