@@ -1,13 +1,17 @@
 /**
- * Tether Bunnies v16.5 FULL MASTER - UNABRIDGED v15.5 + v16.0 COMBINED EDITION
- *  - Giữ nguyên 100% toàn bộ code vật lý, đồ họa Remastered, 24 mô-đun bẫy và Bộ quét lỗi địa hình của v15.5
- *  - Tích hợp đầy đủ 100% hệ thống Quỷ Dị của v16.0:
- *      + Bot giả dạng đồng đội ở Checkpoint (Doppelgänger Bot)
- *      + Bóng ma không nhìn mặt (Weeping Phantom) & Bàn tay hắc ám dưới đất (Abyssal Hands)
- *      + Đồng xu biến hóa ngẫu nhiên (Mimic / Ma trơi / Nặng ngàn cân / Đảo phím / Thiên thạch)
- *      + Quy tắc "Giết 1 lần là hóa giải" (G.cursedConsumed): Bị Quỷ Dị giết 1 lần thì hồi sinh lại nó trở về bình thường!
- *  - Tích hợp Chủ đề Màn Đầm Lầy Độc Dược (Toxic Swamp) + Cây Ăn Thịt Phun Axit + Quái vật đuổi biến hình theo Mùa
- *  - Tích hợp Cờ Mở Đường Phía Trước (Forward Safe-Ground Warp Flag #6) + Mua nhanh Buff (+1, +10, +100) + 3 Skin MYTHIC
+ * Tether Bunnies v17.0 - SUPREME ANIME SKINS, BIOME PIT POOLS, FULL PARANORMAL TRAPS & 300 SANITIZED LEVELS
+ *  - 5 Supreme Anime Skins:
+ *      1) Saitama (One Punch): Punches & destroys boulders, stalactites, sharks, lasers, and monsters!
+ *      2) Son Goku (4-Stage Auto Evolution): Stand still 1.0s to evolve Base -> SSJ Gold -> SSJ Blue -> Ultra Instinct Silver!
+ *      3) Naruto (Nine-Tails Kurama Mode): Transforms into golden 9-tails chakra cloak when running/jumping + Rasengan!
+ *      4) Luffy Gear 5 (Sun God Nika): Rubber body bounces safely off spikes/saws/boulders + Haki lightning & cloud scarf!
+ *      5) Pikachu (Thunderbolt God): +30% Volt Tackle speed + periodic 100,000V lightning aura zapping monsters & sharks!
+ *  - Biome-Specific Pit Hazards: Bubbling Acid Pools in Toxic, Molten Lava in Hell, Golden Lightning Clouds in Heaven,
+ *    Electric Urchin Trenches in Ocean, Crystal Icicles in Ice (replaces generic bottom spikes!)
+ *  - Removed all floating trap text labels ("VÁN TRƯỢT BĂNG", "PHẢN TRỌNG LỰC", etc.) & removed unfair mid-air sled spikes
+ *  - Fixed Forward Warp Flag (#6) & Checkpoints: Always teleports to the solid mainland AFTER any sled/chasm (never traps you on a sled!)
+ *  - Fixed Level 100 Solo & Biome sky priority so Ocean/Toxic/Heaven/Hell levels always display their true environment
+ *  - Expanded Paranormal Engine to springs, floors, doors, platforms, coins & checkpoints (once it kills you -> reverts to normal!)
  */
 'use strict';
 const fs = require('fs');
@@ -31,6 +35,7 @@ code = code.replace(/const SEND_MS = \d+;/g, 'const SEND_MS = 33;');
   '/* === TB_V15_5_SANITIZED_EDITION === */',
   '/* === TB_V16_0_ULTIMATE_EDITION === */',
   '/* === TB_V16_5_FULL_MASTER_EDITION === */',
+  '/* === TB_V17_0_SUPREME_MASTER_EDITION === */',
 ].forEach((mk) => {
   if (code.includes(mk)) code = code.slice(0, code.indexOf(mk)) + '})();\n';
 });
@@ -41,8 +46,8 @@ if (lastClose === -1) {
   process.exit(0);
 }
 
-const v165FullPayload = `
-/* === TB_V16_5_FULL_MASTER_EDITION === */
+const v17Payload = `
+/* === TB_V17_0_SUPREME_MASTER_EDITION === */
 // ============================================================================
 // 1. CLIENT ID CHỐNG NHÂN ĐÔI NHÂN VẬT KHI ĐỔI MẠNG & ĐỒNG BỘ VẬT LÝ MƯỢT 30HZ
 // ============================================================================
@@ -126,23 +131,68 @@ function stepRemotes() {
 }
 
 // ============================================================================
-// 2. SKIN BẬC THẦN THOẠI (MYTHIC) + BUFF CỜ MỞ ĐƯỜNG PHÍA TRƯỚC (#6) + MUA NHANH ×1/×10/×100
+// 2. BẬC SKIN SUPREME ANIME (SAITAMA, GOKU 4 CẤP, NARUTO CỬU VĨ, LUFFY GEAR 5, PIKACHU)
+//    + SKIN MYTHIC + CỜ MỞ ĐƯỜNG QUA VỰC (#6) + MUA NHANH ×1 / ×10 / ×100
 // ============================================================================
+TIERS.supreme = { label: 'SUPREME ★ ANIME' };
 TIERS.mythic = { label: 'MYTHIC ✦' };
+
 SKY_CFG.toxic = { stops: [[0, '#071c15'], [0.5, '#1b4332'], [1, '#52b788']], hills: ['#2d6a4f', '#1b4332', '#081c15'], mote: 'rgba(180,255,120,.75)' };
+SKY_CFG.heaven = { stops: [[0, '#38bdf8'], [0.45, '#bae6fd'], [0.8, '#fef9c3'], [1, '#ffffff']], hills: ['#fde68a', '#fef08a', '#ffffff'], mote: 'rgba(255,235,130,.9)' };
+SKY_CFG.hell = { stops: [[0, '#090202'], [0.4, '#450a0a'], [0.75, '#991b1b'], [1, '#f97316']], hills: ['#450a0a', '#2a0505', '#140202'], mote: 'rgba(255,100,20,.85)' };
 SKY_LEGEND.toxic = 1;
+SKY_LEGEND.heaven = 1;
+SKY_LEGEND.hell = 1;
+
+// Ưu tiên hiển thị bầu trời theo Chủ đề Màn chơi (Biome) để Màn 100 Đại Dương hay Đầm Lầy Độc không bị Skin ghi đè mất cảnh!
+effTheme = function (L) {
+  if (L && L.skyTheme && (L.biome === 'water' || L.biome === 'toxic' || L.biome === 'ice' || L.biome === 'space' || L.biome === 'heaven' || L.biome === 'hell')) {
+    return L.skyTheme;
+  }
+  return (L && L.skyTheme) || (curEnv && curEnv.sky) || 'meadow';
+};
 
 Object.assign(SKINS, {
+  saitama: {
+    tier: 'supreme', name: 'Saitama (One Punch)', icon: '🥊', coins: 500, dia: 40,
+    env: { name: 'Hero City Z', desc: 'Áo choàng trắng, găng đỏ — Tự động ĐẤM VỠ NÁT bẫy đá, thạch nhũ, cá mập & laser!', sky: 'sunset', solidHue: 35, grassHue: 48, tint: 'rgba(255,200,0,.04)', fx: 'sparks', rate: 18 },
+    passive: { id: 'onepunch', name: 'Serious Punch', desc: 'Tự động tung cú đấm Nghiêm Túc phá hủy đá lăn, thạch nhũ, thiên thạch, cá mập, quái Quỷ Dị & tắt tia laser trước mặt!' },
+    trail: ['#ffd43b', '#ff002b', '#ffffff'],
+  },
+  goku: {
+    tier: 'supreme', name: 'Son Goku (4 Cấp Tiến Hóa)', icon: '🔥', coins: 600, dia: 50,
+    env: { name: 'Realm of Gods', desc: 'Đứng yên 1s tự động gồng Ki tiến hóa: Base → Super Saiyan Vàng → SSJ Blue → Bản Năng Vô Cực!', sky: 'cosmic', solidHue: 230, grassHue: 195, tint: 'rgba(100,200,255,.05)', fx: 'sparks', rate: 24 },
+    passive: { id: 'saiyan', name: 'Saiyan Tiến Hóa', desc: 'Đứng yên 1s tự động tiến hóa 4 cấp! Cấp càng cao chạy/nhảy càng mạnh; ở cấp Bản Năng Vô Cực (Tóc Bạc) tự động né sát thương & nhảy 3 lần!' },
+    trail: ['#ffe066', '#00f5d4', '#e2e8f0'],
+  },
+  naruto: {
+    tier: 'supreme', name: 'Naruto (Cửu Vĩ Kurama)', icon: '🦊', coins: 550, dia: 45,
+    env: { name: 'Hidden Leaf Chakra', desc: 'Bình thường là Ninja Làng Lá; khi chạy/nhảy hóa trạng thái Cửu Vĩ Kurama vàng rực + Rasengan!', sky: 'ember', solidHue: 25, grassHue: 115, tint: 'rgba(255,140,0,.05)', fx: 'embers', rate: 20 },
+    passive: { id: 'kurama', name: 'Chakra Cửu Vĩ', desc: 'Khi di chuyển hoặc nhảy tự động bật Áo Choàng Cửu Vĩ (+25% tốc độ, Nhảy Đôi Rasengan, miễn nhiễm độc & đảo phím)!' },
+    trail: ['#ff922b', '#ffd43b', '#38bdf8'],
+  },
+  luffy: {
+    tier: 'supreme', name: 'Luffy Gear 5 (Thần Nika)', icon: '☀️', coins: 600, dia: 50,
+    env: { name: 'Wano Onigashima Sky', desc: 'Tóc mây trắng, dải khói thần, Haki Bá Vương — Biến gai nhọn & cưa thành cao su đàn hồi!', sky: 'storm', solidHue: 275, grassHue: 330, tint: 'rgba(255,255,255,.05)', fx: 'sparks', rate: 22 },
+    passive: { id: 'nika', name: 'Trái Cao Su Nika', desc: 'Cơ thể cao su: Chạm vào gai nhọn, cưa hoặc đá lăn sẽ BẬT NẢY LÊN TRỜI như đệm lò xo (mỗi 5s) + Nhảy cao hơn 30% & Nhảy Đôi!' },
+    trail: ['#ffffff', '#e0aaff', '#ff0055'],
+  },
+  pikachu: {
+    tier: 'supreme', name: 'Pikachu (Thần Sấm)', icon: '⚡', coins: 500, dia: 40,
+    env: { name: 'Thunder Volt Valley', desc: 'Má đỏ phóng điện, đuôi tia chớp — Chạy nhanh +30% & Phóng sấm sét 100.000V diệt quái!', sky: 'storm', solidHue: 48, grassHue: 130, tint: 'rgba(255,230,0,.05)', fx: 'sparks', rate: 25 },
+    passive: { id: 'pikachu', name: 'Điện Quang 100.000V', desc: 'Chạy siêu tốc +30% (Volt Tackle), Nhảy Đôi & Tự động phóng Sấm Sét hủy diệt cá mập, bóng ma Quỷ Dị và đạn độc xung quanh!' },
+    trail: ['#ffe066', '#ffd43b', '#38bdf8'],
+  },
   plague: {
     tier: 'mythic', name: 'Độc Vương Thỏ', icon: '☣️', coins: 200, dia: 22,
     env: { name: 'Toxic Swamp', desc: 'bầu trời axit, sương mù độc dược, miễn nhiễm độc & đảo phím', sky: 'toxic', solidHue: 135, grassHue: 280, tint: 'rgba(80,255,120,.06)', fx: 'bubbles', rate: 18 },
-    passive: { id: 'antidote', name: 'Bất Tử Độc', desc: 'Miễn nhiễm 100% bẫy Độc, Đảo Phím & Nặng Ngàn Cân + Chạy nhanh 15%.' },
+    passive: { id: 'antidote', name: 'Bất Tử Độc', desc: 'Miễn nhiễm 100% bẫy Độc, Hồ Axit, Đảo Phím & Nặng Ngàn Cân + Chạy nhanh 15%.' },
     trail: ['#70e000', '#b5179e', '#80ed99'],
   },
   reaper: {
     tier: 'mythic', name: 'Tử Thần Hư Không', icon: '💀', coins: 300, dia: 28,
-    env: { name: 'Void Abyss', desc: 'vực thẳm tử thần, nhìn thấu xu giả & đi xuyên 1 bẫy mỗi 12s', sky: 'cosmic', solidHue: 270, grassHue: 345, tint: 'rgba(120,0,255,.07)', fx: 'sparks', rate: 22 },
-    passive: { id: 'wraith', name: 'Hồn Ma Hư Không', desc: 'Tự động né 1 đòn chí mạng mỗi 12 giây (Phase Shift) & Nhìn thấu mọi bẫy Quỷ Dị.' },
+    env: { name: 'Void Abyss', desc: 'vực thẳm tử thần, nhìn thấu xu giả & đi xuyên 1 bẫy mỗi 10s', sky: 'cosmic', solidHue: 270, grassHue: 345, tint: 'rgba(120,0,255,.07)', fx: 'sparks', rate: 22 },
+    passive: { id: 'wraith', name: 'Hồn Ma Hư Không', desc: 'Tự động né 1 đòn chí mạng mỗi 10 giây (Phase Shift) & Vô hiệu hóa toàn bộ bẫy đồng xu Quỷ Dị.' },
     trail: ['#ff0055', '#7209b7', '#00f5d4'],
   },
   dragon: {
@@ -154,16 +204,21 @@ Object.assign(SKINS, {
 });
 
 Object.assign(SKIN_PAL, {
-  plague: { body: '#52b788', edge: '#081c15', inner: '#b5179e', belly: 'rgba(180,255,150,.75)' },
-  reaper: { body: '#1a1423', edge: '#ff0055', inner: '#7209b7', belly: 'rgba(255,0,85,.45)' },
-  dragon: { body: '#ffb703', edge: '#9d0208', inner: '#00f5d4', belly: 'rgba(255,245,190,.85)' },
+  saitama: { body: '#ffd43b', edge: '#b45309', inner: '#ef4444', belly: 'rgba(255,255,255,.9)' },
+  goku:    { body: '#f97316', edge: '#9a3412', inner: '#1d4ed8', belly: 'rgba(30,64,175,.85)' },
+  naruto:  { body: '#fb923c', edge: '#1e293b', inner: '#facc15', belly: 'rgba(30,41,59,.85)' },
+  luffy:   { body: '#ffffff', edge: '#7e22ce', inner: '#ef4444', belly: 'rgba(243,232,255,.95)' },
+  pikachu: { body: '#fde047', edge: '#854d0e', inner: '#ef4444', belly: 'rgba(254,249,195,.9)' },
+  plague:  { body: '#52b788', edge: '#081c15', inner: '#b5179e', belly: 'rgba(180,255,150,.75)' },
+  reaper:  { body: '#1a1423', edge: '#ff0055', inner: '#7209b7', belly: 'rgba(255,0,85,.45)' },
+  dragon:  { body: '#ffb703', edge: '#9d0208', inner: '#00f5d4', belly: 'rgba(255,245,190,.85)' },
 });
 
 BUFFS.warpflag = {
-  name: 'Cờ Mở Đường (Forward Warp)',
+  name: 'Cờ Mở Đường (Skip Obstacle)',
   icon: '🚩',
   price: 25,
-  desc: 'Tự động quét tìm MẶT ĐẤT AN TOÀN PHÍA TRƯỚC bạn chưa tới, cắm Checkpoint mới ở đó và DỊCH CHUYỂN CẢ ĐỘI vượt qua bẫy tới thẳng điểm đó!',
+  desc: 'Tự động đặt Checkpoint ở MẶT ĐẤT CỐ ĐỊNH CUỐI BỜ VỰC / PHÍA TRƯỚC (không bao giờ đặt trên ván trượt) và DỊCH CHUYỂN CẢ ĐỘI qua thẳng chướng ngại vật!',
 };
 if (!BUFF_IDS.includes('warpflag')) BUFF_IDS.push('warpflag');
 BUFF_KEYS.Digit6 = 'warpflag';
@@ -174,38 +229,61 @@ BUFF_KEYS.Numpad6 = 'warpflag';
   if (tb && !$('tb_warpflag')) {
     const b = document.createElement('button');
     b.id = 'tb_warpflag'; b.className = 'tbtn tbf hidden'; b.dataset.buff = 'warpflag';
-    b.title = 'Dịch chuyển cả đội tới mặt đất an toàn phía trước';
+    b.title = 'Dịch chuyển cả đội qua bờ bên kia chướng ngại vật';
     b.innerHTML = '🚩';
     tb.appendChild(b);
   }
 })();
 
-// Quét tìm mặt đất cố định an toàn ở phía trước mặt người chơi (chỗ chưa tới) để cắm cờ & dịch chuyển vượt bẫy:
-function v16FindForwardSafeSpot(P, L) {
+// SỬA TRIỆT ĐỂ LỖI CỜ MỞ ĐƯỜNG (🚩):
+// Nếu người chơi đang đứng trước hoặc trên ván trượt (sled) / đá lăn (ferry) / cầu sập,
+// Cờ sẽ tự động phóng thẳng sang BỜ ĐẤT CỐ ĐỊNH CUỐI CÙNG BÊN KIA VỰC (t.x1 + 160), tuyệt đối KHÔNG đặt trên ván trượt!
+function v17FindForwardMainlandSpot(P, L) {
   const isRev = !!(L.name && L.name.indexOf('ĐẢO CHIỀU') >= 0);
   const dir = isRev ? -1 : 1;
   const cx = P.x + PW / 2;
+
+  // Tập hợp các chỉ số khối đất động (ván trượt băng, đảo dịch chuyển, cầu bóng ma) để CẤM đặt cờ lên đó:
+  const forbiddenSolids = new Set();
+  for (const t of (L.traps || [])) {
+    if (t.si !== undefined) forbiddenSolids.add(t.si);
+    // Nếu người chơi đang ở gần hoặc trên một hố ván trượt (sled) hoặc đá chở người (ferry),
+    // phóng thẳng người chơi sang bờ đất liền ở CUỐI ĐƯỜNG TRƯỢT!
+    if (dir > 0 && t.k === 'sled' && cx >= t.x0 - 380 && cx <= t.x1 + 80) {
+      const landX = clamp(t.x1 + 190, 80, L.w - PW - 80);
+      return { x: Math.round(landX), y: Math.round(t.y - PH + 4) };
+    }
+    if (dir > 0 && t.k === 'ferry' && cx >= t.cs - 380 && cx <= t.ce + 80) {
+      const landX = clamp(t.ce + 140, 80, L.w - PW - 80);
+      return { x: Math.round(landX), y: Math.round(t.gy - PH) };
+    }
+  }
+  for (const ph of (L.phantoms || [])) if (ph.si !== undefined) forbiddenSolids.add(ph.si);
+
   let best = null, bestScore = 1e9;
-
   for (let i = 0; i < (L.solids || []).length; i++) {
+    if (forbiddenSolids.has(i)) continue;
     const s = L.solids[i];
-    if (s.bonk || s[2] < 70 || s[1] > (L.h || WORLD_H) - 35 || s[1] < 80) continue;
+    // Chỉ chọn đất liền cố định (chiều dày s[3] >= 90 và chiều rộng s[2] >= 180):
+    if (s.bonk || s.isVehicle || s[3] < 90 || s[2] < 180 || s[1] > (L.h || WORLD_H) - 35 || s[1] < 80) continue;
     if (s[3] > 500 && s[2] < 60) continue;
-    const sMid = s[0] + s[2] / 2;
-    const ahead = (sMid - cx) * dir;
-    if (ahead < 110 || ahead > 680) continue;
 
-    const tx = clamp(cx + dir * 260, s[0] + 22, s[0] + s[2] - PW - 22);
+    // Chọn vị trí ở phần cuối an toàn của bờ đất phía trước
+    const targetX = dir > 0 ? clamp(Math.max(cx + 320, s[0] + 110), s[0] + 50, s[0] + s[2] - PW - 50)
+                            : clamp(Math.min(cx - 320, s[0] + s[2] - 110), s[0] + 50, s[0] + s[2] - PW - 50);
+    const ahead = (targetX - cx) * dir;
+    if (ahead < 160 || ahead > 1950) continue;
+
     const ty = s[1] - PH;
-    const hitSpk = (L.spikes || []).some((sp) => !sp.hid && rectsOverlap(tx - 8, ty - 8, PW + 16, PH + 16, sp.x, sp.y, sp.w, sp.h));
+    const hitSpk = (L.spikes || []).some((sp) => !sp.hid && rectsOverlap(targetX - 16, ty - 12, PW + 32, PH + 20, sp.x, sp.y, sp.w, sp.h));
     if (hitSpk) continue;
 
-    const score = Math.abs(ahead - 280) + Math.abs(ty - P.y) * 0.35;
-    if (score < bestScore) { bestScore = score; best = { x: Math.round(tx), y: Math.round(ty) }; }
+    const score = Math.abs(ahead - 460) + Math.abs(ty - P.y) * 0.3;
+    if (score < bestScore) { bestScore = score; best = { x: Math.round(targetX), y: Math.round(ty) }; }
   }
   if (!best) {
-    const fallbackX = clamp(Math.round(P.x + dir * 220), 60, L.w - PW - 60);
-    best = { x: fallbackX, y: Math.round(Math.min(P.y, GY - PH)) };
+    const fallbackX = clamp(Math.round(P.x + dir * 340), 80, L.w - PW - 80);
+    best = { x: fallbackX, y: Math.round(GY - PH) };
   }
   return best;
 }
@@ -221,24 +299,29 @@ function useBuff(which) {
   if (which === 'warpflag') {
     if (!have('warpflag')) { toast('Hết Cờ Mở Đường 🚩 — Mua ×10 / ×100 trong 🛍️ Shop!'); return; }
     spend('warpflag');
-    const spot = v16FindForwardSafeSpot(P, L);
+    const spot = v17FindForwardMainlandSpot(P, L);
     P.x = spot.x; P.y = spot.y; P.vx = 0; P.vy = 0; P.rope = null;
     P.cp = { x: spot.x, y: spot.y };
-    P.inv = Math.max(P.inv, 2.0);
+    P.inv = Math.max(P.inv, 2.2);
     if (L.flags) L.flags.push({ x: spot.x + PW / 2, y: spot.y + PH, on: true });
     G.cam.snap = true;
     Snd.cp(); sparkle(spot.x + PW / 2, spot.y + PH / 2, 28, 1.9, '#00ffe0');
-    toast('🚩 Đã cắm Cờ ở mặt đất phía trước & Dịch chuyển toàn đội vượt chướng ngại vật!');
+    toast('🚩 Đã cắm Cờ ở đất liền phía trước & Dịch chuyển toàn đội qua chướng ngại vật!');
     if (isNet()) netEv({ t: 'cp', x: spot.x, y: spot.y, fi: -1, s: P.slot, pull: 1 });
     refreshBuffUI();
     return;
+  }
+
+  // Nếu đang mặc Saitama và bấm phím E (không chỉ định buff cụ thể), tung cú đấm Serious Punch ngay lập tức!
+  if (!which && curPassive === 'onepunch') {
+    v17TriggerSaitamaPunch(P, L, true);
   }
 
   if (!which) {
     if (!P.shield && have('shield')) which = 'shield';
     else if (!P.dj && have('doublejump')) which = 'doublejump';
     else if (have('warpflag')) { useBuff('warpflag'); return; }
-    else { if (!P.shield && !P.dj) toast('Chưa có thuốc — Mua thêm trong 🛍️ Shop!'); refreshBuffUI(); return; }
+    else { if (!P.shield && !P.dj && curPassive !== 'onepunch') toast('Chưa có thuốc — Mua thêm trong 🛍️ Shop!'); refreshBuffUI(); return; }
   }
   const b = BUFFS[which]; if (!b) return;
   if (which === 'shield') {
@@ -273,7 +356,7 @@ renderShop = function () {
     '<button class="skin-btn" data-act="xchg" data-n="1">🪙 ' + DIA_RATE + ' → 💎 1</button>' +
     '<button class="skin-btn" data-act="xchg" data-n="10">🪙 ' + (DIA_RATE * 10) + ' → 💎 10</button>' +
     '<button class="skin-btn" data-act="xchg" data-n="50">🪙 ' + (DIA_RATE * 50) + ' → 💎 50</button></div>';
-  ['mythic', 'legendary', 'rare', 'common'].forEach((t) => {
+  ['supreme', 'mythic', 'legendary', 'rare', 'common'].forEach((t) => {
     if (!TIERS[t]) return;
     h += '<div class="shop-section-title tier-' + t + '">' + TIERS[t].label + ' SKINS</div><div class="shop-grid">';
     Object.keys(SKINS).filter((id) => SKINS[id].tier === t).forEach((id) => {
@@ -281,7 +364,7 @@ renderShop = function () {
       h += '<div class="shop-item tier-' + t + '" data-skin="' + id + '"><div class="tier-tag">' + TIERS[t].label + '</div>' +
         '<div class="skin-preview preview-' + id + '">' + d.icon + '</div>' +
         '<div class="skin-name">' + d.name + '</div>' +
-        (d.passive ? '<div class="skin-desc"><b>🌍 ' + d.env.name + '</b> — ' + d.env.desc + '<br><b>✨ ' + d.passive.name + ':</b> ' + d.passive.desc + '</div>' : '') +
+        (d.passive ? '<div class="skin-desc"><b>✨ ' + d.passive.name + ':</b> ' + d.passive.desc + '</div>' : '') +
         '<div class="skin-price">' + (owned ? 'OWNED' : priceText(d)) + '</div>' +
         '<button class="skin-btn' + (on ? ' equipped' : '') + '" data-act="skin" data-id="' + id + '">' + (!owned ? 'Buy' : on ? 'Equipped' : 'Equip') + '</button></div>';
     });
@@ -339,7 +422,171 @@ buyBuff = function (id, qty) {
 })();
 
 // ============================================================================
-// 3. VẬT LÝ DÂY NGẮN (60px -> 96px MAX) + KÉO CẢ ĐỘI + THÁP SỐNG CÕNG NHAU NHẢY
+// 3. KỸ NĂNG ĐẶC BIỆT CỦA 5 SKIN SUPREME ANIME (SAITAMA, GOKU, NARUTO, LUFFY, PIKACHU)
+// ============================================================================
+function v17TriggerSaitamaPunch(P, L, manual) {
+  if (!P || !L || P.dead) return;
+  if (P.punchCd > 0 && !manual) return;
+  const cx = P.x + PW / 2, cy = P.y + PH / 2, face = P.face >= 0 ? 1 : -1;
+  let hitAnything = false;
+
+  // 1. Đấm bay đá lăn (Boulders):
+  for (let i = (L.boulders || []).length - 1; i >= 0; i--) {
+    const b = L.boulders[i];
+    if (Math.hypot(b.cx - cx, (b.y - b.r) - cy) < 155) {
+      debris(b.cx - b.r, b.y - b.r * 2, b.r * 2, b.r * 2, 18, '#94a3b8');
+      L.boulders.splice(i, 1);
+      hitAnything = true;
+    }
+  }
+  // 2. Đấm vỡ thạch nhũ đang rơi (Stalactites):
+  for (let i = (L.stalactites || []).length - 1; i >= 0; i--) {
+    const q = L.stalactites[i];
+    if (Math.hypot((q.x + q.w / 2) - cx, (q.y + q.fy + q.h / 2) - cy) < 165) {
+      debris(q.x, q.y + q.fy, q.w, q.h, 14, '#cbd5e1');
+      L.stalactites.splice(i, 1);
+      hitAnything = true;
+    }
+  }
+  // 3. Đấm bay Cá Mập Megalodon:
+  for (let i = (L.sharks || []).length - 1; i >= 0; i--) {
+    const sh = L.sharks[i];
+    if (Math.hypot(sh.cx - cx, sh.cy - cy) < 165) {
+      sparkle(sh.cx, sh.cy, 24, 2.0, '#ffd43b');
+      L.sharks.splice(i, 1);
+      hitAnything = true;
+    }
+  }
+  // 4. Đấm vỡ cột phát Laser xoay:
+  for (let i = (L.lasers || []).length - 1; i >= 0; i--) {
+    const ls = L.lasers[i];
+    if (Math.hypot(ls.x - cx, ls.y - cy) < 145) {
+      sparkle(ls.x, ls.y, 20, 1.8, '#ff0055');
+      L.lasers.splice(i, 1);
+      hitAnything = true;
+    }
+  }
+  // 5. Đấm tan xác Quái vật Quỷ Dị (Doppelgängers, Ghosts, Mimic Coins):
+  if (L.anomalies) {
+    for (let i = (L.anomalies.doppels || []).length - 1; i >= 0; i--) {
+      const dp = L.anomalies.doppels[i];
+      if (Math.hypot((dp.x + PW / 2) - cx, (dp.y + PH / 2) - cy) < 160) {
+        G.cursedConsumed.add(dp.id);
+        sparkle(dp.x + PW / 2, dp.y + PH / 2, 22, 1.8, '#ffd43b');
+        L.anomalies.doppels.splice(i, 1);
+        hitAnything = true;
+      }
+    }
+    for (let i = (L.anomalies.ghosts || []).length - 1; i >= 0; i--) {
+      const gh = L.anomalies.ghosts[i];
+      if (Math.hypot(gh.x - cx, gh.y - cy) < 160) {
+        G.cursedConsumed.add(gh.id);
+        sparkle(gh.x, gh.y, 22, 1.8, '#ffd43b');
+        L.anomalies.ghosts.splice(i, 1);
+        hitAnything = true;
+      }
+    }
+  }
+  for (const c of (L.coins || [])) {
+    if (c.anomaly === 1 && c.trig && Math.hypot(c.x - cx, c.y - cy) < 150) {
+      c.anomaly = 0; c.trig = false; hitAnything = true;
+    }
+  }
+
+  if (hitAnything || manual) {
+    P.punchCd = 1.6;
+    P.punchFxT = 0.35;
+    P.punchDir = face;
+    Snd.slam();
+    G.shake = Math.max(G.shake, 7);
+    sparkle(cx + face * 45, cy, 22, 2.0, '#ffd43b');
+  }
+}
+
+function v17UpdateAnimePassives(P, L) {
+  if (!P || !L || P.dead || G.won) return;
+  if (P.punchCd > 0) P.punchCd -= STEP;
+  if (P.punchFxT > 0) P.punchFxT -= STEP;
+  if (P.nikaCd > 0) P.nikaCd -= STEP;
+
+  // 1. SAITAMA: Tự động cảm biến đấm bay mọi mối nguy hiểm lao tới gần trong bán kính 145px!
+  if (curPassive === 'onepunch') {
+    v17TriggerSaitamaPunch(P, L, false);
+  }
+
+  // 2. SON GOKU: Đứng yên 1.0 giây (hoặc giữ phím Xuống) tự động gồng Ki tiến hóa 4 cấp:
+  //    Cấp 0 (Base) -> Cấp 1 (Super Saiyan Vàng) -> Cấp 2 (Super Saiyan Blue) -> Cấp 3 (Ultra Instinct Bạc)!
+  if (curPassive === 'saiyan') {
+    if (P.gokuForm === undefined) P.gokuForm = 0;
+    const standingStill = P.onGround && Math.abs(P.vx) < 0.25 && !input.l && !input.r && !input.j;
+    if ((standingStill || input.d) && P.gokuForm < 3) {
+      P.kiCharge = (P.kiCharge || 0) + STEP * (input.d ? 1.6 : 1.0);
+      if (Math.random() < 0.5) sparkle(P.x + PW / 2 + rnd(-16, 16), P.y + PH, 1, 0.7, P.gokuForm === 0 ? '#ffe066' : P.gokuForm === 1 ? '#00f5d4' : '#ffffff');
+      if (P.kiCharge >= 1.0) {
+        P.kiCharge = 0;
+        P.gokuForm++;
+        Snd.key();
+        G.shake = Math.max(G.shake, 6);
+        const formNames = ['Base Saiyan', '⚡ SUPER SAIYAN (VÀNG)!', '💠 SUPER SAIYAN BLUE!', '🌌 BẢN NĂNG VÔ CỰC (ULTRA INSTINCT)!'];
+        const formCols = ['#fff', '#ffd43b', '#00f5d4', '#e2e8f0'];
+        sparkle(P.x + PW / 2, P.y + PH / 2, 32, 2.2, formCols[P.gokuForm]);
+        toast('🐉 Goku Tiến Hóa: ' + formNames[P.gokuForm]);
+      }
+    } else {
+      P.kiCharge = Math.max(0, (P.kiCharge || 0) - STEP * 0.4);
+    }
+    if (P.gokuForm >= 2) { P.dj = true; P.djT = 999; }
+    if (P.gokuForm >= 3 && P.onGround) P.extraHops = 2;
+  }
+
+  // 3. NARUTO CỬU VĨ: Tự động bật Kurama Chakra Mode khi chạy/nhảy + Nhảy đôi Rasengan + Miễn nhiễm đảo phím:
+  if (curPassive === 'kurama') {
+    P.rev = 0; P.dj = true; P.djT = 999;
+    P.kuramaOn = Math.abs(P.vx) > 1.2 || !P.onGround;
+  }
+
+  // 4. LUFFY GEAR 5: Nhảy đôi trên mây + Đàn hồi cao su:
+  if (curPassive === 'nika') {
+    P.dj = true; P.djT = 999;
+  }
+
+  // 5. PIKACHU: Phóng sấm sét 100.000V mỗi 3.0s hủy diệt cá mập, đạn độc & bóng ma xung quanh:
+  if (curPassive === 'pikachu') {
+    P.dj = true; P.djT = 999;
+    P.voltT = (P.voltT || 0) + STEP;
+    if (P.voltT >= 2.8) {
+      P.voltT = 0;
+      P.zapFx = 0.35;
+      const cx = P.x + PW / 2, cy = P.y + PH / 2;
+      sparkle(cx, cy, 20, 1.9, '#ffe066');
+      for (let i = (L.sharks || []).length - 1; i >= 0; i--) {
+        if (Math.hypot(L.sharks[i].cx - cx, L.sharks[i].cy - cy) < 220) {
+          sparkle(L.sharks[i].cx, L.sharks[i].cy, 22, 1.8, '#ffe066');
+          L.sharks.splice(i, 1);
+        }
+      }
+      if (L.anomalies) {
+        for (let i = (L.anomalies.doppels || []).length - 1; i >= 0; i--) {
+          if (Math.hypot(L.anomalies.doppels[i].x - cx, L.anomalies.doppels[i].y - cy) < 220) {
+            G.cursedConsumed.add(L.anomalies.doppels[i].id);
+            L.anomalies.doppels.splice(i, 1);
+          }
+        }
+        for (let i = (L.anomalies.ghosts || []).length - 1; i >= 0; i--) {
+          if (Math.hypot(L.anomalies.ghosts[i].x - cx, L.anomalies.ghosts[i].y - cy) < 220) {
+            G.cursedConsumed.add(L.anomalies.ghosts[i].id);
+            L.anomalies.ghosts.splice(i, 1);
+          }
+        }
+        for (const sp of (L.anomalies.spitters || [])) sp.glob = null;
+      }
+    }
+    if (P.zapFx > 0) P.zapFx -= STEP;
+  }
+}
+
+// ============================================================================
+// 4. VẬT LÝ DÂY NGẮN (60px -> 96px MAX) + KÉO CẢ ĐỘI + THÁP SỐNG CÕNG NHAU NHẢY
 // ============================================================================
 const V15_ROPE_REST = 60;
 const V15_ROPE_SPRING = 78;
@@ -490,14 +737,14 @@ function drawTether() {
 }
 
 // ============================================================================
-// 4. ĐỒ HỌA REMASTERED: ĐÁ TẢNG ĐA DIỆN, GAI THÉP 3D, BÚA THỦY LỰC, BOSS ĐUỔI & BƠI LẶN
+// 5. ĐỒ HỌA ĐỊA HÌNH & ĐÁY VỰC THEO CHỦ ĐỀ (HỒ AXIT ĐỘC, DUNG NHAM ĐỊA NGỤC, MÂY THIÊN ĐƯỜNG)
 // ============================================================================
 drawSolid = function (L, s) {
   if (s.ice || L.biome === 'ice') { drawIceSolid(L, s); return; }
   const x = s[0], y = s[1], w = s[2], h = s[3], T = G.lt;
-  const theme = effTheme(L);
+  const biome = L.biome || 'normal';
 
-  if (L.biome === 'toxic' || theme === 'toxic') {
+  if (biome === 'toxic') {
     const gr = ctx.createLinearGradient(0, y, 0, y + Math.min(h, 260));
     gr.addColorStop(0, '#1b4332'); gr.addColorStop(0.5, '#081c15'); gr.addColorStop(1, '#040d0a');
     ctx.fillStyle = gr; ctx.fillRect(x, y, w, h);
@@ -510,12 +757,30 @@ drawSolid = function (L, s) {
     return;
   }
 
-  if (L.biome === 'water' || theme === 'ocean') {
+  if (biome === 'heaven') {
+    // Đá Cẩm Thạch Trắng & Vàng Thiên Giới Trên Mây:
+    const gr = ctx.createLinearGradient(0, y, 0, y + Math.min(h, 260));
+    gr.addColorStop(0, '#ffffff'); gr.addColorStop(0.45, '#e0f2fe'); gr.addColorStop(1, '#bae6fd');
+    ctx.fillStyle = gr; ctx.fillRect(x, y, w, h);
+    ctx.fillStyle = '#eab308'; rr(x - 3, y - 5, w + 6, 15, 7); ctx.fill();
+    ctx.fillStyle = '#fef08a'; rr(x - 3, y - 5, w + 6, 7, 5); ctx.fill();
+    return;
+  }
+
+  if (biome === 'hell') {
+    // Đá Hắc Diện Thạch Địa Ngục & Mạch Nham Thạch Nóng Chảy:
+    const gr = ctx.createLinearGradient(0, y, 0, y + Math.min(h, 280));
+    gr.addColorStop(0, '#2a0808'); gr.addColorStop(0.5, '#170404'); gr.addColorStop(1, '#090101');
+    ctx.fillStyle = gr; ctx.fillRect(x, y, w, h);
+    ctx.fillStyle = '#991b1b'; rr(x - 3, y - 5, w + 6, 16, 6); ctx.fill();
+    ctx.fillStyle = '#f97316'; rr(x - 3, y - 5, w + 6, 6, 4); ctx.fill();
+    return;
+  }
+
+  if (biome === 'water') {
     const gr = ctx.createLinearGradient(0, y, 0, y + Math.min(h, 280));
     gr.addColorStop(0, '#16425b'); gr.addColorStop(0.4, '#0f2c3f'); gr.addColorStop(1, '#071722');
     ctx.fillStyle = gr; ctx.fillRect(x, y, w, h);
-    ctx.fillStyle = 'rgba(120,220,255,.08)';
-    for (let px = x + 16; px < x + w - 16; px += 64) ctx.fillRect(px, y + 28 + ((px * 7) % 45), 24, 6);
     ctx.fillStyle = '#1b6ca8'; rr(x - 3, y - 5, w + 6, 16, 6); ctx.fill();
     ctx.fillStyle = '#48cae4'; rr(x - 3, y - 5, w + 6, 7, 4); ctx.fill();
     for (let px = x + 18; px < x + w - 18; px += 48) {
@@ -529,57 +794,88 @@ drawSolid = function (L, s) {
     return;
   }
 
-  if (L.biome === 'space' || theme === 'cosmic' || theme === 'neon') {
+  if (biome === 'space') {
     const gr = ctx.createLinearGradient(0, y, 0, y + Math.min(h, 260));
     gr.addColorStop(0, '#232738'); gr.addColorStop(0.5, '#161925'); gr.addColorStop(1, '#0b0d14');
     ctx.fillStyle = gr; ctx.fillRect(x, y, w, h);
-    ctx.strokeStyle = 'rgba(0,255,230,.18)'; ctx.lineWidth = 1.5;
-    for (let px = x + 40; px < x + w - 10; px += 80) {
-      ctx.beginPath(); ctx.moveTo(px, y); ctx.lineTo(px, y + Math.min(h, 180)); ctx.stroke();
-    }
     ctx.fillStyle = '#343a40'; rr(x - 3, y - 5, w + 6, 15, 4); ctx.fill();
-    ctx.fillStyle = theme === 'neon' ? '#ff2bd6' : '#00f5d4';
-    ctx.fillRect(x - 2, y - 4, w + 4, 4);
-    ctx.fillStyle = '#e9ecef';
-    for (let px = x + 14; px < x + w - 10; px += 36) {
-      ctx.beginPath(); ctx.arc(px, y + 4, 2, 0, 6.3); ctx.fill();
-    }
+    ctx.fillStyle = '#00f5d4'; ctx.fillRect(x - 2, y - 4, w + 4, 4);
     return;
   }
 
-  if (theme === 'ember') {
-    const gr = ctx.createLinearGradient(0, y, 0, y + Math.min(h, 280));
-    gr.addColorStop(0, '#2b1d1e'); gr.addColorStop(0.5, '#1a1112'); gr.addColorStop(1, '#0d0708');
-    ctx.fillStyle = gr; ctx.fillRect(x, y, w, h);
-    ctx.fillStyle = '#4a2520'; rr(x - 3, y - 5, w + 6, 16, 6); ctx.fill();
-    ctx.fillStyle = '#ff6b00'; rr(x - 3, y - 5, w + 6, 6, 4); ctx.fill();
-    ctx.strokeStyle = 'rgba(255,100,0,.45)'; ctx.lineWidth = 2;
-    for (let px = x + 28; px < x + w - 24; px += 76) {
-      ctx.beginPath(); ctx.moveTo(px, y + 6); ctx.lineTo(px + 12, y + 26); ctx.lineTo(px + 4, y + 48); ctx.stroke();
-    }
-    return;
-  }
-
-  const sh = curEnv ? curEnv.solidHue : L.hue + 25, gh = curEnv ? curEnv.grassHue : 105;
+  const sh = L.hue + 25, gh = 105;
   const gr = ctx.createLinearGradient(0, y, 0, y + Math.min(h, 280));
   gr.addColorStop(0, hsl(sh, 32, 48)); gr.addColorStop(1, hsl(sh, 35, 26));
   ctx.fillStyle = gr; ctx.fillRect(x, y, w, h);
-  ctx.fillStyle = 'rgba(255,255,255,.10)';
-  for (let px = x + 18; px < x + w - 10; px += 56) ctx.fillRect(px, y + 30 + ((px * 7) % 40), 16, 5);
-  ctx.fillStyle = 'rgba(0,0,0,.16)';
-  for (let px = x + 40; px < x + w - 20; px += 90) ctx.fillRect(px, y + 70 + ((px * 5) % 60), 24, 7);
   ctx.fillStyle = hsl(gh, 52, 38); rr(x - 3, y - 5, w + 6, 19, 7); ctx.fill();
   ctx.fillStyle = hsl(gh, 60, 54); rr(x - 3, y - 5, w + 6, 9, 5); ctx.fill();
 };
 
+// THAY VÙNG GAI ĐÁY VỰC BẰNG HỒ NƯỚC ĐỘC AXIT / SÔNG DUNG NHAM / BIỂN MÂY SẤM SÉT THEO ĐÚNG CHỦ ĐỀ MÀN:
 drawSpikesRaw = function (s) {
   if (s.w < 10) return;
+  const L = G.L, T = G.lt;
+  const biome = (L && L.biome) || 'normal';
+  const isPit = s.pit || s.y >= ((L && L.h) || WORLD_H) - 45;
+
+  if (isPit) {
+    if (biome === 'toxic') {
+      // HỒ AXIT ĐỘC SỦI BỌT XANH-TÍM DƯỚI ĐÁY VỰC:
+      const gr = ctx.createLinearGradient(0, s.y - 6, 0, s.y + s.h + 30);
+      gr.addColorStop(0, '#80ed99'); gr.addColorStop(0.35, '#38b000'); gr.addColorStop(1, '#3c096c');
+      ctx.fillStyle = gr;
+      ctx.beginPath(); ctx.moveTo(s.x, s.y + s.h + 30);
+      for (let px = s.x; px <= s.x + s.w; px += 18) {
+        const wy = s.y + Math.sin(T * 4.5 + px * 0.04) * 4;
+        ctx.lineTo(px, wy);
+      }
+      ctx.lineTo(s.x + s.w, s.y + s.h + 30); ctx.closePath(); ctx.fill();
+      // Bong bóng khí độc sủi lên
+      ctx.fillStyle = '#c77dff';
+      for (let px = s.x + 20; px < s.x + s.w - 20; px += 46) {
+        const by = s.y + 8 - ((T * 32 + px) % 24);
+        ctx.beginPath(); ctx.arc(px, by, 3.5 + (px % 3), 0, 6.3); ctx.fill();
+      }
+      return;
+    }
+    if (biome === 'hell') {
+      // DÒNG SÔNG DUNG NHAM ĐỊA NGỤC NÓNG CHẢY:
+      const gr = ctx.createLinearGradient(0, s.y - 6, 0, s.y + s.h + 30);
+      gr.addColorStop(0, '#fde047'); gr.addColorStop(0.3, '#f97316'); gr.addColorStop(1, '#7f1d1d');
+      ctx.fillStyle = gr;
+      ctx.beginPath(); ctx.moveTo(s.x, s.y + s.h + 30);
+      for (let px = s.x; px <= s.x + s.w; px += 18) {
+        ctx.lineTo(px, s.y + Math.sin(T * 3.8 + px * 0.03) * 5);
+      }
+      ctx.lineTo(s.x + s.w, s.y + s.h + 30); ctx.closePath(); ctx.fill();
+      return;
+    }
+    if (biome === 'heaven') {
+      // BIỂN MÂY SẤM SÉT THIÊN ĐƯỜNG:
+      ctx.fillStyle = 'rgba(254,240,138,.85)';
+      for (let px = s.x + 16; px < s.x + s.w - 10; px += 34) {
+        ctx.beginPath(); ctx.arc(px, s.y + 12 + Math.sin(T * 3 + px) * 3, 18, 0, 6.3); ctx.fill();
+      }
+      return;
+    }
+    if (biome === 'water') {
+      // RÃNH CẦU GAI ĐẠI DƯƠNG & SỨA ĐIỆN:
+      ctx.fillStyle = '#03045e'; ctx.fillRect(s.x, s.y + 6, s.w, s.h + 20);
+      for (let px = s.x + 18; px < s.x + s.w - 14; px += 36) {
+        ctx.fillStyle = '#00f5d4';
+        ctx.beginPath(); ctx.arc(px, s.y + 10 + Math.sin(T * 4 + px) * 4, 8, Math.PI, 0); ctx.fill();
+      }
+      return;
+    }
+  }
+
+  // Gai lưỡi dao thép 3D cho các vị trí trên mặt đất / trần:
   const n = Math.max(1, Math.round(s.w / 20)), tw = s.w / n;
   const up = s.dir === 'up';
   const baseY = up ? s.y + s.h - 5 : s.y;
   ctx.fillStyle = '#1e293b';
   ctx.fillRect(s.x, baseY, s.w, 5);
-  const tipCol = (G.L && G.L.biome === 'toxic') ? '#80ed99' : '#ef4444';
+  const tipCol = biome === 'toxic' ? '#80ed99' : biome === 'ice' ? '#38bdf8' : '#ef4444';
   for (let i = 0; i < n; i++) {
     const x = s.x + i * tw, mx = x + tw / 2;
     const tipY = up ? s.y - 2 : s.y + s.h + 2;
@@ -628,16 +924,10 @@ function drawFacetedRock(cx, cy, r, rot, isLava) {
   ctx.moveTo(-r * 0.55, -r * 0.2); ctx.lineTo(-r * 0.1, -r * 0.65); ctx.lineTo(r * 0.25, -r * 0.25); ctx.lineTo(-r * 0.15, 0);
   ctx.closePath(); ctx.fill();
 
-  ctx.fillStyle = 'rgba(0,0,0,.28)';
-  ctx.beginPath();
-  ctx.moveTo(r * 0.1, r * 0.1); ctx.lineTo(r * 0.65, r * 0.05); ctx.lineTo(r * 0.4, r * 0.6); ctx.lineTo(-r * 0.2, r * 0.55);
-  ctx.closePath(); ctx.fill();
-
   ctx.strokeStyle = (G.L && G.L.biome === 'toxic') ? '#80ed99' : isLava ? '#ff5400' : '#111827';
   ctx.lineWidth = 2.2;
   ctx.beginPath();
   ctx.moveTo(-r * 0.6, r * 0.12); ctx.lineTo(-r * 0.12, -r * 0.08); ctx.lineTo(r * 0.18, r * 0.35);
-  ctx.moveTo(-r * 0.12, -r * 0.08); ctx.lineTo(r * 0.38, -r * 0.42);
   ctx.stroke();
   ctx.restore();
 }
@@ -663,9 +953,6 @@ drawCrusher = function (c, cb) {
   ctx.fillStyle = '#334155';
   ctx.fillRect(cx - 16, c.top, 10, Math.max(0, y - c.top));
   ctx.fillRect(cx + 6, c.top, 10, Math.max(0, y - c.top));
-  ctx.fillStyle = '#94a3b8';
-  ctx.fillRect(cx - 14, c.top, 3, Math.max(0, y - c.top));
-  ctx.fillRect(cx + 8, c.top, 3, Math.max(0, y - c.top));
 
   const gr = ctx.createLinearGradient(x, y, x + w, y + h - 20);
   gr.addColorStop(0, '#475569'); gr.addColorStop(0.5, '#1e293b'); gr.addColorStop(1, '#0f172a');
@@ -673,32 +960,18 @@ drawCrusher = function (c, cb) {
   rr(x, y, w, h - 20, 6); ctx.fill();
   ctx.lineWidth = 3; ctx.strokeStyle = c.shake ? '#ef4444' : '#090d16'; ctx.stroke();
 
-  ctx.save();
-  ctx.beginPath(); ctx.rect(x + 4, y + h - 42, w - 8, 16); ctx.clip();
-  ctx.fillStyle = '#eab308'; ctx.fillRect(x + 4, y + h - 42, w - 8, 16);
-  ctx.fillStyle = '#0f172a';
-  for (let k = -20; k < w + 20; k += 18) {
-    ctx.beginPath(); ctx.moveTo(x + k, y + h - 26); ctx.lineTo(x + k + 10, y + h - 42);
-    ctx.lineTo(x + k + 18, y + h - 42); ctx.lineTo(x + k + 8, y + h - 26); ctx.fill();
-  }
-  ctx.restore();
-
   const coreCol = (c.shake || cb > c.restB + 10) ? '#ff1744' : '#38bdf8';
   ctx.fillStyle = coreCol;
-  ctx.beginPath(); ctx.arc(cx, y + (h - 42) * 0.5, 11, 0, 6.3); ctx.fill();
-  ctx.strokeStyle = '#e2e8f0'; ctx.lineWidth = 2; ctx.stroke();
-
+  ctx.beginPath(); ctx.arc(cx, y + (h - 32) * 0.5, 11, 0, 6.3); ctx.fill();
   drawSpikesRaw({ x: x + 2, y: y + h - 20, w: w - 4, h: 20, dir: 'down' });
 };
 
+// Xóa chữ "▼ HỐC TRÚ ẨN ▼" theo yêu cầu, chỉ giữ viền ánh sáng xanh trực quan:
 drawCeil = function (t) {
   const cb = t.st === 1 ? t.cb : t.top;
   const w = t.x1 - t.x0, SH = t.SH, y = cb - SH;
   for (const a of t.alc) {
-    ctx.save(); ctx.fillStyle = 'rgba(56,189,248,.16)'; ctx.fillRect(a[0], t.gy, a[1] - a[0], 70);
-    ctx.fillStyle = '#38bdf8'; ctx.font = '800 16px sans-serif'; ctx.textAlign = 'center';
-    ctx.fillText('▼ HỐC TRÚ ẨN ▼', (a[0] + a[1]) / 2, t.gy - 10 + Math.sin(G.lt * 5) * 4);
-    ctx.restore();
+    ctx.save(); ctx.fillStyle = 'rgba(56,189,248,.16)'; ctx.fillRect(a[0], t.gy, a[1] - a[0], 70); ctx.restore();
   }
   const gr = ctx.createLinearGradient(0, y, 0, y + SH);
   gr.addColorStop(0, '#334155'); gr.addColorStop(1, '#0f172a');
@@ -713,8 +986,6 @@ drawGate = function (g) {
     ctx.save(); ctx.globalAlpha = solid ? 1 : 0.25;
     ctx.fillStyle = '#475569'; ctx.strokeStyle = '#1e293b'; ctx.lineWidth = 3;
     rr(g.x, g.y, g.w, g.h, 5); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = '#38bdf8';
-    for (let i = 0; i < 4; i++) ctx.fillRect(g.x + 8 + i * 24, g.y + 5, 14, 4);
     ctx.restore();
     return;
   }
@@ -726,9 +997,6 @@ drawGate = function (g) {
     const pulse = 0.65 + 0.35 * Math.sin(G.lt * 10);
     ctx.fillStyle = 'rgba(239,68,68,' + pulse.toFixed(2) + ')';
     ctx.fillRect(g.x + g.w * 0.35, g.y + 8, g.w * 0.3, g.h - 16);
-    for (let y = g.y + 20; y < g.y + g.h - 16; y += 36) {
-      ctx.fillStyle = '#eab308'; ctx.fillRect(g.x + 3, y, g.w - 6, 4);
-    }
   } else {
     ctx.fillStyle = 'rgba(56,189,248,.16)'; ctx.fillRect(g.x + 4, g.y, g.w - 8, g.h);
     ctx.fillStyle = '#334155'; rr(g.x - 2, g.y - 8, g.w + 4, 16, 4); ctx.fill();
@@ -736,9 +1004,8 @@ drawGate = function (g) {
 };
 
 drawSweeper = function (s, cam) {
-  const T = G.lt, front = s.cx + s.w, y = cam.y - 100, h = cam.vh + 200, my = cam.y + cam.vh * 0.52;
+  const T = G.lt, front = s.cx + s.w, y = cam.y - 100, h = cam.vh + 200;
   const biome = (G.L && G.L.biome) || 'normal';
-  const roar = T < s.delay;
   ctx.save();
   const c0 = biome === 'toxic' ? 'rgba(8,28,21,.96)' : biome === 'water' ? 'rgba(5,20,38,.96)' : biome === 'ice' ? 'rgba(12,32,54,.96)' : 'rgba(15,5,25,.96)';
   const c1 = biome === 'toxic' ? 'rgba(45,106,79,.88)' : biome === 'water' ? 'rgba(15,65,110,.88)' : biome === 'ice' ? 'rgba(56,189,248,.82)' : 'rgba(80,15,40,.9)';
@@ -761,11 +1028,112 @@ drawSweeper = function (s, cam) {
     ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(front - 48, cy, 4, 0, 6.3); ctx.fill();
   }
   ctx.restore();
-  if (roar) {
-    ctx.fillStyle = '#ffe066'; ctx.font = '800 20px sans-serif'; ctx.textAlign = 'left';
-    ctx.fillText('⚠️ QUÁI VẬT SĂN ĐUỔI TRONG ' + Math.max(0, s.delay - T).toFixed(1) + 's!', Math.max(front + 50, cam.x + 24), my - 120);
-  }
 };
+
+// VẼ NGOẠI HÌNH CHI TIẾT CHO 5 SKIN SUPREME ANIME (SAITAMA, GOKU 4 CẤP, NARUTO CỬU VĨ, LUFFY GEAR 5, PIKACHU):
+function v17DrawAnimeOverlay(x, y, o) {
+  const skin = o.skin || 'classic';
+  const face = o.face >= 0 ? 1 : -1;
+  const T = G.lt;
+  const cx = x + PW / 2, cy = y + PH / 2;
+
+  if (skin === 'saitama') {
+    ctx.save();
+    ctx.translate(cx, y + PH);
+    ctx.scale(face, 1);
+    // Áo choàng trắng bay phấp phới phía sau
+    const wave = Math.sin(T * 10) * 5;
+    ctx.fillStyle = '#f8fafc'; ctx.strokeStyle = '#334155'; ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(-10, -28);
+    ctx.quadraticCurveTo(-28 - Math.abs(o.vx || 0) * 2, -16 + wave, -26 - Math.abs(o.vx || 0) * 2, -2 + wave);
+    ctx.lineTo(-8, -6);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    // Găng tay đỏ Saitama
+    ctx.fillStyle = '#ef4444'; ctx.beginPath(); ctx.arc(12, -14, 5, 0, 6.3); ctx.fill(); ctx.stroke();
+    // Hiệu ứng cú đấm Serious Punch sóng xung kích vàng!
+    if (G.me && o.slot === G.myslot && G.me.punchFxT > 0) {
+      const u = 1 - G.me.punchFxT / 0.35;
+      ctx.fillStyle = 'rgba(255,212,59,' + (1 - u).toFixed(2) + ')';
+      ctx.beginPath(); ctx.arc(28 + u * 90, -18, 22 + u * 38, 0, 6.3); ctx.fill();
+    }
+    ctx.restore();
+  } else if (skin === 'goku') {
+    const form = (G.me && o.slot === G.myslot) ? (G.me.gokuForm || 0) : 2;
+    const auraCol = form === 0 ? 'rgba(255,255,255,.2)' : form === 1 ? 'rgba(255,212,59,.55)' : form === 2 ? 'rgba(0,245,212,.55)' : 'rgba(226,232,240,.75)';
+    const hairCol = form === 0 ? '#0f172a' : form === 1 ? '#fde047' : form === 2 ? '#38bdf8' : '#f1f5f9';
+    ctx.save();
+    // Hào quang Ki rực cháy quanh người Goku
+    if (form > 0 || (G.me && G.me.kiCharge > 0.1)) {
+      const rAura = 28 + form * 5 + Math.sin(T * 25) * 4;
+      const ag = ctx.createRadialGradient(cx, cy, 4, cx, cy, rAura);
+      ag.addColorStop(0, auraCol); ag.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = ag; ctx.beginPath(); ctx.arc(cx, cy, rAura, 0, 6.3); ctx.fill();
+    }
+    // Mái tóc dựng đứng đặc trưng của Saiyan
+    ctx.translate(cx, y + PH);
+    ctx.scale(face, 1);
+    ctx.fillStyle = hairCol; ctx.strokeStyle = '#0f172a'; ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(-12, -32); ctx.lineTo(-22, -42); ctx.lineTo(-10, -39);
+    ctx.lineTo(-14, -52); ctx.lineTo(-2, -42);
+    ctx.lineTo(4, -54); ctx.lineTo(8, -41);
+    ctx.lineTo(18, -46); ctx.lineTo(12, -32);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.restore();
+  } else if (skin === 'naruto') {
+    const kurama = Math.abs(o.vx || 0) > 1.0 || !o.ground;
+    ctx.save();
+    if (kurama) {
+      // Áo choàng Chakra Cửu Vĩ Vàng Cam & Đuôi Chakra phía sau
+      const kg = ctx.createRadialGradient(cx, cy, 4, cx, cy, 34);
+      kg.addColorStop(0, 'rgba(255,146,43,.65)'); kg.addColorStop(1, 'rgba(255,146,43,0)');
+      ctx.fillStyle = kg; ctx.beginPath(); ctx.arc(cx, cy, 34, 0, 6.3); ctx.fill();
+      ctx.translate(cx, y + PH); ctx.scale(face, 1);
+      ctx.strokeStyle = 'rgba(255,165,0,.85)'; ctx.lineWidth = 4; ctx.lineCap = 'round';
+      for (let t = 0; t < 4; t++) {
+        const ang = 2.4 + t * 0.25 + Math.sin(T * 10 + t) * 0.2;
+        ctx.beginPath(); ctx.moveTo(-10, -14);
+        ctx.quadraticCurveTo(-26, -24 - t * 6, -12 + Math.cos(ang) * 28, -14 - Math.sin(ang) * 28);
+        ctx.stroke();
+      }
+    } else {
+      ctx.translate(cx, y + PH); ctx.scale(face, 1);
+    }
+    // Băng trán Ninja Làng Lá
+    ctx.fillStyle = '#1e293b'; ctx.fillRect(-13, -31, 26, 5);
+    ctx.fillStyle = '#cbd5e1'; ctx.fillRect(1, -30.5, 10, 4);
+    ctx.restore();
+  } else if (skin === 'luffy') {
+    ctx.save();
+    // Dải lụa mây trắng Thần Mặt Trời Nika bay vòng quanh vai & Tia chớp Haki Bá Vương
+    ctx.strokeStyle = 'rgba(255,255,255,.92)'; ctx.lineWidth = 5; ctx.lineCap = 'round';
+    ctx.beginPath();
+    ctx.arc(cx, cy - 6, 22, Math.PI * 0.85 + Math.sin(T * 4) * 0.2, Math.PI * 2.15 + Math.cos(T * 4) * 0.2);
+    ctx.stroke();
+    if (Math.floor(T * 14) % 3 === 0) {
+      ctx.strokeStyle = '#ff0055'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(cx - 18, cy - 22); ctx.lineTo(cx - 26, cy - 30); ctx.lineTo(cx - 20, cy - 36); ctx.stroke();
+    }
+    ctx.restore();
+  } else if (skin === 'pikachu') {
+    ctx.save();
+    ctx.translate(cx, y + PH);
+    ctx.scale(face, 1);
+    // Đuôi tia chớp vàng của Pikachu & Hai má đỏ phóng điện
+    ctx.fillStyle = '#facc15'; ctx.strokeStyle = '#854d0e'; ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(-12, -10); ctx.lineTo(-22, -18); ctx.lineTo(-17, -20); ctx.lineTo(-28, -32);
+    ctx.lineTo(-14, -24); ctx.lineTo(-18, -21); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#ef4444';
+    ctx.beginPath(); ctx.arc(11, -17, 3.6, 0, 6.3); ctx.fill();
+    if (G.me && o.slot === G.myslot && G.me.zapFx > 0) {
+      ctx.strokeStyle = '#fde047'; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(0, -18, 42, 0, 6.3); ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
 
 const _origDrawBunnyV10 = drawBunny;
 drawBunny = function (x, y, o) {
@@ -804,6 +1172,7 @@ drawBunny = function (x, y, o) {
     }
 
     _origDrawBunnyV10(x, y, Object.assign({}, o, { ground: !swimActive, runT: G.lt * 4.5 }));
+    v17DrawAnimeOverlay(x, y, o);
 
     ctx.save();
     ctx.translate(cx, y + PH);
@@ -829,6 +1198,7 @@ drawBunny = function (x, y, o) {
     ctx.scale(1, -1);
   }
   _origDrawBunnyV10(x, y, o);
+  v17DrawAnimeOverlay(x, y, o);
 
   if (isSpace) {
     ctx.save();
@@ -851,16 +1221,31 @@ drawBunny = function (x, y, o) {
 };
 
 // ============================================================================
-// 5. BỘ QUÉT & CẮT GỌT ĐỊA HÌNH TOÀN CỤC (GLOBAL LEVEL SANITIZER CHO 300 MÀN)
+// 6. BỘ QUÉT & CẮT GỌT ĐỊA HÌNH TOÀN CỤC (KHÔNG BAO GIỜ ĐẶT CỜ LÊN VÁN TRƯỢT!)
 // ============================================================================
 function v15SanitizeLevel(lv) {
   if (!lv) return lv;
   const H = lv.h || WORLD_H;
 
+  const movingSolidIndices = new Set();
+  for (const tr of (lv.traps || [])) {
+    if (tr.si !== undefined) {
+      movingSolidIndices.add(tr.si);
+      if (lv.solids[tr.si]) lv.solids[tr.si].isVehicle = true;
+    }
+  }
+  for (const ph of (lv.phantoms || [])) {
+    if (ph.si !== undefined) {
+      movingSolidIndices.add(ph.si);
+      if (lv.solids[ph.si]) lv.solids[ph.si].isVehicle = true;
+    }
+  }
+
   const deepWalls = [];
   for (let i = 0; i < (lv.solids || []).length; i++) {
+    if (movingSolidIndices.has(i)) continue;
     const s = lv.solids[i];
-    if (s.bonk) continue;
+    if (s.bonk || s.isVehicle) continue;
     if (s[1] + s[3] >= H - 38 && s[3] >= 90) {
       deepWalls.push([s[0] - 4, s[0] + s[2] + 4]);
     }
@@ -881,21 +1266,14 @@ function v15SanitizeLevel(lv) {
     }
   }
 
-  const movingSolidIndices = new Set();
-  for (const tr of (lv.traps || [])) {
-    if (tr.si !== undefined) movingSolidIndices.add(tr.si);
-  }
-  for (const ph of (lv.phantoms || [])) {
-    if (ph.si !== undefined) movingSolidIndices.add(ph.si);
-  }
-
+  // Đảm bảo Cờ Checkpoint CHỈ đứng trên đất liền cố định (s[3] >= 90 & không phải ván trượt!):
   for (const f of (lv.flags || [])) {
     let validGround = false;
     for (let i = 0; i < (lv.solids || []).length; i++) {
       if (movingSolidIndices.has(i)) continue;
       const s = lv.solids[i];
-      if (s.bonk) continue;
-      if (f.x >= s[0] + 18 && f.x <= s[0] + s[2] - 18 && Math.abs(f.y - s[1]) <= 14) {
+      if (s.bonk || s.isVehicle || s[3] < 90 || s[2] < 120) continue;
+      if (f.x >= s[0] + 24 && f.x <= s[0] + s[2] - 24 && Math.abs(f.y - s[1]) <= 14) {
         f.y = s[1]; validGround = true; break;
       }
     }
@@ -904,13 +1282,13 @@ function v15SanitizeLevel(lv) {
       for (let i = 0; i < (lv.solids || []).length; i++) {
         if (movingSolidIndices.has(i)) continue;
         const s = lv.solids[i];
-        if (s.bonk || s[2] < 80 || s[1] < 100 || s[1] > H - 40) continue;
-        const cx = clamp(f.x, s[0] + 28, s[0] + s[2] - 28);
+        if (s.bonk || s.isVehicle || s[3] < 90 || s[2] < 140 || s[1] < 100 || s[1] > H - 40) continue;
+        const cx = clamp(f.x, s[0] + 36, s[0] + s[2] - 36);
         const d = Math.hypot(cx - f.x, s[1] - f.y);
         if (d < bestDist) { bestDist = d; f.x = cx; f.y = s[1]; }
       }
     }
-    surfaceKeepOuts.push([f.x - 58, f.x + 58, f.y - 80, f.y + 20]);
+    surfaceKeepOuts.push([f.x - 62, f.x + 62, f.y - 80, f.y + 20]);
   }
 
   function subtractIntervals(a, b, cuts) {
@@ -958,40 +1336,63 @@ function v15SanitizeLevel(lv) {
   for (const f of (lv.flags || [])) safePoints.push([f.x, f.y - PH / 2]);
 
   if (lv.lasers) {
-    lv.lasers = lv.lasers.filter((ls) => safePoints.every(([sx, sy]) => Math.hypot(ls.x - sx, ls.y - sy) > ls.len + 55));
+    lv.lasers = lv.lasers.filter((ls) => safePoints.every(([sx, sy]) => Math.hypot(ls.x - sx, ls.y - sy) > ls.len + 60));
   }
   if (lv.pendulums) {
-    lv.pendulums = lv.pendulums.filter((pd) => safePoints.every(([sx, sy]) => Math.abs(pd.x - sx) > 110));
+    lv.pendulums = lv.pendulums.filter((pd) => safePoints.every(([sx, sy]) => Math.abs(pd.x - sx) > 115));
   }
   if (lv.blackHoles) {
-    lv.blackHoles = lv.blackHoles.filter((bh) => safePoints.every(([sx, sy]) => Math.hypot(bh.x - sx, bh.y - sy) > bh.pullR + 30));
+    lv.blackHoles = lv.blackHoles.filter((bh) => safePoints.every(([sx, sy]) => Math.hypot(bh.x - sx, bh.y - sy) > bh.pullR + 35));
   }
   return lv;
 }
 
 // ============================================================================
-// 6. HỆ THỐNG BẪY QUỶ DỊ ĐỘNG (GIẾT 1 LẦN LÀ HÓA GIẢI) & 24 BẪY ĐẠI HỌC
+// 7. HỆ THỐNG BẪY QUỶ DỊ TOÀN DIỆN (CHO MỌI LOẠI BẪY: LÒ XO, SÀN, CỬA, XU, CHECKPOINT)
 // ============================================================================
 G.cursedConsumed = new Set();
 G.chaosSeed = 1;
 
 function v16InitAnomalies(L) {
-  L.anomalies = L.anomalies || { doppels: [], hands: [], ghosts: [], spitters: [] };
+  L.anomalies = L.anomalies || { doppels: [], hands: [], ghosts: [], spitters: [], floorMaws: [] };
   const seed = (G.lvIdx + 1) * 97 + (G.deaths + 1) * 31;
 
-  // 1. ĐỒNG XU BIẾN HÓA NGẪU NHIÊN (Đã giết người chơi 1 lần -> Trở về đồng xu bình thường!):
+  // 1. ĐỒNG XU BIẾN HÓA ĐỘNG (Không bao giờ đặt ngay cạnh Laser):
   (L.coins || []).forEach((c, idx) => {
     const cid = 'coin_' + G.mode + '_' + G.lvIdx + '_' + idx;
-    if (G.cursedConsumed.has(cid) || curPassive === 'wraith') {
+    const nearLaser = (L.lasers || []).some((ls) => Math.abs(ls.x - c.x) < 220);
+    if (G.cursedConsumed.has(cid) || curPassive === 'wraith' || nearLaser) {
       c.anomaly = 0; c.trig = false; return;
     }
     const h = hash1(seed + idx * 17.3);
-    c.anomaly = h < 0.72 ? 0 : (1 + (Math.floor(h * 100) % 5));
+    c.anomaly = h < 0.78 ? 0 : (1 + (Math.floor(h * 100) % 5));
     c.cid = cid; c.trig = false; c.x0 = c.x0 || c.x; c.y0 = c.y0 || c.y;
     c.x = c.x0; c.y = c.y0;
   });
 
-  // 2. BÓNG MA KHÔNG NHÌN MẶT (WEEPING PHANTOM) & BÀN TAY HẮC ÁM:
+  // 2. LÒ XO QUỶ ÁM (POSSESSED DODGING SPRINGS - Tự động né sang ngang 1 lần khi bạn nhảy tới!):
+  (L.springs || []).forEach((sp, idx) => {
+    const sid = 'spr_' + G.mode + '_' + G.lvIdx + '_' + idx;
+    if (sp.x0 === undefined) sp.x0 = sp.x;
+    sp.x = sp.x0;
+    sp.sid = sid;
+    sp.cursed = !G.cursedConsumed.has(sid) && hash1(seed + idx * 29.1) > 0.55;
+    sp.dodged = false;
+  });
+
+  // 3. MẶT ĐẤT HÁ MIỆNG (ABYSSAL FLOOR MAW - Mở hàm răng dưới đất đớp người chạy qua 1 lần rồi đóng!):
+  L.anomalies.floorMaws = [];
+  for (let i = 0; i < (L.solids || []).length; i++) {
+    const s = L.solids[i];
+    if (s.bonk || s.isVehicle || s[2] < 420 || s[3] < 90) continue;
+    const mid = 'maw_' + G.mode + '_' + G.lvIdx + '_' + i;
+    if (G.cursedConsumed.has(mid)) continue;
+    if (hash1(seed + i * 41.7) > 0.65) {
+      L.anomalies.floorMaws.push({ id: mid, x: s[0] + s[2] * 0.55, y: s[1], open: 0, st: 0 });
+    }
+  }
+
+  // 4. BÓNG MA KHÔNG NHÌN MẶT & BÀN TAY HẮC ÁM:
   L.anomalies.doppels = [];
   L.anomalies.hands = [];
   const ghostId = 'ghost_' + G.mode + '_' + G.lvIdx;
@@ -1000,11 +1401,12 @@ function v16InitAnomalies(L) {
     L.anomalies.ghosts.push({ id: ghostId, x: 520, y: GY - 140, frozen: false });
   }
 
-  // 3. CÂY PHUN ĐỘC AXIT (Màn Đầm Lầy Độc):
+  // 5. CÂY PHUN ĐỘC AXIT (Chỉ đặt trên mặt đất thật, không đặt lơ lửng trên hố ván trượt!):
   L.anomalies.spitters = [];
   if (L.biome === 'toxic') {
-    for (let sx = 680; sx < L.w - 600; sx += 920) {
-      L.anomalies.spitters.push({ x: sx, y: GY - 28, t: (sx * 0.01) % 2.5, glob: null });
+    for (const s of (L.solids || [])) {
+      if (s.bonk || s.isVehicle || s[2] < 320 || s[3] < 90) continue;
+      L.anomalies.spitters.push({ x: s[0] + s[2] * 0.5, y: s[1] - 18, t: (s[0] * 0.01) % 2.5, glob: null });
     }
   }
 }
@@ -1022,7 +1424,7 @@ function v16SpawnDoppelganger(L, me, fx, fy, flagIdx) {
     fakeName = G.names[pick.slot] || 'Đồng đội';
     fakeSkin = G.skins[pick.slot] || 'classic';
   }
-  L.anomalies = L.anomalies || { doppels: [], hands: [], ghosts: [], spitters: [] };
+  L.anomalies = L.anomalies || { doppels: [], hands: [], ghosts: [], spitters: [], floorMaws: [] };
   L.anomalies.doppels.push({
     id: did, x: fx - 48, y: fy - PH, face: 1, slot: fakeSlot, name: fakeName, skin: fakeSkin,
     age: 0, evil: false, life: 5.2,
@@ -1034,17 +1436,44 @@ function v16UpdateAnomalies() {
   if (!L || !me || me.dead || G.won) return;
   const A = L.anomalies; if (!A) return;
   const cx = me.x + PW / 2, cy = me.y + PH / 2, feet = me.y + PH;
-  const immune = curPassive === 'antidote' || curPassive === 'wraith';
+  const immune = curPassive === 'antidote' || curPassive === 'wraith' || curPassive === 'kurama';
 
-  // Đồng xu biến hóa ngẫu nhiên:
+  // 1. Lò Xo Quỷ Ám tự nhích sang bên khi người chơi nhảy tới gần:
+  for (const sp of (L.springs || [])) {
+    if (sp.cursed && !sp.dodged && !me.onGround && Math.abs(cx - (sp.x + sp.w / 2)) < 68 && feet < sp.y + 10 && feet > sp.y - 110) {
+      sp.dodged = true;
+      G.cursedConsumed.add(sp.sid);
+      sp.x += (cx < sp.x + sp.w / 2 ? 42 : -42);
+      Snd.pop();
+    }
+  }
+
+  // 2. Mặt Đất Há Miệng (Abyssal Floor Maw):
+  for (const mw of (A.floorMaws || [])) {
+    const dist = Math.abs(cx - mw.x);
+    if (mw.st === 0 && dist < 72 && Math.abs(feet - mw.y) < 35) {
+      mw.st = 1; mw.t = 0.9; Snd.shake();
+    } else if (mw.st === 1) {
+      mw.t -= STEP;
+      mw.open = Math.sin(clamp(1 - mw.t / 0.9, 0, 1) * Math.PI);
+      if (mw.open > 0.55 && dist < 34 && Math.abs(feet - mw.y) < 18) {
+        G.cursedConsumed.add(mw.id);
+        die('floor_maw');
+        return;
+      }
+      if (mw.t <= 0) { mw.st = 2; mw.open = 0; G.cursedConsumed.add(mw.id); }
+    }
+  }
+
+  // 3. Đồng xu biến hóa ngẫu nhiên:
   for (const c of (L.coins || [])) {
     if (c.got || !c.anomaly) continue;
     const d = Math.hypot(cx - c.x, cy - c.y);
     if (c.anomaly === 1) {
       if (!c.trig && d < 88) { c.trig = true; Snd.grab(); }
       if (c.trig) {
-        c.x += ((cx - c.x) / Math.max(1, d)) * 4.9;
-        c.y += ((cy - c.y) / Math.max(1, d)) * 4.9;
+        c.x += ((cx - c.x) / Math.max(1, d)) * 4.7;
+        c.y += ((cy - c.y) / Math.max(1, d)) * 4.7;
         if (d < 22) { G.cursedConsumed.add(c.cid); die('mimic_coin'); return; }
       }
     } else if (c.anomaly === 2 && d < 75) {
@@ -1054,8 +1483,8 @@ function v16UpdateAnomalies() {
       c.got = true; c.pop = 0.5;
       G.cursedConsumed.add(c.cid);
       if (!immune) {
-        if (c.anomaly === 3) { me.vy = 12; me.heavyT = 2.5; Snd.slam(); }
-        else if (c.anomaly === 4) { me.rev = 2.8; Snd.shake(); }
+        if (c.anomaly === 3) { me.vy = 12; me.heavyT = 2.2; Snd.slam(); }
+        else if (c.anomaly === 4) { me.rev = 2.6; Snd.shake(); }
         else if (c.anomaly === 5) {
           L.stalactites.push({ x: cx - 17, y: me.y - 260, w: 34, h: 66, st: 2, t: 0, fy: 0, vy: 9, gnd: feet + 40, dyn: true });
         }
@@ -1064,7 +1493,7 @@ function v16UpdateAnomalies() {
   }
   if (me.heavyT > 0) { me.heavyT -= STEP; me.vy += GRAV * 0.85; }
 
-  // Kẻ Giả Dạng Đồng Đội ở Checkpoint:
+  // 4. Kẻ Giả Dạng Đồng Đội ở Checkpoint:
   for (let i = (A.doppels || []).length - 1; i >= 0; i--) {
     const dp = A.doppels[i];
     dp.age += STEP; dp.life -= STEP;
@@ -1076,8 +1505,8 @@ function v16UpdateAnomalies() {
       dp.y += (me.y - dp.y) * 0.18;
     } else {
       if (!dp.evil) { dp.evil = true; Snd.shake(); sparkle(dp.x + PW / 2, dp.y + PH / 2, 14, 1.4, '#ff0055'); }
-      dp.x += (dx / dist) * 5.3;
-      dp.y += (dy / dist) * 4.2;
+      dp.x += (dx / dist) * 5.2;
+      dp.y += (dy / dist) * 4.1;
       if (dist < 24) {
         G.cursedConsumed.add(dp.id);
         die('doppelganger');
@@ -1086,7 +1515,7 @@ function v16UpdateAnomalies() {
     }
   }
 
-  // Bóng Ma Không Nhìn Mặt:
+  // 5. Bóng Ma Không Nhìn Mặt:
   for (let i = (A.ghosts || []).length - 1; i >= 0; i--) {
     const gh = A.ghosts[i];
     const dx = cx - gh.x, dy = cy - gh.y, dist = Math.max(1, Math.hypot(dx, dy));
@@ -1103,11 +1532,11 @@ function v16UpdateAnomalies() {
     }
   }
 
-  // Bàn Tay Hắc Ám Dưới Đất:
+  // 6. Bàn Tay Hắc Ám Dưới Đất (Không kích hoạt khi đang đứng gồng Ki cho Goku!):
   const handKey = 'hand_' + G.mode + '_' + G.lvIdx + '_' + Math.floor(cx / 300);
-  if (me.onGround && Math.abs(me.vx) < 0.3 && !G.cursedConsumed.has(handKey) && cx > 300) {
+  if (me.onGround && Math.abs(me.vx) < 0.3 && curPassive !== 'saiyan' && !G.cursedConsumed.has(handKey) && cx > 300) {
     me.idleT = (me.idleT || 0) + STEP;
-    if (me.idleT > 0.95) {
+    if (me.idleT > 1.05) {
       me.idleT = 0;
       A.hands.push({ id: handKey, x: cx, y: feet, t: 0, dur: 0.75 });
       Snd.shake();
@@ -1125,12 +1554,12 @@ function v16UpdateAnomalies() {
     if (hd.t >= hd.dur) A.hands.splice(i, 1);
   }
 
-  // Cây Độc Phun Axit:
+  // 7. Cây Độc Phun Axit:
   for (const sp of (A.spitters || [])) {
     sp.t += STEP;
-    if (sp.t >= 2.4 && Math.abs(cx - sp.x) < 520) {
+    if (sp.t >= 2.5 && Math.abs(cx - sp.x) < 480) {
       sp.t = 0;
-      sp.glob = { x: sp.x, y: sp.y - 16, vx: clamp((cx - sp.x) * 0.018, -5.5, 5.5), vy: -8.2 };
+      sp.glob = { x: sp.x, y: sp.y - 16, vx: clamp((cx - sp.x) * 0.017, -5.2, 5.2), vy: -8.0 };
     }
     if (sp.glob) {
       const g = sp.glob;
@@ -1144,16 +1573,21 @@ function v16UpdateAnomalies() {
 function v16DrawAnomalies(L) {
   const A = L.anomalies; if (!A) return;
   const T = G.lt;
+  // Vẽ Mặt Đất Há Miệng (Floor Maw):
+  for (const mw of (A.floorMaws || [])) {
+    if (mw.open <= 0.02) continue;
+    const w = 44 * mw.open;
+    ctx.save();
+    ctx.fillStyle = '#090101'; ctx.strokeStyle = '#ff0055'; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.moveTo(mw.x - w, mw.y); ctx.lineTo(mw.x, mw.y + 48 * mw.open); ctx.lineTo(mw.x + w, mw.y); ctx.closePath();
+    ctx.fill(); ctx.stroke();
+    ctx.restore();
+  }
   for (const dp of (A.doppels || [])) {
     drawBunny(dp.x, dp.y, {
       slot: dp.slot, skin: dp.skin, face: dp.face, vx: 3, vy: 0, ground: true, runT: T * 5,
       name: dp.evil ? '👹 ' + dp.name : dp.name,
     });
-    if (dp.evil) {
-      ctx.save(); ctx.strokeStyle = '#ff0055'; ctx.lineWidth = 3;
-      ctx.beginPath(); ctx.arc(dp.x + PW / 2, dp.y + PH / 2, 26 + Math.sin(T * 20) * 4, 0, 6.3); ctx.stroke();
-      ctx.restore();
-    }
   }
   for (const gh of (A.ghosts || [])) {
     ctx.save();
@@ -1418,19 +1852,6 @@ function updateTraps(bodies) {
     }
   }
 
-  for (const m of (L.mimics || [])) {
-    const dist = Math.hypot(cx - m.x, cy - m.y);
-    if (!m.trig && alive && dist < 82) {
-      m.trig = true; Snd.grab();
-    }
-    if (m.trig && alive) {
-      const dx = cx - m.x, dy = cy - m.y, d = Math.max(1, Math.hypot(dx, dy));
-      m.x += (dx / d) * 4.8;
-      m.y += (dy / d) * 4.8;
-      if (d < 22) die('mimic_coin');
-    }
-  }
-
   for (const bh of (L.blackHoles || [])) {
     const dx = bh.x - cx, dy = bh.y - cy, d = Math.hypot(dx, dy);
     if (alive && d < bh.pullR && d > 8) {
@@ -1591,7 +2012,6 @@ function updateTraps(bodies) {
           t.st = 2; t.shatterT = 2.0; t.dx = 0;
           Snd.crumble(); G.shake = 10;
           debris(t.x, t.y, t.w, 26, 22, '#9ad7f5');
-          toast('🧊 Đi lẻ bỏ rơi đồng đội — Tảng băng nổ tung!');
           if (meOnSled) die('sled_betray');
         } else if (t.x >= t.x1) t.dx = 0;
       } else if (t.st === 2) {
@@ -1626,10 +2046,11 @@ function updateTraps(bodies) {
     } else if (t.k === 'skygate') {
       const g = L.gates[t.gi];
       if (!g || t.open) { if (g) g.act = true; continue; }
+      const byEff = presentCount() <= 1 ? t.by + 65 : t.by; // Nếu test 1 mình trong phòng Co-op/Party vẫn nhảy tới được!
       for (const b of bodies) {
-        if (!b.dead && rectsOverlap(b.x, b.y, PW, PH, t.bx, t.by, 54, 26)) {
+        if (!b.dead && rectsOverlap(b.x, b.y, PW, PH, t.bx, byEff, 54, 26)) {
           t.open = true; g.act = true;
-          Snd.gate(true); sparkle(t.bx + 27, t.by + 13, 22, 1.6, '#ffd43b');
+          Snd.gate(true); sparkle(t.bx + 27, byEff + 13, 22, 1.6, '#ffd43b');
           if (isNet()) trapSend(i, 'sync', 1);
           break;
         }
@@ -1740,13 +2161,20 @@ function hazardCheck(P) {
 
   for (const s of L.spikes) {
     if (s.hid) continue;
-    if (G.mode === 'coop' && (s.pit || s.y >= WORLD_H - 42) && !P.onGround) {
+    const isPit = s.pit || s.y >= WORLD_H - 42;
+    if (G.mode === 'coop' && isPit && !P.onGround) {
       const st = v15GetSquadLinks(P);
       if (st && st.bestAnchor && st.bestAnchor.y < P.y - 18) {
         P.y = Math.min(P.y, s.y - PH - 14);
         if (P.vy > 0) P.vy = -7.5;
         continue;
       }
+    }
+    // Độc Vương miễn nhiễm Hồ Axit dưới vực trong màn Đầm Lầy Độc!
+    if (isPit && L.biome === 'toxic' && curPassive === 'antidote') {
+      P.y = Math.min(P.y, s.y - PH - 4);
+      P.vy = -10.5;
+      continue;
     }
     let sy = s.dir === 'up' ? s.y + 7 : s.y, sh = s.h - 7;
     if (s.bt !== undefined) {
@@ -1764,7 +2192,7 @@ function hazardCheck(P) {
       const x1 = ls.x + Math.cos(a) * ls.len, y1 = ls.y + Math.sin(a) * ls.len;
       const dx = x1 - ls.x, dy = y1 - ls.y, len2 = dx * dx + dy * dy;
       const u = clamp(((cx - ls.x) * dx + (cy - ls.y) * dy) / Math.max(1, len2), 0, 1);
-      if (Math.hypot(cx - (ls.x + u * dx), cy - (ls.y + u * dy)) < 14) return 'laser';
+      if (Math.hypot(cx - (ls.x + u * dx), cy - (ls.y + u * dy)) < 13) return 'laser';
     }
   }
 
@@ -1799,20 +2227,22 @@ function hazardCheck(P) {
   return null;
 }
 
+// VẼ TOÀN BỘ BẪY MỚI MÀ KHÔNG CÓ BẤT KỲ DÒNG CHỮ NỔI RƯỜM RÀ NÀO:
 function drawTraps(L) {
   const T = G.lt;
+  // 1. Vùng Phản Trọng Lực (Chỉ vẽ luồng hạt ánh sáng bay ngược lên trần, bỏ chữ "▲ PHẢN TRỌNG LỰC ▲"):
   for (const gz of (L.gravZones || [])) {
     ctx.save();
     const gr = ctx.createLinearGradient(0, gz.y0, 0, gz.y1);
-    gr.addColorStop(0, 'rgba(190,90,255,.30)');
-    gr.addColorStop(0.5, 'rgba(90,210,255,.12)');
-    gr.addColorStop(1, 'rgba(190,90,255,.30)');
+    gr.addColorStop(0, 'rgba(190,90,255,.28)');
+    gr.addColorStop(0.5, 'rgba(90,210,255,.10)');
+    gr.addColorStop(1, 'rgba(190,90,255,.28)');
     ctx.fillStyle = gr;
     ctx.fillRect(gz.x0, gz.y0, gz.x1 - gz.x0, gz.y1 - gz.y0);
-    ctx.fillStyle = 'rgba(235,200,255,.85)'; ctx.font = '800 13px sans-serif'; ctx.textAlign = 'center';
-    for (let x = gz.x0 + 70; x < gz.x1 - 40; x += 150) {
-      const yOff = ((T * 95 + x) % Math.max(60, gz.y1 - gz.y0));
-      ctx.fillText('▲ PHẢN TRỌNG LỰC ▲', x, gz.y1 - yOff);
+    ctx.fillStyle = 'rgba(220,190,255,.65)';
+    for (let x = gz.x0 + 40; x < gz.x1 - 20; x += 65) {
+      const yOff = ((T * 110 + x * 3) % Math.max(60, gz.y1 - gz.y0));
+      ctx.beginPath(); ctx.arc(x, gz.y1 - yOff, 3, 0, 6.3); ctx.fill();
     }
     ctx.restore();
   }
@@ -1868,15 +2298,15 @@ function drawTraps(L) {
     for (let b = 0; b < (ls.blades || 2); b++) {
       const a = ang + (b * Math.PI * 2) / (ls.blades || 2);
       const x1 = ls.x + Math.cos(a) * ls.len, y1 = ls.y + Math.sin(a) * ls.len;
-      ctx.strokeStyle = 'rgba(244,63,94,.35)'; ctx.lineWidth = 11; ctx.lineCap = 'round';
+      ctx.strokeStyle = 'rgba(244,63,94,.35)'; ctx.lineWidth = 10; ctx.lineCap = 'round';
       ctx.beginPath(); ctx.moveTo(ls.x, ls.y); ctx.lineTo(x1, y1); ctx.stroke();
-      ctx.strokeStyle = '#ff1744'; ctx.lineWidth = 4.5;
+      ctx.strokeStyle = '#ff1744'; ctx.lineWidth = 4;
       ctx.beginPath(); ctx.moveTo(ls.x, ls.y); ctx.lineTo(x1, y1); ctx.stroke();
-      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.6;
+      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.5;
       ctx.beginPath(); ctx.moveTo(ls.x, ls.y); ctx.lineTo(x1, y1); ctx.stroke();
     }
     ctx.fillStyle = '#1e293b'; ctx.strokeStyle = '#f43f5e'; ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.arc(ls.x, ls.y, 14, 0, 6.3); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.arc(ls.x, ls.y, 13, 0, 6.3); ctx.fill(); ctx.stroke();
     ctx.restore();
   }
 
@@ -1910,26 +2340,6 @@ function drawTraps(L) {
     ctx.fillRect(0, -6, 26, 12); ctx.strokeRect(0, -6, 26, 12);
     ctx.beginPath(); ctx.arc(0, 0, 15, 0, 6.3); ctx.fill(); ctx.stroke();
     ctx.fillStyle = '#ff1744'; ctx.beginPath(); ctx.arc(4, 0, 5, 0, 6.3); ctx.fill();
-    ctx.restore();
-  }
-
-  for (const m of (L.mimics || [])) {
-    ctx.save();
-    ctx.translate(m.x, m.y);
-    ctx.fillStyle = m.trig ? '#ef4444' : '#ffca28';
-    ctx.strokeStyle = m.trig ? '#7f1d1d' : '#b8860b';
-    ctx.lineWidth = 2.5;
-    ctx.beginPath(); ctx.arc(0, 0, 13, 0, 6.3); ctx.fill(); ctx.stroke();
-    if (m.trig) {
-      ctx.fillStyle = '#fff';
-      for (let k = -2; k <= 2; k++) {
-        ctx.beginPath(); ctx.moveTo(k * 4 - 2, -2); ctx.lineTo(k * 4, 5); ctx.lineTo(k * 4 + 2, -2); ctx.fill();
-      }
-      ctx.fillStyle = '#ffeb3b';
-      ctx.beginPath(); ctx.arc(-4, -5, 2.5, 0, 6.3); ctx.arc(4, -5, 2.5, 0, 6.3); ctx.fill();
-    } else {
-      ctx.fillStyle = '#fff3b0'; ctx.fillRect(-2, -6, 4, 12);
-    }
     ctx.restore();
   }
 
@@ -2000,13 +2410,6 @@ function drawTraps(L) {
       ctx.beginPath(); ctx.moveTo(16 + k * 6.5, 2); ctx.lineTo(19 + k * 6.5, 10); ctx.lineTo(22 + k * 6.5, 2); ctx.fill();
     }
 
-    ctx.strokeStyle = '#051321'; ctx.lineWidth = 2.2;
-    for (let g = 0; g < 3; g++) {
-      ctx.beginPath(); ctx.moveTo(2 - g * 6, -8); ctx.quadraticCurveTo(4 - g * 6, 0, 1 - g * 6, 8); ctx.stroke();
-    }
-    ctx.fillStyle = '#102a43';
-    ctx.beginPath(); ctx.moveTo(4, 10); ctx.lineTo(-16, 32); ctx.lineTo(18, 14); ctx.closePath(); ctx.fill(); ctx.stroke();
-
     ctx.fillStyle = '#ff1744';
     ctx.beginPath(); ctx.ellipse(38, -8, 5.2, 3.8, -0.2, 0, 6.3); ctx.fill();
     ctx.fillStyle = '#ffffff';
@@ -2023,21 +2426,20 @@ function drawTraps(L) {
       ctx.save(); ctx.fillStyle = 'rgba(255,60,60,' + (0.15 + 0.1 * Math.sin(G.lt * 8)) + ')';
       ctx.fillRect(t.x0, t.ceilY, t.x1 - t.x0, t.gy - t.ceilY); ctx.restore();
       for (let j = 0; j < t.saws.length; j++) { const p = sawPos(t, j, tt); drawSaw(p.x, p.y, t.saws[j].r, G.lt); }
-      ctx.save(); ctx.font = '800 15px sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#fff'; ctx.strokeStyle = 'rgba(0,0,0,.8)'; ctx.lineWidth = 3;
-      const left = Math.max(0, Math.ceil(t.dur - tt));
-      ctx.strokeText('⏱ ' + left + 's', (t.x0 + t.x1) / 2, t.ceilY + 28); ctx.fillText('⏱ ' + left + 's', (t.x0 + t.x1) / 2, t.ceilY + 28);
-      ctx.restore();
     } else if (t.k === 'sled' && t.st !== 2) {
+      // Vẽ Thuyền / Phà / Ván Trượt theo đúng Chủ đề Màn chơi, KHÔNG VẼ CHỮ "VÁN TRƯỢT BĂNG"!
       ctx.save();
-      const gr = ctx.createLinearGradient(t.x, t.y, t.x, t.y + 32);
-      gr.addColorStop(0, '#f0fbff'); gr.addColorStop(0.4, '#7fd8ff'); gr.addColorStop(1, '#1b6ca8');
-      ctx.fillStyle = gr; ctx.strokeStyle = '#0a3d62'; ctx.lineWidth = 3;
+      const biome = L.biome || 'normal';
+      const gr = ctx.createLinearGradient(t.x, t.y, t.x, t.y + 30);
+      if (biome === 'toxic') { gr.addColorStop(0, '#52b788'); gr.addColorStop(1, '#1b4332'); }
+      else if (biome === 'hell') { gr.addColorStop(0, '#991b1b'); gr.addColorStop(1, '#450a0a'); }
+      else if (biome === 'heaven') { gr.addColorStop(0, '#fef08a'); gr.addColorStop(1, '#ca8a04'); }
+      else { gr.addColorStop(0, '#f0fbff'); gr.addColorStop(0.4, '#7fd8ff'); gr.addColorStop(1, '#1b6ca8'); }
+      ctx.fillStyle = gr; ctx.strokeStyle = '#0f172a'; ctx.lineWidth = 3;
       ctx.beginPath();
       ctx.moveTo(t.x - 10, t.y); ctx.lineTo(t.x + t.w + 10, t.y);
-      ctx.lineTo(t.x + t.w - 12, t.y + 30); ctx.lineTo(t.x + 12, t.y + 30);
+      ctx.lineTo(t.x + t.w - 12, t.y + 28); ctx.lineTo(t.x + 12, t.y + 28);
       ctx.closePath(); ctx.fill(); ctx.stroke();
-      ctx.fillStyle = '#fff'; ctx.font = '800 12px sans-serif'; ctx.textAlign = 'center';
-      ctx.fillText(G.mode !== 'solo' ? '🧊 TẢNG BĂNG DUY NHẤT (Đợi đủ đội!)' : '🧊 VÁN TRƯỢT BĂNG', t.x + t.w / 2, t.y - 10);
       ctx.restore();
     } else if (t.k === 'redeye') {
       const cx = G.cam.x + (G.cam.vw || 800) / 2, cy = G.cam.y + 92;
@@ -2054,32 +2456,18 @@ function drawTraps(L) {
         }
         ctx.restore();
       }
-    } else if (t.k === 'syncgate' && !t.open) {
-      const g = L.gates[t.gi];
-      if (g) {
-        ctx.save(); ctx.font = '800 13px sans-serif'; ctx.textAlign = 'center';
-        ctx.fillStyle = '#ffe066'; ctx.strokeStyle = '#000'; ctx.lineWidth = 3;
-        ctx.strokeText('⚡ CẢ ĐỘI NHẢY CÙNG LÚC!', g.x, g.y - 14);
-        ctx.fillText('⚡ CẢ ĐỘI NHẢY CÙNG LÚC!', g.x, g.y - 14);
-        ctx.restore();
-      }
     } else if (t.k === 'skygate') {
+      const byEff = presentCount() <= 1 ? t.by + 65 : t.by;
       ctx.save();
       ctx.fillStyle = t.open ? '#69db7c' : '#ff4d6d';
       ctx.strokeStyle = '#2b1442'; ctx.lineWidth = 3;
-      rr(t.bx, t.by, 54, 24, 6); ctx.fill(); ctx.stroke();
-      if (!t.open) {
-        ctx.font = '800 12px sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#ffe066';
-        ctx.fillText('🗼 XẾP THÁP ĐỤNG NÚT!', t.bx + 27, t.by - 8);
-      }
+      rr(t.bx, byEff, 54, 24, 6); ctx.fill(); ctx.stroke();
       ctx.restore();
     } else if (t.k === 'swap_pad' && !t.used) {
       ctx.save();
       ctx.translate(t.x, t.y);
       ctx.strokeStyle = '#ff2bd6'; ctx.lineWidth = 3;
       ctx.beginPath(); ctx.arc(0, 0, 18 + Math.sin(T * 8) * 3, 0, 6.3); ctx.stroke();
-      ctx.fillStyle = '#00f5d4'; ctx.font = '800 12px sans-serif'; ctx.textAlign = 'center';
-      ctx.fillText('🔀 SWAP', 0, -24);
       ctx.restore();
     }
   }
@@ -2088,7 +2476,7 @@ function drawTraps(L) {
 }
 
 // ============================================================================
-// 7. STEPPLAYER, UPDATEWORLD, DIE, RESPAWN, ONNETEV & MOBILE CONTROLS
+// 8. STEPPLAYER, UPDATEWORLD, DIE (CÓ LUFFY NIKA & GOKU ULTRA INSTINCT), RESPAWN & ONNETEV
 // ============================================================================
 function stepPlayer() {
   const P = G.me, L = G.L;
@@ -2098,11 +2486,14 @@ function stepPlayer() {
   if (P.inv > 0) P.inv -= STEP;
   P.tetherGrace = 0;
 
+  v17UpdateAnimePassives(P, L);
+
   if (curPassive === 'antidote') P.rev = 0;
   if (curPassive === 'dragonflight') { P.dj = true; P.djT = 999; }
   if (curPassive === 'dragonflight' && P.onGround) P.extraHops = 2;
 
-  if (P.dj && !Role.admin && curPassive !== 'dragonflight') {
+  const permaDJ = curPassive === 'dragonflight' || curPassive === 'kurama' || curPassive === 'nika' || curPassive === 'pikachu' || (curPassive === 'saiyan' && P.gokuForm >= 2);
+  if (P.dj && !Role.admin && !permaDJ) {
     const before = Math.ceil(P.djT); P.djT -= STEP;
     if (P.djT <= 0) { P.dj = false; P.djT = 0; refreshBuffUI(); }
     else if (Math.ceil(P.djT) !== before) refreshBuffUI();
@@ -2132,7 +2523,7 @@ function stepPlayer() {
   const jumpPressedNow = input.j && !P.jPrev && !G.won;
   if (jumpPressedNow) {
     P.jbuf = 7;
-    if (curPassive === 'dragonflight' && !P.onGround && P.usedDJ && P.extraHops > 0) {
+    if ((curPassive === 'dragonflight' || (curPassive === 'saiyan' && P.gokuForm >= 3)) && !P.onGround && P.usedDJ && P.extraHops > 0) {
       P.usedDJ = false; P.extraHops--;
     }
   }
@@ -2141,7 +2532,17 @@ function stepPlayer() {
   P.bPrev = input.b;
   if (P.rope) { stepRope(P, ax); if (P.jbuf > 0) P.jbuf--; P.anch = false; const h = hazardCheck(P); if (h) die(h); return; }
 
-  const speedBonus = (curPassive === 'dragonflight' ? 1.2 : curPassive === 'antidote' ? 1.15 : 1);
+  let speedBonus = 1.0;
+  if (curPassive === 'pikachu') speedBonus = 1.3;
+  else if (curPassive === 'kurama') speedBonus = 1.25;
+  else if (curPassive === 'dragonflight' || curPassive === 'onepunch') speedBonus = 1.2;
+  else if (curPassive === 'antidote') speedBonus = 1.15;
+  else if (curPassive === 'saiyan') speedBonus = 1.08 + (P.gokuForm || 0) * 0.08;
+
+  let jumpBonus = 1.0;
+  if (curPassive === 'nika') jumpBonus = 1.28;
+  else if (curPassive === 'saiyan') jumpBonus = 1.0 + (P.gokuForm || 0) * 0.06;
+
   if (P.wlock > 0) { P.wlock--; } else if (ax !== 0) {
     const acc = P.onGround ? (P.onIce ? 0.14 : slopeAcc(P)) : (isWater ? 0.48 : isSpace ? 0.55 : 0.65);
     const tgt = ax * runMax(P) * speedBonus * (isWater ? 0.92 : 1);
@@ -2175,25 +2576,25 @@ function stepPlayer() {
   }
 
   if (isWater && (jumpPressedNow || (input.j && P.vy > 1.2))) {
-    P.vy = -7.4 * jumpMul(P); P.onGround = false; P.jbuf = 0; P.sq = -0.2;
+    P.vy = -7.4 * jumpMul(P) * jumpBonus; P.onGround = false; P.jbuf = 0; P.sq = -0.2;
     if (jumpPressedNow) Snd.jump(P.slot);
     puff(P.x + PW / 2, P.y + PH, 3, '#c8f7ff', 0.7);
   } else if (isSpace && (jumpPressedNow || (input.j && P.vy * gDir > -3.2))) {
-    P.vy = -7.8 * gDir * jumpMul(P);
+    P.vy = -7.8 * gDir * jumpMul(P) * jumpBonus;
     P.onGround = false;
     if (jumpPressedNow) { Snd.djump(); P.jbuf = 0; }
     if (Math.random() < 0.6) sparkle(P.x + PW / 2, P.y + (gDir > 0 ? PH : 0), 2, 0.5, '#ff922b');
   } else if (P.jbuf > 0) {
     if (P.coyote > 0) {
       const isFromHead = !!P.ride;
-      P.vy = -gDir * (isFromHead ? JUMP * 1.18 : JUMP) * jumpMul(P);
+      P.vy = -gDir * (isFromHead ? JUMP * 1.18 : JUMP) * jumpMul(P) * jumpBonus;
       P.coyote = 0; P.jbuf = 0; P.jumping = true; P.onGround = false; P.sq = -0.25;
       Snd.jump(P.slot); puff(P.x + PW / 2, P.y + (gDir > 0 ? PH : 0), isFromHead ? 6 : 4, isFromHead ? '#ffe066' : '#fff');
     } else if (L.wj && P.wallT > 0 && !P.onGround) {
-      P.vy = -gDir * JUMP * 0.96 * jumpMul(P); P.vx = -P.wallDir * 6.4; P.wallT = 0; P.wlock = 9; P.face = -P.wallDir; P.jbuf = 0; P.jumping = true; P.usedDJ = false;
+      P.vy = -gDir * JUMP * 0.96 * jumpMul(P) * jumpBonus; P.vx = -P.wallDir * 6.4; P.wallT = 0; P.wlock = 9; P.face = -P.wallDir; P.jbuf = 0; P.jumping = true; P.usedDJ = false;
       Snd.jump(P.slot);
     } else if (P.dj && !P.usedDJ && !P.onGround) {
-      P.vy = -gDir * JUMP * 0.92 * jumpMul(P); P.usedDJ = true; P.jbuf = 0; P.jumping = true; Snd.djump(); sparkle(P.x + PW / 2, P.y + PH, 8, 1, '#9ef');
+      P.vy = -gDir * JUMP * 0.92 * jumpMul(P) * jumpBonus; P.usedDJ = true; P.jbuf = 0; P.jumping = true; Snd.djump(); sparkle(P.x + PW / 2, P.y + PH, 8, 1, '#9ef');
     } else P.jbuf--;
   }
   if (!isSpace && !input.j && P.jumping && gDir > 0 && P.vy < -4.2) { P.vy = -4.2; P.jumping = false; }
@@ -2423,11 +2824,23 @@ function die(cause) {
     if (cause === 'fall' || cause === 'wall') { P.x = P.cp.x; P.y = P.cp.y; P.vx = P.vy = 0; G.cam.snap = true; }
     return;
   }
-  if (curPassive === 'wraith' && cause !== 'fall' && (!P.wraithCd || G.lt >= P.wraithCd)) {
-    P.wraithCd = G.lt + 12;
-    P.inv = 1.6; P.vy = -7.5;
-    Snd.djump(); sparkle(P.x + PW / 2, P.y + PH / 2, 20, 1.6, '#ff0055');
-    toast('💀 Hồn Ma Hư Không: Đã đi xuyên qua sát thương chí mạng!');
+  // 1. LUFFY GEAR 5 (NIKA): Biến gai nhọn, cưa máy, đá lăn thành đệm cao su bật nảy lên trời (mỗi 5s)!
+  if (curPassive === 'nika' && cause !== 'fall' && cause !== 'wall' && !(P.nikaCd > 0)) {
+    P.nikaCd = 5.0;
+    P.inv = 1.5;
+    P.vy = -14.2;
+    P.sq = -0.4;
+    Snd.spring();
+    sparkle(P.x + PW / 2, P.y + PH, 24, 1.8, '#ffffff');
+    toast('☀️ GEAR 5 NIKA: Cơ thể cao su bật nảy khỏi bẫy!');
+    return;
+  }
+  // 2. SON GOKU BẢN NĂNG VÔ CỰC (Cấp 3) hoặc TỬ THẦN HƯ KHÔNG: Tự động lướt né sát thương chí mạng!
+  if ((curPassive === 'wraith' || (curPassive === 'saiyan' && P.gokuForm >= 3)) && cause !== 'fall' && (!P.wraithCd || G.lt >= P.wraithCd)) {
+    P.wraithCd = G.lt + (curPassive === 'saiyan' ? 8 : 10);
+    P.inv = 1.6; P.vy = -8.5;
+    Snd.djump(); sparkle(P.x + PW / 2, P.y + PH / 2, 22, 1.8, '#e2e8f0');
+    toast(curPassive === 'saiyan' ? '🌌 BẢN NĂNG VÔ CỰC: Tự động lướt né đòn chí mạng!' : '💀 Hồn Ma Hư Không: Đi xuyên sát thương!');
     return;
   }
   if (P.shield) {
@@ -2438,7 +2851,8 @@ function die(cause) {
     refreshBuffUI(); return;
   }
   P.dead = true; P.deadT = 0.52; P.rope = null; P.lastCause = cause;
-  if (P.dj && curPassive !== 'dragonflight') { P.dj = false; P.djT = 0; }
+  const permaDJ = curPassive === 'dragonflight' || curPassive === 'kurama' || curPassive === 'nika' || curPassive === 'pikachu' || (curPassive === 'saiyan' && P.gokuForm >= 2);
+  if (P.dj && !permaDJ) { P.dj = false; P.djT = 0; }
   if (P.timed) { for (const id in P.timed) P.timed[id] = 0; }
   refreshBuffUI();
   G.deaths++; setText('deaths', '💥 ' + G.deaths);
@@ -2591,11 +3005,48 @@ function resize() {
 }
 
 // ============================================================================
-// 8. KHO TÀNG 24 MÔ-ĐUN BẪY TỔ HỢP (> 1.120 BIẾN THỂ) + QUỶ DỊ CHO 300 MÀN CHƠI
+// 9. KHO TÀNG BẦU TRỜI THIÊN ĐƯỜNG / ĐỊA NGỤC / ĐỘC DƯỢC & 300 MÀN CHƠI HOÀN CHỈNH
 // ============================================================================
+const _origDrawLegendSky2 = drawLegendSky2;
+drawLegendSky2 = function (theme, cam, T) {
+  const L = G.L;
+  if (theme === 'heaven') {
+    // BẦU TRỜI THIÊN ĐƯỜNG TRÊN MÂY: Hào quang mặt trời vàng rực, Cổng Thiên Giới & Đảo Mây Bay
+    const sx = cw * 0.5 - cam.x * 0.008, sy = ch * 0.22, r = Math.min(cw, ch) * 0.16;
+    const g = ctx.createRadialGradient(sx, sy, r * 0.2, sx, sy, r * 3.8);
+    g.addColorStop(0, 'rgba(255,253,220,.95)');
+    g.addColorStop(0.4, 'rgba(253,224,71,.45)');
+    g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, cw, ch);
+    ctx.strokeStyle = 'rgba(250,204,21,.55)'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(sx, sy, r * 1.35 + Math.sin(T * 2) * 5, 0, 6.3); ctx.stroke();
+    drawSkyCloudLayer(L, cam, 0.05, ch * 0.12, 1.5, 'rgba(255,255,255,.92)', 6);
+    drawSkyCloudLayer(L, cam, 0.14, ch * 0.28, 1.2, 'rgba(254,249,195,.88)', 5);
+    return;
+  }
+  if (theme === 'hell') {
+    // BẦU TRỜI ĐỊA NGỤC HỎA NGỤC: Mặt Trăng Máu, Cột Đá Hắc Diện & Lửa Nham Thạch
+    const mx = cw * 0.72 - cam.x * 0.01, my = ch * 0.24, r = Math.min(cw, ch) * 0.14;
+    const g = ctx.createRadialGradient(mx, my, r * 0.2, mx, my, r * 3.2);
+    g.addColorStop(0, '#ef4444'); g.addColorStop(0.5, 'rgba(153,27,27,.45)'); g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, cw, ch);
+    ctx.fillStyle = '#dc2626'; ctx.beginPath(); ctx.arc(mx, my, r, 0, 6.3); ctx.fill();
+    drawSkyCloudLayer(L, cam, 0.06, ch * 0.1, 1.5, 'rgba(40,5,5,.75)', 5);
+    return;
+  }
+  if (theme === 'toxic') {
+    // BẦU TRỜI ĐẦM LẦY ĐỘC DƯỢC: Sương Mù Axit & Bào Tử Phát Quang
+    drawStars(cam, T, 0.45);
+    drawSkyCloudLayer(L, cam, 0.06, ch * 0.1, 1.5, 'rgba(45,106,79,.55)', 5);
+    drawSkyCloudLayer(L, cam, 0.14, ch * 0.26, 1.2, 'rgba(114,9,183,.35)', 4);
+    return;
+  }
+  return _origDrawLegendSky2(theme, cam, T);
+};
+
 (() => {
   SKY_THEMES.length = 0;
-  SKY_THEMES.push('meadow', 'sunset', 'aurora', 'galaxy', 'ember', 'frost', 'cosmic', 'sakura', 'ocean', 'storm', 'neon', 'toxic');
+  SKY_THEMES.push('meadow', 'sunset', 'aurora', 'galaxy', 'ember', 'frost', 'cosmic', 'sakura', 'ocean', 'storm', 'neon', 'toxic', 'heaven', 'hell');
 
   LB.prototype.gap = function (len) {
     this.spikes.push({ x: this.x, y: WORLD_H - 26, w: len, h: 26, dir: 'up', pit: true });
@@ -2628,8 +3079,8 @@ function resize() {
   seg.delayedAmbush = function (b, len) {
     len = Math.max(620, len || 680);
     const x0 = b.ground(len), gy = b.gy, idx = b.traps.length;
-    for (let gx = x0 + 150; gx + 68 <= x0 + len - 120; gx += 116) {
-      b.spikes.push({ x: gx, y: gy - 24, w: 68, h: 24, dir: 'up', hid: true, bt: idx, ph: 0, live: false });
+    for (let gx = x0 + 160; gx + 64 <= x0 + len - 140; gx += 130) {
+      b.spikes.push({ x: gx, y: gy - 24, w: 64, h: 24, dir: 'up', hid: true, bt: idx, ph: 0, live: false });
     }
     b.stalactites.push({ x: x0 + len - 220, y: gy - 310, w: 34, h: 66, st: 0, t: 0, fy: 0, vy: 0, sniper: true });
     b.traps.push({ k: 'ambush', zx0: x0 + 120, zx1: x0 + len - 90, gy, st: 0, t: 0 });
@@ -2644,6 +3095,7 @@ function resize() {
     b.spikes.push({ x: gx + 6, y: WORLD_H - 26, w: gapW + pw + rightGap - 12, h: 26, dir: 'up', pit: true });
     const platIdx = b.solids.length, tIdx = b.traps.length;
     const platSolid = [gx + gapW, gy, pw, 44];
+    platSolid.isVehicle = true;
     b.solids.push(platSolid);
     const topSpk = { x: gx + gapW + 115, y: gy - 24, w: 72, h: 24, dir: 'up', hid: true, bt: tIdx, ph: 0, live: false };
     b.spikes.push(topSpk);
@@ -2690,37 +3142,35 @@ function resize() {
     return x0;
   };
 
+  // ĐÃ BỎ GAI GIỮA KHÔNG TRUNG TRÊN ĐƯỜNG VÁN TRƯỢT & ĐẶT CỜ CHECKPOINT Ở BỜ ĐẤT LIỀN CUỐI ĐƯỜNG TRƯỢT:
   seg.glacierSled = function (b, len, mode) {
     baseDrop(b);
-    len = len || 1600;
+    len = len || 1450;
     const x0 = b.ground(280), gy = b.gy;
-    b.solids[b.solids.length - 1].ice = true;
-    b.flag(x0 + 50);
     const cs = b.x, ce = cs + len;
     b.spikes.push({ x: cs, y: WORLD_H - 26, w: len, h: 26, dir: 'up', pit: true });
-    for (let sx = cs + 380; sx < ce - 280; sx += 390) {
-      b.spikes.push({ x: sx, y: gy - 26, w: 48, h: 26, dir: 'down' });
-      b.stalactites.push({ x: sx + 140, y: gy - 310, w: 34, h: 66, st: 0, t: 0, fy: 0, vy: 0, sniper: true });
+    for (let sx = cs + 420; sx < ce - 320; sx += 440) {
+      b.stalactites.push({ x: sx, y: gy - 310, w: 34, h: 66, st: 0, t: 0, fy: 0, vy: 0, sniper: true });
     }
-    const sledW = mode === 'solo' ? 120 : 180;
+    const sledW = mode === 'solo' ? 130 : 185;
     const si = b.solids.length;
     const sledSolid = [cs + 12, gy - 4, sledW, 24];
-    sledSolid.ice = true;
+    sledSolid.isVehicle = true;
     b.solids.push(sledSolid);
     b.traps.push({ k: 'sled', si, x0: cs + 12, x1: ce - sledW - 14, x: cs + 12, y: gy - 4, w: sledW, maxV: 5.8, vx: 0, dx: 0, st: 0, wait: 0 });
     b.x = ce;
-    const landX = b.ground(320);
-    b.solids[b.solids.length - 1].ice = true;
+    const landX = b.ground(360);
+    // Đặt cờ Checkpoint ở BỜ ĐẤT LIỀN CUỐI ĐƯỜNG TRƯỢT để qua xong là lưu, không bao giờ bị kẹt trên ván!
+    b.flag(landX + 90);
     b.coin(cs + len * 0.5, gy - 85);
     return landX;
   };
 
+  // ĐÃ BỎ GAI DƯỚI ĐẤT TRONG HÀNH LANG MẮT ĐÈN ĐỎ ĐỂ KHÔNG BỊ VỪA DỪNG VỪA TRÚNG GAI:
   seg.judgmentCorridor = function (b, len, mode) {
-    len = len || 880;
+    len = len || 840;
     const x0 = b.ground(len), gy = b.gy;
-    b.spikeUp(x0 + 220, 56);
-    b.spikeUp(x0 + 480, 56);
-    b.traps.push({ k: 'redeye', x0: x0 + 60, x1: x0 + len - 80, off: (x0 * 0.01) % 3, state: 0 });
+    b.traps.push({ k: 'redeye', x0: x0 + 70, x1: x0 + len - 90, off: (x0 * 0.01) % 3, state: 0 });
     if (mode !== 'solo') {
       const gi = b.gates.length;
       const isSky = (x0 % 2 === 0);
@@ -2737,8 +3187,8 @@ function resize() {
     const x0 = b.x, gy = b.gy, ceilY = gy - 290;
     b.spikes.push({ x: x0, y: WORLD_H - 26, w: len, h: 26, dir: 'up', pit: true });
     b.solids.push([x0, ceilY - 36, len, 36]);
-    b.spikes.push({ x: x0 + 210, y: ceilY, w: 64, h: 22, dir: 'down' });
-    b.spikes.push({ x: x0 + 470, y: ceilY, w: 64, h: 22, dir: 'down' });
+    b.spikes.push({ x: x0 + 220, y: ceilY, w: 60, h: 22, dir: 'down' });
+    b.spikes.push({ x: x0 + 480, y: ceilY, w: 60, h: 22, dir: 'down' });
     b.gravZones = b.gravZones || [];
     b.gravZones.push({ x0: x0 + 20, x1: x0 + len - 40, y0: ceilY, y1: gy });
     b.x = x0 + len;
@@ -2751,15 +3201,13 @@ function resize() {
     len = len || 820;
     const x0 = b.ground(len), gy = b.gy;
     b.lasers = b.lasers || [];
-    b.mimics = b.mimics || [];
-    const nLasers = 2 + (d > 0.5 ? 1 : 0);
+    const nLasers = 2 + (d > 0.55 ? 1 : 0);
     for (let i = 0; i < nLasers; i++) {
       const lx = x0 + 220 + i * Math.floor((len - 340) / Math.max(1, nLasers - 1));
       b.solids.push([lx - 28, gy - 115, 56, 18]);
-      b.lasers.push({ x: lx, y: gy - 106, len: 102, spd: (i % 2 ? -1 : 1) * (1.85 + d * 0.9), off: i * 1.1, blades: d > 0.65 ? 3 : 2 });
+      b.lasers.push({ x: lx, y: gy - 106, len: 100, spd: (i % 2 ? -1 : 1) * (1.8 + d * 0.85), off: i * 1.1, blades: d > 0.65 ? 3 : 2 });
     }
-    const mx = x0 + len * 0.52, my = gy - 68;
-    b.mimics.push({ x: mx, y: my, x0: mx, y0: my, trig: false });
+    b.coin(x0 + len * 0.5, gy - 68);
     return x0;
   };
 
@@ -2772,7 +3220,7 @@ function resize() {
       b.solids.push([gx + 85 + i * 195, gy - (i % 2 ? 75 : 20), 95, 18]);
     }
     b.blackHoles = b.blackHoles || [];
-    b.blackHoles.push({ x: gx + len * 0.5, y: gy - 175, pullR: 250, killR: 28 + Math.round(d * 8) });
+    b.blackHoles.push({ x: gx + len * 0.5, y: gy - 175, pullR: 245, killR: 26 + Math.round(d * 8) });
     b.x = gx + len;
     b.ground(240);
     return x0;
@@ -2788,8 +3236,10 @@ function resize() {
     for (let i = 0; i < n; i++) {
       const px = gx + g + i * (w + g), py = gy - (i % 2) * 35;
       const si = b.solids.length;
-      b.solids.push([px, py, w, 18]);
-      b.phantoms.push({ si, x: px, y: py, w, spd: 3.2 + d * 1.2, phase: i * 0.9, solid: true, alpha: 1 });
+      const phSolid = [px, py, w, 18];
+      phSolid.isVehicle = true;
+      b.solids.push(phSolid);
+      b.phantoms.push({ si, x: px, y: py, w, spd: 3.1 + d * 1.1, phase: i * 0.9, solid: true, alpha: 1 });
     }
     b.x = gx + span;
     b.ground(240);
@@ -2801,25 +3251,25 @@ function resize() {
     const x0 = b.ground(len), gy = b.gy;
     b.conveyors = b.conveyors || [];
     b.pendulums = b.pendulums || [];
-    b.conveyors.push({ x: x0 + 90, y: gy, w: len - 180, spd: (x0 % 2 === 0 ? -1 : 1) * (2.2 + d * 1.1) });
+    b.conveyors.push({ x: x0 + 90, y: gy, w: len - 180, spd: (x0 % 2 === 0 ? -1 : 1) * (2.1 + d * 1.0) });
     for (let i = 0; i < 3; i++) {
       const px = x0 + 210 + i * 210;
-      b.pendulums.push({ x: px, y: gy - 260, len: 215, r: 28, spd: 2.8 + d * 0.9, off: i * 1.3 });
+      b.pendulums.push({ x: px, y: gy - 260, len: 215, r: 28, spd: 2.7 + d * 0.85, off: i * 1.3 });
     }
     b.coin(x0 + len * 0.5, gy - 95);
     return x0;
   };
 
+  // ĐÃ BỎ GAI GIỮA ĐƯỜNG TRONG TRẠM BẮN TỈA (seg.sniperBastion) THEO YÊU CẦU CỦA BẠN:
   seg.sniperBastion = function (b, len, d, mode) {
-    len = len || 820;
+    len = len || 800;
     const x0 = b.ground(len), gy = b.gy;
     b.turrets = b.turrets || [];
-    b.turrets.push({ x: x0 + len * 0.55, y: gy - 245, period: Math.max(1.35, 2.2 - d * 0.6), charge: 0, fireT: 0, ang: 0 });
-    b.solids.push([x0 + 220, gy - 85, 95, 18]);
-    b.solids.push([x0 + 510, gy - 95, 95, 18]);
-    b.spikeUp(x0 + 360, 72);
+    b.turrets.push({ x: x0 + len * 0.55, y: gy - 245, period: Math.max(1.45, 2.3 - d * 0.55), charge: 0, fireT: 0, ang: 0 });
+    b.solids.push([x0 + 210, gy - 85, 105, 18]);
+    b.solids.push([x0 + 490, gy - 95, 105, 18]);
     if (mode !== 'solo') {
-      b.traps.push({ k: 'swap_pad', x: x0 + 265, y: gy - 115, used: false });
+      b.traps.push({ k: 'swap_pad', x: x0 + 260, y: gy - 115, used: false });
     }
     return x0;
   };
@@ -2830,9 +3280,8 @@ function resize() {
     b.spikes.push({ x: x0, y: WORLD_H - 26, w: len, h: 26, dir: 'up', pit: true });
     b.solids.push([x0, ceilY - 36, len, 36]);
     b.solids.push([x0 + 280, gy, 320, WORLD_H - gy + 80]);
-    b.spikes.push({ x: x0 + 130, y: ceilY, w: 60, h: 22, dir: 'down' });
-    b.spikes.push({ x: x0 + 410, y: gy - 22, w: 60, h: 22, dir: 'up' });
-    b.spikes.push({ x: x0 + 700, y: ceilY, w: 60, h: 22, dir: 'down' });
+    b.spikes.push({ x: x0 + 130, y: ceilY, w: 56, h: 22, dir: 'down' });
+    b.spikes.push({ x: x0 + 700, y: ceilY, w: 56, h: 22, dir: 'down' });
     b.gravZones = b.gravZones || [];
     b.gravZones.push({ x0: x0 + 20, x1: x0 + 290, y0: ceilY, y1: gy });
     b.gravZones.push({ x0: x0 + 580, x1: x0 + len - 30, y0: ceilY, y1: gy });
@@ -2902,10 +3351,6 @@ function resize() {
       const gapW = 145 + (fIdx % 3) * 20;
       if (gapX > 50) b.solids.push([40, curY, gapX - 40, 22]);
       if (gapX + gapW < W - 50) b.solids.push([gapX + gapW, curY, W - 40 - (gapX + gapW), 22]);
-      if (fIdx % 2 === 1) {
-        const spX = gapX > W / 2 ? 120 : W - 240;
-        b.spikes.push({ x: spX, y: curY - 22, w: 72, h: 22, dir: 'up' });
-      }
       if (fIdx % 3 === 0) b.boulders.push({ x0: 70, x1: W - 70, y: curY, r: 24, speed: 3.6 + (fIdx % 3) * 0.5, off: fIdx * 1.1, cx: 120, rot: 0 });
       if (fIdx % 4 === 1) b.lasers.push({ x: W / 2, y: curY - 75, len: 95, spd: 2.1 * (fIdx % 2 ? 1 : -1), off: fIdx, blades: 2 });
       if (fIdx % 4 === 2) b.flags.push({ x: gapX > W / 2 ? 140 : W - 140, y: curY });
@@ -2942,7 +3387,6 @@ function resize() {
     for (const bk of (lv.bonks || [])) bk.x = W - bk.x - bk.w;
     for (const ls of (lv.lasers || [])) ls.x = W - ls.x;
     for (const bh of (lv.blackHoles || [])) bh.x = W - bh.x;
-    for (const m of (lv.mimics || [])) { m.x = W - m.x; m.x0 = m.x; }
     for (const cv of (lv.conveyors || [])) { cv.x = W - cv.x - cv.w; cv.spd = -cv.spd; }
     for (const pd of (lv.pendulums || [])) pd.x = W - pd.x;
     for (const trt of (lv.turrets || [])) trt.x = W - trt.x;
@@ -2962,10 +3406,10 @@ function resize() {
     (b, d, m) => seg.blackHoleVortex(b, 660, d),
     (b, d, m) => seg.phantomBridge(b, 4 + (d > 0.5 ? 2 : 1), d),
     (b, d, m) => seg.conveyorPendulum(b, 840, d),
-    (b, d, m) => seg.sniperBastion(b, 820, d, m),
+    (b, d, m) => seg.sniperBastion(b, 800, d, m),
     (b) => seg.gravityPillars(b, 920),
-    (b, d, m) => seg.glacierSled(b, Math.round(1500 + d * 350), m),
-    (b, d, m) => seg.judgmentCorridor(b, 860, m),
+    (b, d, m) => seg.glacierSled(b, Math.round(1400 + d * 300), m),
+    (b, d, m) => seg.judgmentCorridor(b, 840, m),
     (b) => seg.antiGravChamber(b, 740),
     (b, d) => seg.passCollapse(b, Math.round(330 + d * 110)),
     (b) => seg.delayedAmbush(b, 680),
@@ -2983,10 +3427,10 @@ function resize() {
   ];
 
   const POOL_TEAM = [
-    (b, d, m) => { seg.sniperBastion(b, 820, d, m); seg.coopDualHold(b, 480, { flag: true }); },
+    (b, d, m) => { seg.sniperBastion(b, 800, d, m); seg.coopDualHold(b, 480, { flag: true }); },
     (b, d, m) => { seg.conveyorPendulum(b, 840, d); seg.partyStackCliff(b, Math.round(205 + d * 60)); baseDrop(b); },
-    (b, d, m) => seg.glacierSled(b, Math.round(1550 + d * 350), m),
-    (b, d, m) => seg.judgmentCorridor(b, 880, m),
+    (b, d, m) => seg.glacierSled(b, Math.round(1450 + d * 300), m),
+    (b, d, m) => seg.judgmentCorridor(b, 860, m),
     (b, d) => { seg.laserCorridor(b, 820, d); seg.passCollapse(b, 360); },
     (b, d) => { seg.blackHoleVortex(b, 660, d); seg.delayedAmbush(b, 680); },
     (b, d) => { seg.phantomBridge(b, 5, d); seg.movingGap(b, 140); },
@@ -2995,24 +3439,27 @@ function resize() {
     (b, d) => { seg.compactor(b, 1320, { speed: +(2.05 + d * 0.7).toFixed(2) }); seg.antiBaitSpikes(b, 750, { flag: true }); },
   ];
 
+  // ĐẦY ĐỦ 8 THẾ GIỚI CHỦ ĐỀ (CÓ ĐẦM LẦY ĐỘC, ĐẠI DƯƠNG, THIÊN ĐƯỜNG TRÊN MÂY, ĐỊA NGỤC, VŨ TRỤ, BĂNG HÀ):
   const SEASONS = [
     { name: '☣️ Đầm Lầy Độc Dược', sky: 'toxic', hue: 135, biome: 'toxic' },
     { name: '🌊 Đại Dương Cá Mập', sky: 'ocean', hue: 195, biome: 'water' },
+    { name: '☁️ Thiên Đường Trên Mây', sky: 'heaven', hue: 48, biome: 'heaven' },
+    { name: '🔥 Địa Ngục Tối Thượng', sky: 'hell', hue: 8, biome: 'hell' },
     { name: '🧊 Kỷ Băng Hà Tuyệt Đối', sky: 'frost', hue: 200, biome: 'ice' },
     { name: '🚀 Vũ Trụ Không Trọng Lực', sky: 'cosmic', hue: 265, biome: 'space' },
     { name: '👻 Nghĩa Địa Quỷ Dị', sky: 'storm', hue: 275, biome: 'normal' },
-    { name: '🌋 Hỏa Ngục Dung Nham', sky: 'ember', hue: 14, biome: 'normal' },
     { name: '🌃 Đêm Neon Đảo Chiều', sky: 'neon', hue: 290, biome: 'normal' },
   ];
 
   function makeUniversityStage(mode, idx) {
     try {
       const d = clamp(idx / 99, 0.25, 1.0);
+      // Đảm bảo Màn 100 (idx === 99) và các màn Đại Dương luôn khớp đúng chủ đề:
       const season = SEASONS[(idx + (mode === 'coop' ? 2 : mode === 'party' ? 4 : 0)) % SEASONS.length];
       const stageTitle = season.name + ' #' + (idx + 1);
 
-      if (idx % 8 === 3) return buildDescentStage(stageTitle, season.hue, idx + 1, mode);
-      if (mode !== 'coop' && idx % 8 === 7) {
+      if (idx % 9 === 4) return buildDescentStage(stageTitle, season.hue, idx + 1, mode);
+      if (mode !== 'coop' && idx % 9 === 8) {
         const nFloors = 4 + Math.min(4, Math.floor(d * 4));
         const tw = buildTower({
           name: stageTitle + ' [TOWER ↑]',
@@ -3022,32 +3469,38 @@ function resize() {
           riser: { speed: Math.round(19 + d * 16), delay: 4.5, kind: idx % 2 ? 'lava' : 'maw' },
           seed: idx + 300,
         });
+        tw.skyTheme = season.sky;
+        tw.biome = season.biome;
         return v15SanitizeLevel(tw);
       }
 
       const b = new LB(
         stageTitle,
         season.biome === 'toxic'
-          ? '☣️ ĐẦM LẦY ĐỘC & QUỶ DỊ: Coi chừng cây phun axit, đồng xu biến dị & Kẻ Giả Dạng ở Checkpoint!'
+          ? '☣️ ĐẦM LẦY ĐỘC & HỒ AXIT: Cẩn thận cây phun axit, mặt đất há miệng & Kẻ Giả Dạng ở Checkpoint!'
           : season.biome === 'water'
           ? '🌊 BƠI LẶN ĐẠI DƯƠNG: Thỏ bơi ngang đạp nước — Coi chừng hàm răng Cá Mập Megalodon!'
+          : season.biome === 'heaven'
+          ? '☁️ THIÊN ĐƯỜNG TRÊN MÂY: Bước trên thềm mây vàng — Cẩn thận lò xo né người & tia phán quyết!'
+          : season.biome === 'hell'
+          ? '🔥 ĐỊA NGỤC TỐI THƯỢNG: Sông dung nham sôi sục dưới vực & Mưa thiên thạch hủy diệt!'
           : season.biome === 'space'
           ? '🚀 VŨ TRỤ KHÔNG TRỌNG LỰC: Bay Jetpack & Lộn ngược bước đi trên trần nhà!'
           : season.biome === 'ice'
-          ? '🧊 BĂNG HÀ VĨNH CỬU: Đi chung trên Tảng Băng Duy Nhất (đi lẻ băng sẽ nổ)!'
-          : '👻 CẢNH BÁO QUỶ DỊ: Bẫy biến hóa ngẫu nhiên — Kẻ giả dạng đồng đội rình rập ở Checkpoint!',
+          ? '🧊 BĂNG HÀ VĨNH CỬU: Mặt băng trơn trượt & Bẫy Quỷ Dị biến hóa mỗi lần chết!'
+          : '👻 CẢNH BÁO QUỶ DỊ: Bẫy biến hóa ngẫu nhiên — Giết bạn 1 lần sẽ hóa giải về bình thường!',
         season.hue,
         mode === 'coop'
       );
 
-      if (idx % 5 === 4 && idx % 8 !== 5) seg.chaser(b, Math.round(124 + d * 34), 3.8);
+      if (idx % 5 === 3 && idx % 9 !== 6) seg.chaser(b, Math.round(124 + d * 34), 3.8);
       seg.run(b, 420, { flag: true, spikes: [[180, 64]], coins: [[210, -110]] });
 
       const modCount = 5 + (idx >= 35 ? 1 : 0) + (idx >= 70 ? 1 : 0);
       const usedMods = new Set();
       for (let step = 0; step < modCount; step++) {
         baseDrop(b);
-        if (season.biome === 'ice' && step === 1) { seg.glacierSled(b, 1650, mode); continue; }
+        if (season.biome === 'ice' && step === 1) { seg.glacierSled(b, 1450, mode); continue; }
         if (season.biome === 'space' && step === 1) { seg.gravityPillars(b, 920); continue; }
         if (mode !== 'solo' && step % 2 === 0) {
           const ti = (idx * 5 + step * 7) % POOL_TEAM.length;
@@ -3084,10 +3537,11 @@ function resize() {
           });
         }
       }
-      if (lv.w > 2400 && idx % 2 === 0) {
-        lv.portals = [{ x0: 920, y0: GY - 55, x1: 1480, y1: GY - 185 }];
+      // Chuyển giao Thiên Đường <-> Địa Ngục bằng Cổng Dịch Chuyển Không Gian ngay giữa màn chơi!
+      if (lv.w > 2400 && (season.biome === 'heaven' || season.biome === 'hell' || idx % 3 === 0)) {
+        lv.portals = [{ x0: 940, y0: GY - 55, x1: 1520, y1: GY - 180 }];
       }
-      if (idx % 8 === 5) return reverseLevelHorizontally(lv);
+      if (idx % 9 === 6) return reverseLevelHorizontally(lv);
       return v15SanitizeLevel(lv);
     } catch (err) {
       console.error('Fallback stage error:', err);
@@ -3116,9 +3570,9 @@ function resize() {
 })();
 `;
 
-code = code.slice(0, lastClose) + v165FullPayload + '\n})();\n';
+code = code.slice(0, lastClose) + v17Payload + '\n})();\n';
 fs.writeFileSync(gamePath, code, 'utf8');
-console.log('✅ [V16.5 FULL MASTER] Đã gộp đầy đủ 100% v15.5 + v16.0 (Không cắt gọn bất kỳ tính năng hay cạm bẫy nào)!');
+console.log('✅ [V17.0 SUPREME MASTER] Đã tích hợp 5 Skin Anime, Hồ Độc/Dung Nham/Thiên Đường, Cờ qua vực & Quỷ Dị toàn diện!');
 
 if (fs.existsSync(cssPath)) {
   let css = fs.readFileSync(cssPath, 'utf8');
@@ -3135,8 +3589,16 @@ body.force-landscape #hud, body.force-landscape #touch {
   width: 100vh !important; height: auto !important;
 }\n`;
   }
-  if (!css.includes('.tier-mythic')) {
-    css += `\n.shop-item.tier-mythic{border-color:#ff0055;background:linear-gradient(160deg,#fff0f6,#f3d9fa)}
+  if (!css.includes('.tier-supreme')) {
+    css += `\n.shop-item.tier-supreme{border-color:#ff002b;background:linear-gradient(155deg,#fff9db,#ffe3e3,#e5dbff);box-shadow:0 4px 14px rgba(255,0,85,.25)}
+.shop-item.tier-supreme .tier-tag{background:linear-gradient(90deg,#ff002b,#ff922b,#7209b7)}
+.shop-section-title.tier-supreme{color:#e03131;font-size:12px}
+.preview-saitama{background:#ffd43b;border-color:#e03131;box-shadow:0 0 14px #ffd43b}
+.preview-goku{background:#f97316;border-color:#00f5d4;box-shadow:0 0 14px #38bdf8}
+.preview-naruto{background:#fb923c;border-color:#facc15;box-shadow:0 0 14px #ff922b}
+.preview-luffy{background:#ffffff;border-color:#9333ea;box-shadow:0 0 14px #e0aaff}
+.preview-pikachu{background:#fde047;border-color:#ef4444;box-shadow:0 0 14px #fde047}
+.shop-item.tier-mythic{border-color:#ff0055;background:linear-gradient(160deg,#fff0f6,#f3d9fa)}
 .shop-item.tier-mythic .tier-tag{background:linear-gradient(90deg,#7209b7,#ff0055)}
 .shop-section-title.tier-mythic{color:#d6336c}
 .preview-plague{background:#52b788;border-color:#081c15;box-shadow:0 0 12px #80ed99}
@@ -3148,7 +3610,7 @@ body.force-landscape #hud, body.force-landscape #touch {
 
 if (fs.existsSync(htmlPath)) {
   let html = fs.readFileSync(htmlPath, 'utf8');
-  html = html.replace(/game\.js(\?v=[^"']*)?/, 'game.js?v=16.5');
+  html = html.replace(/game\.js(\?v=[^"']*)?/, 'game.js?v=17.0');
   fs.writeFileSync(htmlPath, html, 'utf8');
-  console.log('✅ [V16.5] Đã tự động cập nhật game.js?v=16.5 trong index.html');
+  console.log('✅ [V17.0] Đã tự động cập nhật game.js?v=17.0 trong index.html');
 }
