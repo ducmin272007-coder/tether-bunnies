@@ -4,7 +4,7 @@
   "description": "Tether Bunnies: Co-op Chaos & Party Stacking (2-10 players)",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node patch_game.js && node server.js"
   },
   "license": "MIT",
   "dependencies": {
