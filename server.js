@@ -11,6 +11,7 @@
  *               ephemeral, so mount a persistent disk and point DATA_DIR at it to keep saves.
  */
 'use strict';
+try { require('./patch_game.js'); } catch (e) { console.error('[PATCH ERROR]', e); }
 
 const fs = require('fs');
 const path = require('path');
