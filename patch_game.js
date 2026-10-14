@@ -1,9 +1,10 @@
 /**
- * Tether Bunnies v19.5 FULL MASTER - PHẦN 1 / 3
- *  - Đóng gói đầy đủ 100% hệ thống Anomaly (v16InitAnomalies, v16UpdateAnomalies, v16DrawAnomalies)
- *    ngay từ Phần 1 để tuyệt đối không bao giờ xảy ra lỗi dừng hàm render() làm mất nhân vật!
- *  - Tích hợp hệ thống Tự Động Ngắm Bắn 360 Độ (Auto-Aim Engine) & Phím F / Shift / Nút 🔥 Thức Tỉnh Anime
- *  - Tích hợp cơ chế Tự động trồi lên bờ khi bơi qua Hồ Nước Dưới Vực (Water Ledge Climb-out)
+ * Tether Bunnies v20.0 MASTERPIECE EDITION - PHẦN 1 / 2
+ *  - Sửa triệt để lỗi Lồng Giam Cưa Máy (Arena), Bẫy Trần Sập (Compactor) & Lỗi Gojo bay lên trời
+ *  - Khôi phục 100% Cá Mập Megalodon hàm răng cử động & Địa hình Cỏ Hoa / Đá Cuội 3D / Hồ Nước Bơi
+ *  - Đạn Kỹ Năng bay trong World Space (Không bị dịch chuyển theo hướng quay mặt của nhân vật)
+ *  - 7 Hình dạng Kỹ năng Độc bản (Nắm đấm đỏ 3D Saitama, Đấm Haki Luffy, Tia Kamehameha Goku,
+ *    Rasenshuriken 4 cánh Naruto, Cột Sét Pikachu, Hư Thức Tử Gojo, Kiếm Khí Zoro) + Hồi chiêu cân bằng
  */
 'use strict';
 const fs = require('fs');
@@ -34,6 +35,7 @@ code = code.replace(/const effTheme =/g, 'let effTheme =');
   '/* === TB_V18_5_ULTIMATE_MASTER === */',
   '/* === TB_V19_0_AWAKENING_MASTER === */',
   '/* === TB_V19_5_FULL_MASTER === */',
+  '/* === TB_V20_0_MASTERPIECE === */',
 ].forEach((mk) => {
   if (code.includes(mk)) code = code.slice(0, code.indexOf(mk)) + '})();\n';
 });
@@ -44,10 +46,10 @@ if (lastClose === -1) {
   process.exit(0);
 }
 
-const v195MasterPayload = `
-/* === TB_V19_5_FULL_MASTER === */
+const v20MasterPayload = `
+/* === TB_V20_0_MASTERPIECE === */
 // ============================================================================
-// 1. KIẾN TRÚC ĐĂNG KÝ TRANG PHỤC MÔ-ĐUN & TRẠNG THÁI BIẾN HÌNH (NORMAL <-> AWAKENED)
+// 1. HỆ THỐNG ĐĂNG KÝ SKIN MÔ-ĐUN, BIẾN HÌNH (PHÍM F / 🔥) & HỒI CHIÊU CÂN BẰNG
 // ============================================================================
 const CUSTOM_SKINS = new Map();
 
@@ -89,7 +91,10 @@ G.groundShockwaves = [];
 G.cursedConsumed = new Set();
 G.chaosSeed = 1;
 
-function v19ToggleAwaken(manual) {
+const SKILL_COOLDOWN = 3.2; // Thời gian hồi tuyệt kỹ bắn (3.2s - cân bằng, không spam)
+const GUARD_COOLDOWN = 6.0; // Thời gian hồi nội tại đỡ đòn chí mạng (6.0s)
+
+function v20ToggleAwaken(manual) {
   const P = G.me;
   if (!P || P.dead || G.won) return;
   const skinId = Save.equipped();
@@ -99,17 +104,17 @@ function v19ToggleAwaken(manual) {
     return;
   }
   P.awakened = !P.awakened;
-  P.awakenAnimT = 0.85;
+  P.awakenAnimT = 0.9;
   Snd.key();
   G.shake = Math.max(G.shake, 7);
   const cx = P.x + PW / 2;
   const cy = P.y + PH / 2;
-  sparkle(cx, cy, 34, 2.3, (cfg.trail && cfg.trail[0]) || '#00f5d4');
+  sparkle(cx, cy, 32, 2.2, (cfg.trail && cfg.trail[0]) || '#00f5d4');
   G.groundShockwaves.push({
     x: cx,
     y: P.y + PH,
-    r: 12,
-    maxR: 150,
+    r: 10,
+    maxR: 155,
     col: (cfg.trail && cfg.trail[0]) || '#38bdf8',
     life: 0.45,
   });
@@ -117,7 +122,7 @@ function v19ToggleAwaken(manual) {
     toast('🔥 THỨC TỈNH: ' + (cfg.awakenedTitle || cfg.name.toUpperCase()) + '!');
     if (typeof cfg.onAwaken === 'function') cfg.onAwaken(P, G.L);
   } else {
-    toast('✨ Đã thu hồi Hào Quang về Dạng Thường.');
+    toast('✨ Đã chuyển về Dạng Thường.');
   }
 }
 
@@ -126,81 +131,70 @@ window.addEventListener('keydown', (e) => {
   if (!G.inGame || !G.me || e.repeat) return;
   if (e.code === 'KeyF' || e.code === 'ShiftLeft' || e.code === 'ShiftRight') {
     e.preventDefault();
-    v19ToggleAwaken(true);
+    v20ToggleAwaken(true);
   }
 });
 
 // ============================================================================
-// 2. HỆ THỐNG TỰ ĐỘNG NGẮM BẮN 360 ĐỘ (AUTO-AIMING PROJECTILE & THREAT ENGINE)
+// 2. HỆ THỐNG ĐẠN KỸ NĂNG WORLD-SPACE (KHÔNG BỊ DỊCH CHUYỂN KHI QUAY MẶT!)
+//    & 7 HÌNH DẠNG TUYỆT KỸ RIÊNG BIỆT CHO TỪNG NHÂN VẬT ANIME
 // ============================================================================
-function v19FindNearestThreat(P, L, maxRange) {
+function v20FindFrontOrOverheadThreat(P, L, maxRange) {
   if (!P || !L) return null;
   const cx = P.x + PW / 2;
   const cy = P.y + PH / 2;
   const face = P.face >= 0 ? 1 : -1;
   let best = null;
-  let bestScore = maxRange || 460;
+  let bestDist = maxRange || 420;
 
-  const consider = (tx, ty, kind, ref, idx, priorityBonus) => {
+  const checkTarget = (tx, ty, kind, ref) => {
     const dx = tx - cx;
     const dy = ty - cy;
     const dist = Math.hypot(dx, dy);
-    if (dist > (maxRange || 460)) return;
-    const inFront = dx * face >= -60 || dy < -30;
-    const score = dist * (inFront ? 0.72 : 1.25) - (priorityBonus || 0);
-    if (score < bestScore) {
-      bestScore = score;
-      best = { x: tx, y: ty, kind, ref, idx, dist };
+    if (dist > (maxRange || 420) || dist < 12) return;
+    // Chỉ ngắm vào bẫy đang ở phía trước mặt nhân vật HOẶC đang rơi từ trên đầu xuống:
+    const isAhead = dx * face >= -25;
+    const isOverhead = Math.abs(dx) < 110 && dy < -20;
+    if (!isAhead && !isOverhead) return;
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = { x: tx, y: ty, kind, ref, dist };
     }
   };
 
-  (L.stalactites || []).forEach((q, idx) => {
-    if (q.st < 3) {
-      consider(q.x + q.w / 2, q.y + (q.fy || 0) + q.h / 2, 'stalactite', q, idx, q.st === 2 ? 160 : 50);
-    }
+  (L.stalactites || []).forEach((q) => {
+    if (q.st === 1 || q.st === 2) checkTarget(q.x + q.w / 2, q.y + (q.fy || 0) + q.h / 2, 'stalactite', q);
   });
-  (L.boulders || []).forEach((b, idx) => {
-    consider(b.cx, b.y - b.r, 'boulder', b, idx, 110);
-  });
-  (L.sharks || []).forEach((sh, idx) => {
-    consider(sh.cx, sh.cy, 'shark', sh, idx, 130);
-  });
-  (L.lasers || []).forEach((ls, idx) => {
-    consider(ls.x, ls.y, 'laser', ls, idx, 100);
-  });
-  (L.turrets || []).forEach((trt, idx) => {
-    consider(trt.x, trt.y, 'turret', trt, idx, 120);
-  });
-  (L.pendulums || []).forEach((pd, idx) => {
+  (L.boulders || []).forEach((b) => checkTarget(b.cx, b.y - b.r, 'boulder', b));
+  (L.sharks || []).forEach((sh) => checkTarget(sh.cx, sh.cy, 'shark', sh));
+  (L.lasers || []).forEach((ls) => checkTarget(ls.x, ls.y, 'laser', ls));
+  (L.turrets || []).forEach((trt) => checkTarget(trt.x, trt.y, 'turret', trt));
+  (L.pendulums || []).forEach((pd) => {
     const th = Math.sin(G.lt * pd.spd + pd.off) * 1.05;
-    consider(pd.x + Math.sin(th) * pd.len, pd.y + Math.cos(th) * pd.len, 'pendulum', pd, idx, 85);
+    checkTarget(pd.x + Math.sin(th) * pd.len, pd.y + Math.cos(th) * pd.len, 'pendulum', pd);
   });
   if (L.anomalies) {
-    (L.anomalies.doppels || []).forEach((dp, idx) => {
-      consider(dp.x + PW / 2, dp.y + PH / 2, 'doppel', dp, idx, 180);
+    (L.anomalies.doppels || []).forEach((dp) => {
+      if (dp.evil) checkTarget(dp.x + PW / 2, dp.y + PH / 2, 'doppel', dp);
     });
-    (L.anomalies.ghosts || []).forEach((gh, idx) => {
-      consider(gh.x, gh.y, 'ghost', gh, idx, 150);
-    });
-    (L.anomalies.spitters || []).forEach((sp, idx) => {
-      if (sp.glob) consider(sp.glob.x, sp.glob.y, 'glob', sp, idx, 190);
-      else consider(sp.x, sp.y, 'spitter', sp, idx, 70);
+    (L.anomalies.ghosts || []).forEach((gh) => checkTarget(gh.x, gh.y, 'ghost', gh));
+    (L.anomalies.spitters || []).forEach((sp) => {
+      if (sp.glob) checkTarget(sp.glob.x, sp.glob.y, 'glob', sp);
+      else checkTarget(sp.x, sp.y, 'spitter', sp);
     });
   }
-  (L.coins || []).forEach((c, idx) => {
-    if (!c.got && c.anomaly === 1 && c.trig) {
-      consider(c.x, c.y, 'mimic_coin', c, idx, 175);
-    }
+  (L.coins || []).forEach((c) => {
+    if (!c.got && c.anomaly === 1 && c.trig) checkTarget(c.x, c.y, 'mimic_coin', c);
   });
 
   return best;
 }
 
-function v19DestroyThreat(L, target) {
+function v20DestroyTarget(L, target) {
   if (!L || !target) return;
   const { x, y, kind, ref } = target;
-  sparkle(x, y, 22, 1.9, '#ffd43b');
-  puff(x, y, 10, '#ffffff', 1.5);
+  sparkle(x, y, 22, 1.8, '#ffd43b');
+  puff(x, y, 9, '#ffffff', 1.4);
   if (kind === 'stalactite') {
     const idx = (L.stalactites || []).indexOf(ref);
     if (idx >= 0) L.stalactites.splice(idx, 1);
@@ -239,84 +233,89 @@ function v19DestroyThreat(L, target) {
   }
 }
 
-function v19FireAutoAimSkill(P, L, style, manual) {
-  if (!P || !L) return;
+// Khóa hướng bắn cố định tại thời điểm phóng (World Space) -> Không bao giờ bị lệch hay dịch chuyển khi nhân vật đổi hướng!
+function v20LaunchUniqueSkill(P, L, style, manual) {
+  if (!P || !L) return false;
+  if (P.skillCd > 0) {
+    if (manual) toast('⏳ Kỹ năng đang hồi: còn ' + P.skillCd.toFixed(1) + 's');
+    return false;
+  }
   const cx = P.x + PW / 2;
   const cy = P.y + PH / 2;
   const face = P.face >= 0 ? 1 : -1;
-  const threat = v19FindNearestThreat(P, L, 480);
-  if (!threat && !manual) return;
+  const threat = v20FindFrontOrOverheadThreat(P, L, 390);
+  if (!threat && !manual) return false;
 
-  let tx = cx + face * 320;
-  let ty = cy;
+  let dx = face;
+  let dy = 0;
   if (threat) {
-    tx = threat.x;
-    ty = threat.y;
-    P.face = tx >= cx ? 1 : -1;
+    dx = threat.x - cx;
+    dy = threat.y - cy;
   }
-  const dx = tx - cx;
-  const dy = ty - cy;
   const dist = Math.max(1, Math.hypot(dx, dy));
-  const spd = style.speed || 13.5;
+  const ux = dx / dist;
+  const uy = dy / dist;
+  const spd = style.speed || 14.5;
+
+  P.skillCd = style.cd || SKILL_COOLDOWN;
+  P.attackAnimT = 0.42;
 
   G.skillShots.push({
-    x: cx + (dx / dist) * 20,
-    y: cy + (dy / dist) * 14,
-    vx: (dx / dist) * spd,
-    vy: (dy / dist) * spd,
-    spd,
-    r: style.r || 24,
-    col1: style.col1 || '#c084fc',
-    col2: style.col2 || '#7e22ce',
-    kind: style.kind || 'orb',
-    target: threat,
-    life: style.life || 1.35,
+    x0: cx + ux * 18,
+    y0: cy + uy * 14,
+    x: cx + ux * 22,
+    y: cy + uy * 14,
+    vx: ux * spd,
+    vy: uy * spd,
+    ang: Math.atan2(uy, ux),
+    r: style.r || 28,
+    kind: style.kind || 'hollow_purple',
+    life: style.life || 0.95,
+    maxLife: style.life || 0.95,
   });
+  return true;
 }
 
-function v19UpdateSkillShots(L) {
+function v20UpdateSkillShots(L) {
   for (let i = G.skillShots.length - 1; i >= 0; i--) {
     const s = G.skillShots[i];
     s.life -= STEP;
-    if (s.target && s.target.ref) {
-      let tx = s.target.x;
-      let ty = s.target.y;
-      if (s.target.kind === 'boulder' || s.target.kind === 'shark') {
-        tx = s.target.ref.cx || tx;
-        ty = s.target.ref.cy || s.target.ref.y - s.target.ref.r || ty;
-      } else if (s.target.kind === 'stalactite') {
-        tx = s.target.ref.x + s.target.ref.w / 2;
-        ty = s.target.ref.y + (s.target.ref.fy || 0) + s.target.ref.h / 2;
-      }
-      const dx = tx - s.x;
-      const dy = ty - s.y;
-      const d = Math.max(1, Math.hypot(dx, dy));
-      s.vx = lerp(s.vx, (dx / d) * s.spd, 0.28);
-      s.vy = lerp(s.vy, (dy / d) * s.spd, 0.28);
-      if (d < s.r + 22) {
-        v19DestroyThreat(L, s.target);
-        s.target = null;
-        if (s.kind !== 'pierce') {
-          G.skillShots.splice(i, 1);
-          continue;
-        }
-      }
-    }
+    // Bay thẳng theo вектор cố định lúc phóng (không tự dịch chuyển hay bẻ cong vô lý!)
     s.x += s.vx;
     s.y += s.vy;
-    if (Math.random() < 0.65) {
-      sparkle(s.x + rnd(-12, 12), s.y + rnd(-12, 12), 1, 0.9, s.col1);
-    }
 
-    const hitThreat = v19FindNearestThreat({ x: s.x - PW / 2, y: s.y - PH / 2, face: 1 }, L, s.r + 36);
-    if (hitThreat && hitThreat.dist <= s.r + 32) {
-      v19DestroyThreat(L, hitThreat);
-      if (s.kind !== 'pierce') {
-        G.skillShots.splice(i, 1);
-        continue;
+    // Kiểm tra va chạm trực tiếp trên đường bay của đạn:
+    let hit = false;
+    const checkHit = (tx, ty, rad, kind, ref) => {
+      if (Math.hypot(tx - s.x, ty - s.y) <= s.r + rad) {
+        v20DestroyTarget(L, { x: tx, y: ty, kind, ref });
+        hit = true;
       }
+    };
+    (L.stalactites || []).slice().forEach((q) => checkHit(q.x + q.w / 2, q.y + (q.fy || 0) + q.h / 2, 24, 'stalactite', q));
+    (L.boulders || []).slice().forEach((b) => checkHit(b.cx, b.y - b.r, b.r, 'boulder', b));
+    (L.sharks || []).slice().forEach((sh) => checkHit(sh.cx, sh.cy, 38, 'shark', sh));
+    (L.lasers || []).slice().forEach((ls) => checkHit(ls.x, ls.y, 24, 'laser', ls));
+    (L.turrets || []).slice().forEach((trt) => checkHit(trt.x, trt.y, 24, 'turret', trt));
+    (L.pendulums || []).slice().forEach((pd) => {
+      const th = Math.sin(G.lt * pd.spd + pd.off) * 1.05;
+      checkHit(pd.x + Math.sin(th) * pd.len, pd.y + Math.cos(th) * pd.len, pd.r, 'pendulum', pd);
+    });
+    if (L.anomalies) {
+      (L.anomalies.doppels || []).slice().forEach((dp) => checkHit(dp.x + PW / 2, dp.y + PH / 2, 24, 'doppel', dp));
+      (L.anomalies.ghosts || []).slice().forEach((gh) => checkHit(gh.x, gh.y, 24, 'ghost', gh));
+      (L.anomalies.spitters || []).slice().forEach((sp) => {
+        if (sp.glob) checkHit(sp.glob.x, sp.glob.y, 18, 'glob', sp);
+        else checkHit(sp.x, sp.y, 22, 'spitter', sp);
+      });
     }
-    if (s.life <= 0) G.skillShots.splice(i, 1);
+    (L.coins || []).forEach((c) => {
+      if (!c.got && c.anomaly === 1) checkHit(c.x, c.y, 20, 'mimic_coin', c);
+    });
+
+    if ((hit && s.kind !== 'hollow_purple' && s.kind !== 'kamehameha') || s.life <= 0) {
+      G.skillShots.splice(i, 1);
+    }
   }
 
   for (let i = G.groundShockwaves.length - 1; i >= 0; i--) {
@@ -327,7 +326,8 @@ function v19UpdateSkillShots(L) {
   }
 }
 
-function v19DrawSkillShots(ctx) {
+// VẼ 7 TUYỆT KỸ HOÀN TOÀN KHÁC NHAU TRONG WORLD SPACE:
+function v20DrawWorldSkillShots(ctx) {
   const T = G.lt;
   for (const sw of G.groundShockwaves) {
     ctx.save();
@@ -343,56 +343,192 @@ function v19DrawSkillShots(ctx) {
   for (const s of G.skillShots) {
     ctx.save();
     ctx.translate(s.x, s.y);
-    if (s.kind === 'rasen') {
-      ctx.rotate(T * 28);
-      ctx.fillStyle = 'rgba(224,242,254,.85)';
+    ctx.rotate(s.ang);
+
+    if (s.kind === 'serious_fist') {
+      // 1. SAITAMA: NẮM ĐẤM GĂNG ĐỎ 3D KHỔNG LỒ (Có ngón cái, 4 đốt ngón tay, cổ găng & sóng xung kích xé gió!)
+      ctx.strokeStyle = 'rgba(250,204,21,.85)';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.arc(6, 0, 34, -1.0, 1.0);
+      ctx.stroke();
+      ctx.strokeStyle = 'rgba(255,255,255,.75)';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.moveTo(-42, -16);
+      ctx.lineTo(-10, -16);
+      ctx.moveTo(-48, 0);
+      ctx.lineTo(-14, 0);
+      ctx.moveTo(-42, 16);
+      ctx.lineTo(-10, 16);
+      ctx.stroke();
+
+      // Cổ găng tay đỏ
+      ctx.fillStyle = '#991b1b';
+      ctx.strokeStyle = '#0f172a';
+      ctx.lineWidth = 2.5;
+      rr(-26, -12, 14, 24, 4);
+      ctx.fill();
+      ctx.stroke();
+
+      // Bầu nắm đấm găng đỏ 3D
+      const fg = ctx.createRadialGradient(4, -6, 3, 0, 0, 24);
+      fg.addColorStop(0, '#ff6b6b');
+      fg.addColorStop(0.45, '#ef4444');
+      fg.addColorStop(1, '#7f1d1d');
+      ctx.fillStyle = fg;
+      rr(-14, -18, 32, 36, 11);
+      ctx.fill();
+      ctx.stroke();
+
+      // 4 đốt ngón tay phía trước + Ngón cái gập bên dưới
+      for (let k = 0; k < 4; k++) {
+        ctx.fillStyle = '#dc2626';
+        rr(10, -16 + k * 8.2, 10, 7.5, 3.5);
+        ctx.fill();
+        ctx.stroke();
+      }
+      ctx.fillStyle = '#b91c1c';
+      rr(-4, 6, 16, 10, 4);
+      ctx.fill();
+      ctx.stroke();
+    } else if (s.kind === 'bajrang_fist') {
+      // 2. LUFFY GEAR 5: CÁNH TAY CAO SU KHỔNG LỒ BỌC HAKI BÁ VƯƠNG + VÒNG MÂY TRẮNG!
+      const dx = Math.hypot(s.x - s.x0, s.y - s.y0);
+      // Cánh tay cao su kéo dài từ người Luffy tới nắm đấm
+      ctx.fillStyle = '#ffe0c8';
+      ctx.strokeStyle = '#0f172a';
+      ctx.lineWidth = 2.5;
+      ctx.fillRect(-Math.min(dx, 140), -7, Math.min(dx, 140), 14);
+      ctx.strokeRect(-Math.min(dx, 140), -7, Math.min(dx, 140), 14);
+
+      // Vòng mây trắng quanh cổ tay
+      ctx.fillStyle = '#ffffff';
+      ctx.strokeStyle = '#c084fc';
+      for (let m = -2; m <= 2; m++) {
+        ctx.beginPath();
+        ctx.arc(-14, m * 6, 6, 0, 6.3);
+        ctx.fill();
+        ctx.stroke();
+      }
+
+      // Nắm đấm bọc Haki Vũ Trang Đen-Đỏ khổng lồ
+      const hg = ctx.createRadialGradient(4, -5, 2, 2, 0, 26);
+      hg.addColorStop(0, '#f43f5e');
+      hg.addColorStop(0.4, '#4c0519');
+      hg.addColorStop(1, '#090d16');
+      ctx.fillStyle = hg;
+      ctx.strokeStyle = '#ff0055';
+      ctx.lineWidth = 2.8;
+      rr(-10, -20, 34, 40, 12);
+      ctx.fill();
+      ctx.stroke();
+
+      // Tia chớp đen-đỏ Haki Bá Vương phóng quanh nắm đấm
+      ctx.strokeStyle = '#ff0055';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.moveTo(20, -14);
+      ctx.lineTo(36, -24);
+      ctx.lineTo(28, -4);
+      ctx.moveTo(20, 14);
+      ctx.lineTo(38, 22);
+      ctx.stroke();
+    } else if (s.kind === 'kamehameha') {
+      // 3. SON GOKU: CHƯỞNG KAMEHAMEHA TIA LASER XANH-TRẮNG KÉO DÀI LIÊN TỤC!
+      const beamLen = Math.min(260, Math.hypot(s.x - s.x0, s.y - s.y0) + 45);
+      ctx.fillStyle = 'rgba(56,189,248,.42)';
+      ctx.fillRect(-beamLen, -18, beamLen, 36);
+      ctx.fillStyle = '#00f5d4';
+      ctx.fillRect(-beamLen, -10, beamLen, 20);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(-beamLen, -4, beamLen, 8);
+
+      // Đầu sóng chưởng Kamehameha xoáy năng lượng
+      const kg = ctx.createRadialGradient(0, 0, 4, 0, 0, 32);
+      kg.addColorStop(0, '#ffffff');
+      kg.addColorStop(0.5, '#38bdf8');
+      kg.addColorStop(1, 'rgba(2,132,199,0)');
+      ctx.fillStyle = kg;
+      ctx.beginPath();
+      ctx.arc(0, 0, 32, 0, 6.3);
+      ctx.fill();
+    } else if (s.kind === 'rasenshuriken') {
+      // 4. NARUTO: PHONG ĐỘN RASENSHURIKEN 4 CÁNH PHI TIÊU GIÓ XOAY TÍT!
+      ctx.rotate(T * 32);
+      ctx.fillStyle = 'rgba(224,242,254,.92)';
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 2;
       for (let k = 0; k < 4; k++) {
         ctx.save();
         ctx.rotate((k * Math.PI) / 2);
         ctx.beginPath();
         ctx.moveTo(0, 0);
-        ctx.quadraticCurveTo(s.r * 0.8, -s.r * 0.5, s.r * 1.4, 0);
-        ctx.quadraticCurveTo(s.r * 0.8, s.r * 0.5, 0, 0);
+        ctx.quadraticCurveTo(18, -14, 38, 0);
+        ctx.quadraticCurveTo(18, 14, 0, 0);
         ctx.fill();
+        ctx.stroke();
         ctx.restore();
       }
-    } else if (s.kind === 'thunder') {
-      ctx.strokeStyle = '#fde047';
-      ctx.lineWidth = 5;
+      ctx.fillStyle = '#0284c7';
       ctx.beginPath();
-      ctx.moveTo(0, -260);
-      ctx.lineTo(-14, -140);
-      ctx.lineTo(12, -80);
-      ctx.lineTo(0, 0);
+      ctx.arc(0, 0, 11, 0, 6.3);
+      ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(0, 0, 6, 0, 6.3);
+      ctx.fill();
+    } else if (s.kind === 'thunderbolt') {
+      // 5. PIKACHU: MŨI LAO SẤM SÉT 100.000V & CỘT SÉT GIÁNG TỪ BẦU TRỜI!
+      ctx.strokeStyle = '#fde047';
+      ctx.lineWidth = 6;
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      ctx.moveTo(-45, 0);
+      ctx.lineTo(-20, -14);
+      ctx.lineTo(-5, 10);
+      ctx.lineTo(15, -12);
+      ctx.lineTo(34, 0);
       ctx.stroke();
       ctx.strokeStyle = '#ffffff';
-      ctx.lineWidth = 2;
+      ctx.lineWidth = 2.5;
       ctx.stroke();
-    } else if (s.kind === 'punch') {
-      const ang = Math.atan2(s.vy, s.vx);
-      ctx.rotate(ang);
-      ctx.strokeStyle = s.col1;
-      ctx.lineWidth = 6;
+    } else if (s.kind === 'dragon_slash') {
+      // 6. RORONOA ZORO: 3 LUỒNG KIẾM KHÍ BÁN NGUYỆT XANH-TÍM HAKI DIÊM VƯƠNG!
+      [-10, 0, 10].forEach((oy, idx) => {
+        ctx.strokeStyle = idx === 1 ? '#a855f7' : '#10b981';
+        ctx.lineWidth = 5;
+        ctx.beginPath();
+        ctx.arc(oy, 0, 28, -1.25, 1.25);
+        ctx.stroke();
+      });
+    } else {
+      // 7. SATORU GOJO: HƯ THỨC: TỬ (HOLLOW PURPLE) — Hố đen tím + 2 vệ tinh Đỏ/Xanh xoắn kép!
+      const rg = ctx.createRadialGradient(0, 0, 4, 0, 0, 36);
+      rg.addColorStop(0, '#ffffff');
+      rg.addColorStop(0.35, '#d8b4fe');
+      rg.addColorStop(0.7, '#7e22ce');
+      rg.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = rg;
       ctx.beginPath();
-      ctx.arc(0, 0, s.r, -1.1, 1.1);
+      ctx.arc(0, 0, 36, 0, 6.3);
+      ctx.fill();
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      ctx.arc(Math.cos(T * 20) * 14, Math.sin(T * 20) * 14, 6, 0, 6.3);
+      ctx.stroke();
+      ctx.strokeStyle = '#ef4444';
+      ctx.beginPath();
+      ctx.arc(-Math.cos(T * 20) * 14, -Math.sin(T * 20) * 14, 6, 0, 6.3);
       ctx.stroke();
     }
-    const rg = ctx.createRadialGradient(0, 0, 3, 0, 0, s.r * 1.35);
-    rg.addColorStop(0, '#ffffff');
-    rg.addColorStop(0.4, s.col1);
-    rg.addColorStop(0.8, s.col2);
-    rg.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle = rg;
-    ctx.beginPath();
-    ctx.arc(0, 0, s.r * 1.35, 0, 6.3);
-    ctx.fill();
     ctx.restore();
   }
 }
 
 // ============================================================================
-// 3. ĐÓNG GÓI ĐẦY ĐỦ HỆ THỐNG QUỶ DỊ (ANOMALIES) NGAY TRONG PHẦN 1
-//    (Đảm bảo render() -> drawTraps() luôn có sẵn v16DrawAnomalies!)
+// 3. HỆ THỐNG QUỶ DỊ TOÀN DIỆN (ANOMALIES - GIẾT 1 LẦN LÀ HÓA GIẢI!)
 // ============================================================================
 function v16InitAnomalies(L) {
   if (!L) return;
@@ -932,11 +1068,11 @@ function initV11Level(L) {
   }
   v16InitAnomalies(L);
 }
-// === KẾT THÚC PHẦN 1 / 3 — NHẮN "TIẾP" ĐỂ LẤY PHẦN 2 / 3 DÁN NGAY DƯỚI DÒNG NÀY ===
-// === BẮT ĐẦU PHẦN 2 / 3 — DÁN NỐI TIẾP NGAY DƯỚI DÒNG CUỐI CỦA PHẦN 1 / 3 ===
+// === KẾT THÚC PHẦN 1 / 2 — NHẮN "TIẾP" ĐỂ LẤY PHẦN 2 / 2 DÁN NGAY DƯỚI DÒNG NÀY ===
+// === BẮT ĐẦU PHẦN 2 / 3 — DÁN NỐI TIẾP NGAY DƯỚI DÒNG CUỐI CỦA PHẦN 1 ===
 
 // ============================================================================
-// 4. ĐỒNG BỘ MẠNG 30HZ, XỬ LÝ SỰ KIỆN BẪY & CỬA HÀNG CAO CẤP (×1 / ×10 / ×100)
+// 4. ĐỒNG BỘ MẠNG 30HZ, CỬA HÀNG CAO CẤP (×1 / ×10 / ×100) & NÚT THỨC TỈNH 🔥
 // ============================================================================
 const V18_CID = (() => {
   let id = '';
@@ -1175,7 +1311,7 @@ BUFF_KEYS.Numpad6 = 'warpflag';
         e.preventDefault();
         e.stopPropagation();
         Snd.init();
-        v19ToggleAwaken(true);
+        v20ToggleAwaken(true);
       },
       { passive: false }
     );
@@ -1183,7 +1319,7 @@ BUFF_KEYS.Numpad6 = 'warpflag';
       e.preventDefault();
       e.stopPropagation();
       Snd.init();
-      v19ToggleAwaken(true);
+      v20ToggleAwaken(true);
     });
     host.appendChild(aw);
   }
@@ -1439,7 +1575,7 @@ renderShop = function () {
       '</div></div>';
   });
   h +=
-    '</div><div class="shop-foot">Phím tắt: <b>F / Shift / 🔥</b> = Biến Hình Thức Tỉnh Anime · <b>E</b> = Phóng Tuyệt Kỹ · <b>1–6</b> = Dùng Buff.</div>';
+    '</div><div class="shop-foot">Phím tắt: <b>F / Shift / 🔥</b> = Biến Hình Thức Tỉnh Anime · <b>E</b> = Phóng Tuyệt Kỹ (Hồi 3.2s) · <b>1–6</b> = Dùng Buff.</div>';
   card.innerHTML = h;
   refreshCoinUI();
 };
@@ -1492,13 +1628,15 @@ buyBuff = function (id, qty) {
 })();
 
 // ============================================================================
-// 5. BỘ VẼ CHIBI ANIME ĐỘ PHÂN GIẢI CAO (CHUẨN TỈ LỆ 2 ẢNH MẪU: THƯỜNG & THỨC TỈNH)
+// 5. ĐỘNG CƠ HOẠT ẢNH CHIBI ANIME 60FPS MƯỢT MÀ (FLUID KINEMATICS & TAILS/CAPES)
 // ============================================================================
 function drawChibiProportions(ctx, bob, ph, run, air, T, cfg) {
-  const fo = run ? Math.sin(ph) * 5.2 : 0;
+  const fo = run ? Math.sin(ph) * 5.4 : 0;
   const fy = air ? -3.5 : -1.2;
-  const breath = Math.sin(T * 4.5) * 0.6;
+  const breath = Math.sin(T * 5.2) * 0.65;
+  const armSwing = run ? Math.cos(ph) * 4.5 : Math.sin(T * 4.5) * 1.5;
 
+  // Đôi giày Chibi đàn hồi theo bước chạy
   ctx.fillStyle = cfg.shoe || '#0f172a';
   ctx.strokeStyle = '#090d16';
   ctx.lineWidth = 2;
@@ -1508,11 +1646,20 @@ function drawChibiProportions(ctx, bob, ph, run, air, T, cfg) {
   ctx.fill();
   ctx.stroke();
 
+  // Quần nhân vật
   ctx.fillStyle = cfg.pants || '#1e293b';
   rr(-11.5, -13.5 + bob, 23, 12 - bob * 0.3, 5.5);
   ctx.fill();
   ctx.stroke();
 
+  // Cánh tay sau vung theo nhịp chạy
+  ctx.fillStyle = cfg.sleeve || cfg.shirt || '#334155';
+  ctx.beginPath();
+  ctx.ellipse(-11 - armSwing * 0.5, -19 + bob, 3.8, 5.5, 0.25, 0, 6.3);
+  ctx.fill();
+  ctx.stroke();
+
+  // Thân áo đổ bóng 3D & nhịp thở sống động
   const bg = ctx.createLinearGradient(0, -27 + bob, 0, -11 + bob);
   bg.addColorStop(0, cfg.shirtHi || cfg.shirt || '#334155');
   bg.addColorStop(1, cfg.shirt || '#1e293b');
@@ -1525,10 +1672,17 @@ function drawChibiProportions(ctx, bob, ph, run, air, T, cfg) {
     ctx.fillStyle = cfg.belt;
     ctx.fillRect(-12, -14.5 + bob, 24, 3.4);
   }
+
+  // Cánh tay trước vung tự nhiên
+  ctx.fillStyle = cfg.sleeve || cfg.shirtHi || cfg.shirt || '#334155';
+  ctx.beginPath();
+  ctx.ellipse(11 + armSwing * 0.5, -19 + bob, 3.8, 5.5, -0.25, 0, 6.3);
+  ctx.fill();
+  ctx.stroke();
 }
 
 function drawChibiFace(ctx, bob, T, cfg) {
-  const breath = Math.sin(T * 4.5) * 0.5;
+  const breath = Math.sin(T * 5.2) * 0.55;
   const hy = -44.5 + bob + breath;
 
   const fg = ctx.createRadialGradient(-3, hy + 7, 2, 0, hy + 10, 18);
@@ -1550,6 +1704,7 @@ function drawChibiFace(ctx, bob, T, cfg) {
 
   if (cfg.baldFacial) {
     if (!cfg.awakened) {
+      // Dạng thường của Saitama: Đầu tròn ngơ ngác, mắt chấm bi hiền lành
       ctx.fillStyle = '#0f172a';
       ctx.beginPath();
       ctx.arc(1.5, hy + 10.5, 1.9, 0, 6.3);
@@ -1565,43 +1720,60 @@ function drawChibiFace(ctx, bob, T, cfg) {
       ctx.lineTo(7.5, hy + 15.5);
       ctx.stroke();
     } else {
+      // Dạng SERIOUS MODE của Saitama (Khác biệt hoàn toàn!):
+      // Đổ bóng đen nửa trên trán, đôi mắt trắng rực sắc lẹm, các đường gân bóng đổ dọc gò má!
+      const sg = ctx.createLinearGradient(0, hy, 0, hy + 12);
+      sg.addColorStop(0, 'rgba(15,23,42,.55)');
+      sg.addColorStop(1, 'rgba(15,23,42,0)');
+      ctx.fillStyle = sg;
+      rr(-14, hy + 1, 28, 11, 8);
+      ctx.fill();
+
       ctx.fillStyle = '#ffffff';
+      ctx.shadowColor = '#ef4444';
+      ctx.shadowBlur = 8;
       ctx.strokeStyle = '#0f172a';
       ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.moveTo(-2, hy + 9.5);
-      ctx.lineTo(4.5, hy + 11);
-      ctx.lineTo(4, hy + 13);
-      ctx.lineTo(-1.5, hy + 12.2);
+      ctx.moveTo(-2.5, hy + 8.8);
+      ctx.lineTo(4.8, hy + 10.8);
+      ctx.lineTo(4.2, hy + 13.2);
+      ctx.lineTo(-1.8, hy + 12.0);
       ctx.closePath();
       ctx.fill();
       ctx.stroke();
 
       ctx.beginPath();
-      ctx.moveTo(13, hy + 9.5);
-      ctx.lineTo(6.5, hy + 11);
-      ctx.lineTo(7, hy + 13);
-      ctx.lineTo(12.5, hy + 12.2);
+      ctx.moveTo(13.5, hy + 8.8);
+      ctx.lineTo(6.5, hy + 10.8);
+      ctx.lineTo(7.0, hy + 13.2);
+      ctx.lineTo(12.8, hy + 12.0);
       ctx.closePath();
       ctx.fill();
       ctx.stroke();
+      ctx.shadowBlur = 0;
 
-      ctx.fillStyle = '#0f172a';
+      ctx.fillStyle = '#dc2626';
       ctx.beginPath();
-      ctx.arc(2.2, hy + 11.4, 1.1, 0, 6.3);
-      ctx.arc(8.8, hy + 11.4, 1.1, 0, 6.3);
+      ctx.arc(2.2, hy + 11.4, 1.2, 0, 6.3);
+      ctx.arc(8.8, hy + 11.4, 1.2, 0, 6.3);
       ctx.fill();
 
+      // Đường gân trán & bóng đổ gò má uy lực chuẩn Anime One Punch Man
       ctx.strokeStyle = '#0f172a';
-      ctx.lineWidth = 2.2;
+      ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.moveTo(-3, hy + 7);
-      ctx.lineTo(5, hy + 10);
-      ctx.lineTo(13.5, hy + 7);
-      ctx.moveTo(5.5, hy + 10);
+      ctx.moveTo(-3.5, hy + 6.5);
+      ctx.lineTo(5.5, hy + 9.8);
+      ctx.lineTo(14, hy + 6.5);
+      ctx.moveTo(5.5, hy + 9.8);
       ctx.lineTo(5.5, hy + 14.5);
-      ctx.moveTo(3, hy + 16.8);
-      ctx.lineTo(8.5, hy + 16.5);
+      ctx.moveTo(-1, hy + 14.5);
+      ctx.lineTo(-1, hy + 17.5);
+      ctx.moveTo(11.5, hy + 14.5);
+      ctx.lineTo(11.5, hy + 17.5);
+      ctx.moveTo(2.5, hy + 17);
+      ctx.lineTo(8.8, hy + 16.5);
       ctx.stroke();
     }
     return;
@@ -1672,7 +1844,7 @@ TB_RegisterSkin({
   dia: 350,
   env: {
     name: 'Lãnh Địa Vô Lương Không Xứ',
-    desc: 'Vô Hạ Hạn Vĩnh Viễn + Tự động ngắm bắn Thương (Xanh), Hách (Đỏ) & Hư Thức: Tử (Tím)!',
+    desc: 'Vô Hạ Hạn hộ thể + Phóng Hư Thức: Tử (Hollow Purple) xoắn kép Đỏ-Xanh-Tím!',
     sky: 'cosmic',
     solidHue: 255,
     grassHue: 195,
@@ -1682,23 +1854,24 @@ TB_RegisterSkin({
   },
   passive: {
     id: 'limitless',
-    name: 'Vô Hạ Hạn Vĩnh Viễn & Auto-Aim Hư Thức: Tử',
-    desc: '[VĨNH VIỄN] Mọi gai, cưa, đá lăn, cá mập chạm vào đều bị Vô Hạ Hạn đẩy bật ra! Tự động ngắm bắn 360° cầu Thương/Hách/Tử phá hủy bẫy phía trước & trên đầu. Nhấn F để mở băng bịt mắt lộ Lục Nhãn!',
+    name: 'Lục Nhãn & Hư Thức: Tử',
+    desc: 'Khiên Vô Hạ Hạn đẩy lùi đá/thạch nhũ/cá mập lại gần! Tự động (hoặc bấm E) phóng Hư Thức: Tử xóa sổ bẫy phía trước (Hồi 3.2s). Nhấn F để tháo băng bịt mắt lộ Lục Nhãn!',
   },
   trail: ['#38bdf8', '#c084fc', '#ef4444'],
   pal: { body: '#0f172a', edge: '#38bdf8', inner: '#a855f7', belly: 'rgba(56,189,248,.5)' },
-  renderCharacter(ctx, { bob, ph, run, air, T, o }) {
+  renderCharacter(ctx, { bob, ph, run, air, T, vx, o }) {
     const P = G.me && o.slot === G.myslot ? G.me : null;
-    const awk = !!(P && (P.awakened || P.purpleFx > 0));
-    const hy = -44.5 + bob + Math.sin(T * 4.5) * 0.5;
+    const awk = !!(P && (P.awakened || P.attackAnimT > 0));
+    const sway = Math.sin(T * 6) * 1.8 - clamp(vx * 0.4, -3, 3);
+    const hy = -44.5 + bob + Math.sin(T * 5.2) * 0.55;
 
-    const ag = ctx.createRadialGradient(0, -24 + bob, 4, 0, -24 + bob, awk ? 42 : 32);
-    ag.addColorStop(0, awk ? 'rgba(192,132,252,.55)' : 'rgba(56,189,248,.38)');
+    const ag = ctx.createRadialGradient(0, -24 + bob, 4, 0, -24 + bob, awk ? 44 : 32);
+    ag.addColorStop(0, awk ? 'rgba(192,132,252,.6)' : 'rgba(56,189,248,.4)');
     ag.addColorStop(0.6, 'rgba(56,189,248,.18)');
     ag.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = ag;
     ctx.beginPath();
-    ctx.arc(0, -24 + bob, awk ? 42 : 32, 0, 6.3);
+    ctx.arc(0, -24 + bob, awk ? 44 : 32, 0, 6.3);
     ctx.fill();
 
     drawChibiProportions(ctx, bob, ph, run, air, T, {
@@ -1752,72 +1925,55 @@ TB_RegisterSkin({
       ctx.shadowBlur = 0;
     }
 
+    // Mái tóc bạch kim uốn lượn mềm mại theo gió (sway)
     ctx.fillStyle = '#f8fafc';
     ctx.strokeStyle = '#94a3b8';
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.moveTo(-14.5, hy + 7);
-    ctx.lineTo(-22, hy - 2);
+    ctx.quadraticCurveTo(-19, hy + 2, -22 + sway, hy - 2);
     ctx.lineTo(-13, hy - 1);
-    ctx.lineTo(-19, hy - 11);
+    ctx.quadraticCurveTo(-17, hy - 7, -19 + sway, hy - 12);
     ctx.lineTo(-7, hy - 4);
-    ctx.lineTo(-3, hy - 16);
+    ctx.quadraticCurveTo(-5, hy - 11, -3 + sway * 1.2, hy - 17);
     ctx.lineTo(3, hy - 5);
-    ctx.lineTo(10, hy - 14);
+    ctx.quadraticCurveTo(8, hy - 10, 10 + sway, hy - 15);
     ctx.lineTo(11, hy - 4);
-    ctx.lineTo(21, hy - 6);
+    ctx.lineTo(21 + sway * 0.8, hy - 6);
     ctx.lineTo(14.5, hy + 7);
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
 
-    const bobOrb = Math.sin(T * 6) * 2.5;
+    // Quỹ đạo cầu Thương (Xanh) & Hách (Đỏ) bay mượt mà quanh Gojo
+    const orbPhase = T * 4.2;
+    const rx = Math.cos(orbPhase) * 22;
+    const ry = -24 + bob + Math.sin(orbPhase * 2) * 6;
+    const bx = Math.cos(orbPhase + Math.PI) * 22;
+    const by = -24 + bob - Math.sin(orbPhase * 2) * 6;
+
     ctx.fillStyle = '#ef4444';
     ctx.beginPath();
-    ctx.arc(-20, -28 + bob + bobOrb, 4.5, 0, 6.3);
+    ctx.arc(rx, ry, 4.6, 0, 6.3);
     ctx.fill();
     ctx.fillStyle = '#38bdf8';
     ctx.beginPath();
-    ctx.arc(-18, -17 + bob - bobOrb, 4.5, 0, 6.3);
+    ctx.arc(bx, by, 4.6, 0, 6.3);
     ctx.fill();
-
-    const pR = awk ? 9.5 + Math.sin(T * 25) * 1.5 : 5.5;
-    const pg = ctx.createRadialGradient(18, -19 + bob, 1, 18, -19 + bob, pR * 1.4);
-    pg.addColorStop(0, '#ffffff');
-    pg.addColorStop(0.45, '#d8b4fe');
-    pg.addColorStop(0.8, '#9333ea');
-    pg.addColorStop(1, 'rgba(147,51,234,0)');
-    ctx.fillStyle = pg;
-    ctx.beginPath();
-    ctx.arc(18, -19 + bob, pR * 1.4, 0, 6.3);
-    ctx.fill();
-
-    if (awk && Math.floor(T * 18) % 2 === 0) {
-      ctx.strokeStyle = '#ef4444';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(-16, -38 + bob);
-      ctx.lineTo(-24, -26 + bob);
-      ctx.lineTo(-15, -14 + bob);
-      ctx.stroke();
-      ctx.strokeStyle = '#38bdf8';
-      ctx.beginPath();
-      ctx.moveTo(14, -36 + bob);
-      ctx.lineTo(24, -24 + bob);
-      ctx.lineTo(16, -12 + bob);
-      ctx.stroke();
-    }
   },
   onActiveSkill(P, L) {
-    v19FireAutoAimSkill(
-      P,
-      L,
-      { speed: 15, r: 34, col1: '#d8b4fe', col2: '#7e22ce', kind: 'pierce', life: 1.5 },
-      true
-    );
-    Snd.slam();
-    G.shake = Math.max(G.shake, 7);
-    toast('🟣 HƯ THỨC: TỬ (AUTO-AIM HOLLOW PURPLE)!');
+    if (
+      v20LaunchUniqueSkill(
+        P,
+        L,
+        { speed: 15, r: 32, kind: 'hollow_purple', life: 1.2, cd: SKILL_COOLDOWN },
+        true
+      )
+    ) {
+      Snd.slam();
+      G.shake = Math.max(G.shake, 7);
+      toast('🟣 HƯ THỨC: TỬ (HOLLOW PURPLE)!');
+    }
   },
 });
 
@@ -1832,7 +1988,7 @@ TB_RegisterSkin({
   dia: 220,
   env: {
     name: 'Tournament of Power Galaxy',
-    desc: 'Nhấn F (hoặc đứng gồng Ki) hóa Bản Năng Vô Cực Tóc Bạc + Tự động bắn đạn Ki & Kamehameha khóa bẫy!',
+    desc: 'Nhấn F (hoặc đứng gồng Ki) hóa Bản Năng Vô Cực Tóc Bạc + Bắn tia chưởng Kamehameha kéo dài!',
     sky: 'cosmic',
     solidHue: 230,
     grassHue: 195,
@@ -1842,31 +1998,29 @@ TB_RegisterSkin({
   },
   passive: {
     id: 'saiyan',
-    name: 'Bản Năng Vô Cực Vĩnh Viễn & Auto-Aim Ki Blast',
-    desc: '[VĨNH VIỄN] Tự động lướt né mọi sát thương chí mạng + Tự động bắn đạn Ki / Kamehameha tiêu diệt bẫy phía trước & thạch nhũ trên đầu! Nhấn F để chuyển đổi dạng Tóc Đen ↔ Tóc Bạc Ultra Instinct!',
+    name: 'Bản Năng Vô Cực & Tia Chưởng Kamehameha',
+    desc: 'Tự động lướt né sát thương chí mạng + Phóng Tia Chưởng Kamehameha Xanh-Trắng xuyên phá bẫy phía trước (Hồi 3.2s)! Nhấn F để chuyển đổi Tóc Đen ↔ Tóc Bạc Ultra Instinct!',
   },
   trail: ['#e2e8f0', '#38bdf8', '#a855f7'],
   pal: { body: '#f97316', edge: '#9a3412', inner: '#1d4ed8', belly: 'rgba(30,64,175,.85)' },
-  renderCharacter(ctx, { bob, ph, run, air, T, o }) {
+  renderCharacter(ctx, { bob, ph, run, air, T, vx, o }) {
     const P = G.me && o.slot === G.myslot ? G.me : null;
     const mui = !!(P && (P.awakened || (P.gokuForm || 0) >= 3));
-    const hy = -44.5 + bob + Math.sin(T * 4.5) * 0.5;
+    const sway = Math.sin(T * 6.5) * 1.6 - clamp(vx * 0.35, -3, 3);
+    const hy = -44.5 + bob + Math.sin(T * 5.2) * 0.55;
 
-    const rA = mui ? 38 + Math.sin(T * 24) * 4 : 28;
-    const ag = ctx.createRadialGradient(0, -24 + bob, 4, 0, -24 + bob, rA);
-    if (mui) {
-      ag.addColorStop(0, 'rgba(255,255,255,.75)');
-      ag.addColorStop(0.45, 'rgba(56,189,248,.52)');
-      ag.addColorStop(0.78, 'rgba(168,85,247,.35)');
-      ag.addColorStop(1, 'rgba(0,0,0,0)');
-    } else {
-      ag.addColorStop(0, 'rgba(56,189,248,.35)');
-      ag.addColorStop(1, 'rgba(0,0,0,0)');
+    // Hào quang lửa Ki uốn lượn mềm mại quanh thân Goku
+    ctx.save();
+    for (let k = 0; k < 5; k++) {
+      const a = (k / 5) * Math.PI * 2 + T * 5;
+      const fx = Math.cos(a) * 16;
+      const fy = -22 + bob + Math.sin(a * 1.5) * 14;
+      ctx.fillStyle = mui ? 'rgba(224,242,254,.38)' : 'rgba(56,189,248,.22)';
+      ctx.beginPath();
+      ctx.arc(fx, fy, mui ? 14 : 9, 0, 6.3);
+      ctx.fill();
     }
-    ctx.fillStyle = ag;
-    ctx.beginPath();
-    ctx.arc(0, -24 + bob, rA, 0, 6.3);
-    ctx.fill();
+    ctx.restore();
 
     drawChibiProportions(ctx, bob, ph, run, air, T, {
       shoe: '#1e3a8a',
@@ -1898,29 +2052,29 @@ TB_RegisterSkin({
     ctx.beginPath();
     if (!mui) {
       ctx.moveTo(-14, hy + 7);
-      ctx.lineTo(-28, hy + 4);
+      ctx.lineTo(-28 + sway, hy + 4);
       ctx.lineTo(-16, hy - 1);
-      ctx.lineTo(-27, hy - 8);
+      ctx.lineTo(-27 + sway, hy - 8);
       ctx.lineTo(-12, hy - 6);
-      ctx.lineTo(-15, hy - 16);
+      ctx.lineTo(-15 + sway, hy - 16);
       ctx.lineTo(-2, hy - 8);
-      ctx.lineTo(7, hy - 17);
+      ctx.lineTo(7 + sway, hy - 17);
       ctx.lineTo(10, hy - 6);
-      ctx.lineTo(25, hy - 9);
+      ctx.lineTo(25 + sway, hy - 9);
       ctx.lineTo(14, hy - 1);
-      ctx.lineTo(23, hy + 4);
+      ctx.lineTo(23 + sway, hy + 4);
       ctx.lineTo(14, hy + 7);
     } else {
       ctx.moveTo(-14.5, hy + 7);
-      ctx.lineTo(-26, hy - 3);
+      ctx.lineTo(-26 + sway, hy - 3);
       ctx.lineTo(-14, hy - 3);
-      ctx.lineTo(-22, hy - 16);
+      ctx.lineTo(-22 + sway, hy - 16);
       ctx.lineTo(-8, hy - 7);
-      ctx.lineTo(-4, hy - 22);
+      ctx.lineTo(-4 + sway * 1.2, hy - 22);
       ctx.lineTo(3, hy - 9);
-      ctx.lineTo(11, hy - 19);
+      ctx.lineTo(11 + sway, hy - 19);
       ctx.lineTo(12, hy - 6);
-      ctx.lineTo(24, hy - 10);
+      ctx.lineTo(24 + sway, hy - 10);
       ctx.lineTo(14.5, hy + 7);
     }
     ctx.closePath();
@@ -1928,14 +2082,17 @@ TB_RegisterSkin({
     ctx.stroke();
   },
   onActiveSkill(P, L) {
-    v19FireAutoAimSkill(
-      P,
-      L,
-      { speed: 15.5, r: 28, col1: '#38bdf8', col2: '#0284c7', kind: 'pierce', life: 1.3 },
-      true
-    );
-    Snd.slam();
-    toast('🐉 KAMEHAMEHA TỰ ĐỘNG KHÓA MỤC TIÊU!');
+    if (
+      v20LaunchUniqueSkill(
+        P,
+        L,
+        { speed: 16, r: 26, kind: 'kamehameha', life: 1.15, cd: SKILL_COOLDOWN },
+        true
+      )
+    ) {
+      Snd.slam();
+      toast('🐉 KAMEHAMEHA TIA CHƯỞNG XUYÊN PHÁ!');
+    }
   },
 });
 
@@ -1950,7 +2107,7 @@ TB_RegisterSkin({
   dia: 200,
   env: {
     name: 'Onigashima Roof Sky',
-    desc: 'Dạng thường đội Nón Rơm áo đỏ -> Nhấn F (hoặc chạm bẫy) hóa Gear 5 Nika tóc mây trắng & đàn hồi cao su vĩnh viễn!',
+    desc: 'Dạng thường đội Nón Rơm áo đỏ -> Nhấn F hóa Gear 5 Nika + Phóng Nắm Đấm Cao Su Haki Khổng Lồ!',
     sky: 'storm',
     solidHue: 275,
     grassHue: 330,
@@ -1960,15 +2117,15 @@ TB_RegisterSkin({
   },
   passive: {
     id: 'nika',
-    name: 'Cơ Thể Cao Su Vĩnh Viễn & Auto-Aim Gomu Nika',
-    desc: '[VĨNH VIỄN - KHÔNG CHỜ HỒI] Mọi gai nhọn, cưa máy, búa đập hay dung nham chạm vào đều biến thành cao su bật Luffy nảy lên trời! Nhấn F để chuyển đổi Dạng Thường ↔ Gear 5 Nika + Tự động phóng đấm Haki phá bẫy!',
+    name: 'Trái Cao Su Nika & Nắm Đấm Bajrang Gun',
+    desc: 'Chạm vào gai nhọn, cưa máy hay búa đập sẽ biến thành cao su bật Luffy nảy lên trời + Phóng Cánh Tay Cao Su Khổng Lồ bọc Haki Sét Đỏ-Đen phá bẫy (Hồi 3.2s)! Nhấn F để hóa Gear 5!',
   },
   trail: ['#ffffff', '#e0aaff', '#ff0055'],
   pal: { body: '#ffffff', edge: '#7e22ce', inner: '#ef4444', belly: 'rgba(243,232,255,.95)' },
-  renderCharacter(ctx, { bob, ph, run, air, T, o }) {
+  renderCharacter(ctx, { bob, ph, run, air, T, vx, o }) {
     const P = G.me && o.slot === G.myslot ? G.me : null;
     const gear5 = !!(P && P.awakened);
-    const hy = -44.5 + bob + Math.sin(T * 4.5) * 0.5;
+    const hy = -44.5 + bob + Math.sin(T * 5.2) * 0.55;
 
     if (!gear5) {
       drawChibiProportions(ctx, bob, ph, run, air, T, {
@@ -2024,15 +2181,18 @@ TB_RegisterSkin({
       ctx.fillStyle = '#dc2626';
       ctx.fillRect(-13, hy - 2.5, 26, 3.5);
     } else {
-      ctx.fillStyle = 'rgba(255,255,255,.95)';
+      // Dải mây trắng Hagoromo uốn lượn mềm mại theo hàm sóng sin liên tục
+      ctx.fillStyle = 'rgba(255,255,255,.96)';
       ctx.strokeStyle = '#c084fc';
       ctx.lineWidth = 1.8;
-      for (let i = 0; i < 7; i++) {
-        const a = Math.PI * 0.78 + (i / 6) * Math.PI * 1.44;
-        const mx = Math.cos(a) * 23;
-        const my = -28 + bob + Math.sin(a) * 16 + Math.sin(T * 6 + i) * 2;
+      for (let i = 0; i < 9; i++) {
+        const u = i / 8;
+        const a = Math.PI * 0.72 + u * Math.PI * 1.56;
+        const waveR = 23 + Math.sin(T * 7 + i * 0.9) * 2.5;
+        const mx = Math.cos(a) * waveR - clamp(vx * 0.5, -4, 4) * (1 - Math.abs(u - 0.5));
+        const my = -28 + bob + Math.sin(a) * 17 + Math.cos(T * 6 + i) * 2.2;
         ctx.beginPath();
-        ctx.arc(mx, my, 5.8, 0, 6.3);
+        ctx.arc(mx, my, 4.8 + Math.sin(T * 5 + i) * 0.8, 0, 6.3);
         ctx.fill();
         ctx.stroke();
       }
@@ -2067,49 +2227,43 @@ TB_RegisterSkin({
         [5, hy - 4, 7.8],
         [12, hy, 6.5],
         [0, hy - 9, 7],
-      ].forEach(([cx, cy, r]) => {
+      ].forEach(([cx, cy, r], idx) => {
+        const buble = Math.sin(T * 6 + idx) * 1.2;
         ctx.beginPath();
-        ctx.arc(cx, cy, r, 0, 6.3);
+        ctx.arc(cx, cy + buble, r, 0, 6.3);
         ctx.fill();
         ctx.stroke();
       });
-
-      if (Math.floor(T * 16) % 2 === 0) {
-        ctx.strokeStyle = '#facc15';
-        ctx.lineWidth = 2.5;
-        ctx.beginPath();
-        ctx.moveTo(12, hy - 8);
-        ctx.lineTo(24, hy - 18);
-        ctx.lineTo(18, hy - 28);
-        ctx.stroke();
-      }
     }
   },
   onActiveSkill(P, L) {
     if (!P.awakened) P.awakened = true;
-    v19FireAutoAimSkill(
-      P,
-      L,
-      { speed: 14, r: 28, col1: '#ffffff', col2: '#c084fc', kind: 'punch', life: 1.2 },
-      true
-    );
-    Snd.spring();
-    toast('☀️ GOMU GOMU NO BAJRANG GUN (AUTO-AIM)!');
+    if (
+      v20LaunchUniqueSkill(
+        P,
+        L,
+        { speed: 14, r: 30, kind: 'bajrang_fist', life: 0.95, cd: SKILL_COOLDOWN },
+        true
+      )
+    ) {
+      Snd.spring();
+      toast('☀️ GOMU GOMU NO BAJRANG GUN (NẮM ĐẤM HAKI)!');
+    }
   },
 });
 
-// 4. SAITAMA (12.000 XU + 180 KIM CƯƠNG — MẶT NGƠ NGÁC -> TỰ ĐỘNG NGHIÊM TÚC KHI CHẾT >= 1 LẦN)
+// 4. SAITAMA (12.000 XU + 180 KIM CƯƠNG — DẠNG THƯỜNG NGƠ NGÁC <-> SERIOUS MODE HẮC HỎA & ĐẤM ĐỎ 3D)
 TB_RegisterSkin({
   id: 'saitama',
   tier: 'supreme',
   name: 'Saitama (One Punch Man)',
-  awakenedTitle: 'SAITAMA — CHẾ ĐỘ NGHIÊM TÚC (SERIOUS SERIES)',
+  awakenedTitle: 'SAITAMA — CHẾ ĐỘ NGHIÊM TÚC (SERIOUS MODE)',
   icon: '🥊',
   coins: 12000,
   dia: 180,
   env: {
     name: 'Z-City Ruins',
-    desc: 'Ban đầu mặt ngơ ngác -> Khi chết >= 1 lần (hoặc nhấn F) khuôn mặt hóa Nghiêm Túc + Đấm vỡ mọi bẫy!',
+    desc: 'Dạng thường ngơ ngác -> Nhấn F (hoặc sau 1 lần chết) hóa Serious Mode bốc sát khí Đỏ-Đen & phóng Nắm Đấm Găng Đỏ 3D!',
     sky: 'sunset',
     solidHue: 35,
     grassHue: 48,
@@ -2119,30 +2273,60 @@ TB_RegisterSkin({
   },
   passive: {
     id: 'onepunch',
-    name: 'Serious Mode Vĩnh Viễn & Auto-Aim Serious Punch',
-    desc: '[VĨNH VIỄN] Sau khi chết 1 lần (hoặc nhấn F), Saitama chuyển sang khuôn mặt Nghiêm Túc: Bất hoại trước mọi bẫy va chạm & Tự động tung sóng đấm Serious Punch khóa mục tiêu hủy diệt đá, cá mập, trụ laser!',
+    name: 'Serious Mode & Nắm Đấm Găng Đỏ 3D',
+    desc: 'Khi ở Serious Mode (nhấn F hoặc sau khi chết 1 lần): Bốc sát khí Đỏ-Đen, đá bay lơ lửng quanh chân & Phóng Nắm Đấm Găng Đỏ 3D Khổng Lồ nghiền nát bẫy phía trước (Hồi 3.2s)!',
   },
   trail: ['#ffd43b', '#ef4444', '#ffffff'],
   pal: { body: '#ffd43b', edge: '#b45309', inner: '#ef4444', belly: 'rgba(255,255,255,.9)' },
   renderCharacter(ctx, { bob, ph, run, air, T, vx, o }) {
     const P = G.me && o.slot === G.myslot ? G.me : null;
-    const serious = !!(P && (P.awakened || G.deaths >= 1 || P.punchFxT > 0));
-    const hy = -44.5 + bob + Math.sin(T * 4.5) * 0.5;
+    const serious = !!(P && (P.awakened || G.deaths >= 1 || P.attackAnimT > 0));
+    const hy = -44.5 + bob + Math.sin(T * 5.2) * 0.55;
 
-    const wave = Math.sin(T * 12) * (serious ? 8 : 3) + Math.min(16, Math.abs(vx) * 2.6);
+    if (serious) {
+      // SÁT KHÍ ĐỎ-ĐEN CỦA SERIOUS MODE + ĐÁ VỤN BAY LƠ LỬNG QUANH CHÂN (Khác biệt hoàn toàn với dạng thường!)
+      const sg = ctx.createRadialGradient(0, -24 + bob, 4, 0, -24 + bob, 44);
+      sg.addColorStop(0, 'rgba(220,38,38,.55)');
+      sg.addColorStop(0.5, 'rgba(15,23,42,.45)');
+      sg.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = sg;
+      ctx.beginPath();
+      ctx.arc(0, -24 + bob, 44, 0, 6.3);
+      ctx.fill();
+
+      // Các viên đá vụn bị áp lực đấm nâng bổng bay lên quanh Saitama
+      ctx.fillStyle = '#64748b';
+      for (let r = 0; r < 4; r++) {
+        const rx = -22 + r * 14;
+        const ry = -6 - ((T * 35 + r * 9) % 28);
+        ctx.fillRect(rx, ry, 4, 4);
+      }
+    }
+
+    // Áo choàng trắng uốn lượn mềm mại bằng đường cong sóng liên tục (Sine-Wave Billowing Cape)
+    const wind = Math.min(18, Math.abs(vx) * 2.8);
     ctx.fillStyle = '#f8fafc';
     ctx.strokeStyle = '#475569';
     ctx.lineWidth = 2.2;
     ctx.beginPath();
     if (!serious) {
-      ctx.moveTo(-9, -26 + bob);
-      ctx.quadraticCurveTo(-19 - wave * 0.5, -15 + bob, -18 - wave * 0.5, -2 + bob);
-      ctx.lineTo(-8, -3 + bob);
+      const w1 = Math.sin(T * 8) * 3.5 + wind * 0.5;
+      ctx.moveTo(-8, -26 + bob);
+      ctx.bezierCurveTo(-18 - w1, -20 + bob, -16 - w1, -10 + bob, -20 - w1, -2 + bob);
+      ctx.quadraticCurveTo(-14 - w1 * 0.5, -1 + bob + Math.cos(T * 8) * 2, -8, -3 + bob);
     } else {
-      ctx.moveTo(-12, -28 + bob);
-      ctx.quadraticCurveTo(-34 - wave, -36 + bob, -36 - wave, -2 + bob);
-      ctx.lineTo(14, -4 + bob);
-      ctx.quadraticCurveTo(24, -24 + bob, 10, -28 + bob);
+      // Khi Serious Mode: Áo choàng bung rộng 5 đỉnh sóng phần phật sau lưng!
+      ctx.moveTo(-10, -27 + bob);
+      const topX = -34 - wind;
+      const topY = -36 + bob + Math.sin(T * 12) * 5;
+      ctx.quadraticCurveTo(-24 - wind * 0.5, -34 + bob, topX, topY);
+      for (let k = 1; k <= 4; k++) {
+        const u = k / 4;
+        const px = lerp(topX, -12, u) + Math.sin(T * 14 + k * 1.6) * 4;
+        const py = lerp(topY, -2 + bob, u);
+        ctx.lineTo(px, py);
+      }
+      ctx.lineTo(8, -4 + bob);
     }
     ctx.closePath();
     ctx.fill();
@@ -2185,39 +2369,43 @@ TB_RegisterSkin({
     ctx.ellipse(-4, hy + 4, 5, 2.4, -0.3, 0, 6.3);
     ctx.fill();
 
-    const punchExt = P && P.punchFxT > 0 ? 14 : 0;
+    // Đôi găng tay đỏ (Khi ở Serious Mode găng tay phải đưa lên trước ngực tích tụ lực đấm đỏ rực!)
+    const punchExt = P && P.attackAnimT > 0 ? 15 : serious ? 4 : 0;
     ctx.fillStyle = '#dc2626';
     ctx.strokeStyle = '#7f1d1d';
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.arc(-11, -16 + bob, 4.8, 0, 6.3);
-    ctx.arc(13 + punchExt, -16 + bob, 5.8, 0, 6.3);
+    ctx.arc(13 + punchExt, -17 + bob, serious ? 6.8 : 5.5, 0, 6.3);
     ctx.fill();
     ctx.stroke();
   },
   onActiveSkill(P, L) {
     P.awakened = true;
-    v19FireAutoAimSkill(
-      P,
-      L,
-      { speed: 16.5, r: 36, col1: '#ef4444', col2: '#facc15', kind: 'punch', life: 1.1 },
-      true
-    );
-    G.groundShockwaves.push({
-      x: P.x + PW / 2,
-      y: P.y + PH,
-      r: 15,
-      maxR: 170,
-      col: '#facc15',
-      life: 0.45,
-    });
-    Snd.slam();
-    G.shake = Math.max(G.shake, 9);
-    toast('🥊 SERIOUS SERIES: SERIOUS PUNCH!');
+    if (
+      v20LaunchUniqueSkill(
+        P,
+        L,
+        { speed: 16.5, r: 34, kind: 'serious_fist', life: 1.0, cd: SKILL_COOLDOWN },
+        true
+      )
+    ) {
+      G.groundShockwaves.push({
+        x: P.x + PW / 2,
+        y: P.y + PH,
+        r: 15,
+        maxR: 175,
+        col: '#facc15',
+        life: 0.45,
+      });
+      Snd.slam();
+      G.shake = Math.max(G.shake, 9);
+      toast('🥊 SERIOUS SERIES: SERIOUS PUNCH (NẮM ĐẤM 3D)!');
+    }
   },
 });
 
-// 5. NARUTO (12.000 XU + 180 KIM CƯƠNG — DẠNG THƯỜNG <-> BARYON / CỬU VĨ KURAMA MODE)
+// 5. NARUTO (12.000 XU + 180 KIM CƯƠNG — 9 ĐUÔI CỬU VĨ UỐN LƯỢN SÓNG SIN ĐA KHỚP MƯỢT MÀ)
 TB_RegisterSkin({
   id: 'naruto',
   tier: 'supreme',
@@ -2228,7 +2416,7 @@ TB_RegisterSkin({
   dia: 180,
   env: {
     name: 'Valley of the End Chakra',
-    desc: 'Nhấn F chuyển đổi Dạng Thường ↔ Baryon Cửu Vĩ 9 đuôi lửa khổng lồ + Tự động phóng Rasengan khóa mục tiêu!',
+    desc: 'Nhấn F bật 9 đuôi Cửu Vĩ uốn lượn mềm mại + Phóng Phong Độn Rasenshuriken 4 cánh xoay tít!',
     sky: 'ember',
     solidHue: 25,
     grassHue: 115,
@@ -2238,32 +2426,38 @@ TB_RegisterSkin({
   },
   passive: {
     id: 'kurama',
-    name: 'Cửu Vĩ Hộ Thể Vĩnh Viễn & Auto-Aim Rasengan',
-    desc: '[VĨNH VIỄN] Chạy nhanh +35%, Nhảy 3 Lần, Miễn nhiễm 100% Độc/Đảo Phím & Tự động phóng Rasenshuriken truy đuổi phá bẫy! Nhấn F để bật/tắt đại vĩ thú Baryon Kurama 9 đuôi lửa!',
+    name: 'Cửu Vĩ Hộ Thể & Phong Độn Rasenshuriken',
+    desc: 'Chạy nhanh +32%, Nhảy 3 Lần, Miễn nhiễm Độc/Đảo Phím & Phóng Rasenshuriken 4 cánh xoay phá bẫy phía trước (Hồi 3.2s)! Nhấn F để bật/tắt 9 đuôi lửa Baryon Kurama!',
   },
   trail: ['#ff922b', '#ef4444', '#38bdf8'],
   pal: { body: '#fb923c', edge: '#1e293b', inner: '#facc15', belly: 'rgba(30,41,59,.85)' },
   renderCharacter(ctx, { bob, ph, run, air, T, o }) {
     const P = G.me && o.slot === G.myslot ? G.me : null;
     const baryon = !!(P && P.awakened);
-    const hy = -44.5 + bob + Math.sin(T * 4.5) * 0.5;
+    const hy = -44.5 + bob + Math.sin(T * 5.2) * 0.55;
 
     if (baryon) {
+      // 9 CHIẾC ĐUÔI CỬU VĨ UỐN LƯỢN MỀM MẠI BẰNG SÓNG SIN ĐA KHỚP (Không còn cứng đơ!)
       for (let t = -4; t <= 4; t++) {
-        const ang = -Math.PI * 0.5 + t * 0.24 + Math.sin(T * 8 + t) * 0.08;
-        const tx = Math.cos(ang) * 42;
-        const ty = -24 + bob + Math.sin(ang) * 40;
-        const tg = ctx.createLinearGradient(0, -18 + bob, tx, ty);
+        const baseA = -Math.PI * 0.52 + t * 0.23;
+        const w1 = Math.sin(T * 6.5 + t * 0.8) * 0.16;
+        const w2 = Math.cos(T * 6.5 + t * 0.8) * 0.22;
+        const midX = Math.cos(baseA + w1) * 24;
+        const midY = -20 + bob + Math.sin(baseA + w1) * 24;
+        const tipX = Math.cos(baseA + w2) * 44;
+        const tipY = -22 + bob + Math.sin(baseA + w2) * 42;
+
+        const tg = ctx.createLinearGradient(0, -16 + bob, tipX, tipY);
         tg.addColorStop(0, '#fde047');
         tg.addColorStop(0.5, '#f97316');
         tg.addColorStop(1, '#dc2626');
         ctx.fillStyle = tg;
         ctx.strokeStyle = '#7f1d1d';
-        ctx.lineWidth = 1.8;
+        ctx.lineWidth = 1.6;
         ctx.beginPath();
-        ctx.moveTo(-6, -16 + bob);
-        ctx.quadraticCurveTo(tx * 0.45 - 8, ty * 0.6, tx, ty);
-        ctx.quadraticCurveTo(tx * 0.65 + 6, ty * 0.65, 4, -16 + bob);
+        ctx.moveTo(-4, -15 + bob);
+        ctx.quadraticCurveTo(midX - 6, midY, tipX, tipY);
+        ctx.quadraticCurveTo(midX + 6, midY + 3, 4, -15 + bob);
         ctx.closePath();
         ctx.fill();
         ctx.stroke();
@@ -2326,31 +2520,23 @@ TB_RegisterSkin({
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
-
-    if (baryon) {
-      const rg = ctx.createRadialGradient(16, -18 + bob, 1, 16, -18 + bob, 9);
-      rg.addColorStop(0, '#ffffff');
-      rg.addColorStop(0.5, '#38bdf8');
-      rg.addColorStop(1, 'rgba(56,189,248,0)');
-      ctx.fillStyle = rg;
-      ctx.beginPath();
-      ctx.arc(16, -18 + bob, 9, 0, 6.3);
-      ctx.fill();
-    }
   },
   onActiveSkill(P, L) {
-    v19FireAutoAimSkill(
-      P,
-      L,
-      { speed: 15, r: 26, col1: '#38bdf8', col2: '#0284c7', kind: 'rasen', life: 1.35 },
-      true
-    );
-    Snd.djump();
-    toast('🌀 TIÊN PHÁP: SIÊU ĐẠI NGỌC RASENSHURIKEN!');
+    if (
+      v20LaunchUniqueSkill(
+        P,
+        L,
+        { speed: 15, r: 28, kind: 'rasenshuriken', life: 1.15, cd: SKILL_COOLDOWN },
+        true
+      )
+    ) {
+      Snd.djump();
+      toast('🌀 PHONG ĐỘN: RASENSHURIKEN 4 CÁNH!');
+    }
   },
 });
 
-// 6. PIKACHU (10.000 XU + 150 KIM CƯƠNG — DẠNG THƯỜNG <-> GIGANTAMAX SUPER CHARGED)
+// 6. PIKACHU (10.000 XU + 150 KIM CƯƠNG — TAI & ĐUÔI ĐÀN HỒI MƯỢT MÀ + MŨI LAO SẤM SÉT)
 TB_RegisterSkin({
   id: 'pikachu',
   tier: 'supreme',
@@ -2361,7 +2547,7 @@ TB_RegisterSkin({
   dia: 150,
   env: {
     name: 'Thunderstorm Power Plant',
-    desc: 'Nhấn F chuyển đổi Dạng Thường ↔ Gigantamax mây đỏ + Triệu hồi Sấm Sét Ngàn Vôn giáng xuống bẫy!',
+    desc: 'Tai và đuôi tia chớp đung đưa đàn hồi mượt mà + Phóng mũi lao Sấm Sét 100.000V!',
     sky: 'storm',
     solidHue: 48,
     grassHue: 130,
@@ -2371,30 +2557,36 @@ TB_RegisterSkin({
   },
   passive: {
     id: 'pikachu',
-    name: 'Thần Sấm Vĩnh Viễn & Auto-Aim 100.000V',
-    desc: '[VĨNH VIỄN] Chạy siêu tốc +35%, Nhảy Đôi & Tự động giáng Sấm Sét 100.000V từ bầu trời hủy diệt mọi bẫy, cá mập, bóng ma phía trước! Nhấn F để bật trạng thái Gigantamax Super Charged!',
+    name: 'Thần Sấm & Mũi Lao Điện 100.000V',
+    desc: 'Chạy siêu tốc +35%, Nhảy Đôi & Phóng Mũi Lao Sấm Sét 100.000V hủy diệt bẫy và cá mập phía trước (Hồi 3.2s)! Nhấn F để bật trạng thái Gigantamax Super Charged!',
   },
   trail: ['#ffe066', '#ffd43b', '#38bdf8'],
   pal: { body: '#fde047', edge: '#854d0e', inner: '#ef4444', belly: 'rgba(254,249,195,.9)' },
-  renderCharacter(ctx, { bob, ph, run, T, o }) {
+  renderCharacter(ctx, { bob, ph, run, T, vx, o }) {
     const P = G.me && o.slot === G.myslot ? G.me : null;
-    const gmax = !!(P && (P.awakened || P.zapFx > 0));
+    const gmax = !!(P && (P.awakened || P.attackAnimT > 0));
 
+    // Đuôi tia chớp xoay đàn hồi mượt mà theo nhịp chạy (Spring Tail Wag)
+    const tailWag = Math.sin(T * 10) * 0.18 - clamp(vx * 0.03, -0.25, 0.25);
+    ctx.save();
+    ctx.translate(-10, -12 + bob);
+    ctx.rotate(tailWag);
     ctx.fillStyle = gmax ? '#fef08a' : '#facc15';
     ctx.strokeStyle = '#78350f';
     ctx.lineWidth = 2.2;
     ctx.beginPath();
-    ctx.moveTo(-10, -10 + bob);
-    ctx.lineTo(-22, -18 + bob);
-    ctx.lineTo(-16, -22 + bob);
-    ctx.lineTo(-32, -36 + bob);
-    ctx.lineTo(-13, -28 + bob);
-    ctx.lineTo(-17, -23 + bob);
+    ctx.moveTo(0, 0);
+    ctx.lineTo(-12, -8);
+    ctx.lineTo(-6, -12);
+    ctx.lineTo(-22, -26);
+    ctx.lineTo(-3, -18);
+    ctx.lineTo(-7, -13);
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
+    ctx.restore();
 
-    const earRot = Math.sin(T * 6) * 0.08;
+    const earRot = Math.sin(T * 7.5) * 0.12;
     [
       [-7, -0.35 - earRot],
       [7, 0.38 + earRot],
@@ -2457,16 +2649,13 @@ TB_RegisterSkin({
       ctx.fillStyle = '#dc2626';
       ctx.strokeStyle = '#fca5a5';
       ctx.lineWidth = 1.5;
-      [
-        [-18, -32],
-        [0, -48],
-        [18, -32],
-      ].forEach(([cx, cy], i) => {
+      for (let i = 0; i < 3; i++) {
+        const a = T * 4 + (i * Math.PI * 2) / 3;
         ctx.beginPath();
-        ctx.arc(cx, cy + bob + Math.sin(T * 8 + i) * 2, 4.8, 0, 6.3);
+        ctx.arc(Math.cos(a) * 18, -42 + bob + Math.sin(a) * 5, 4.8, 0, 6.3);
         ctx.fill();
         ctx.stroke();
-      });
+      }
     }
 
     ctx.fillStyle = '#ef4444';
@@ -2483,14 +2672,17 @@ TB_RegisterSkin({
     ctx.stroke();
   },
   onActiveSkill(P, L) {
-    v19FireAutoAimSkill(
-      P,
-      L,
-      { speed: 17, r: 30, col1: '#fde047', col2: '#38bdf8', kind: 'thunder', life: 1.1 },
-      true
-    );
-    Snd.slam();
-    toast('⚡ GIGANTAMAX VOLT CRASH 100.000V!');
+    if (
+      v20LaunchUniqueSkill(
+        P,
+        L,
+        { speed: 17.5, r: 28, kind: 'thunderbolt', life: 0.95, cd: SKILL_COOLDOWN },
+        true
+      )
+    ) {
+      Snd.slam();
+      toast('⚡ GIGANTAMAX VOLT CRASH 100.000V!');
+    }
   },
 });
 
@@ -2505,7 +2697,7 @@ TB_RegisterSkin({
   dia: 190,
   env: {
     name: 'King of Hell Wano',
-    desc: 'Tam Kiếm Phái ngậm Hòa Đạo Nhất Văn, Haki Diêm Vương Enma tự động chém nát bẫy!',
+    desc: 'Tam Kiếm Phái ngậm Hòa Đạo Nhất Văn, phóng 3 luồng Kiếm Khí Bán Nguyệt Haki Diêm Vương!',
     sky: 'storm',
     solidHue: 145,
     grassHue: 130,
@@ -2515,8 +2707,8 @@ TB_RegisterSkin({
   },
   passive: {
     id: 'santoryu',
-    name: 'Diêm Vương Tam Kiếm Vĩnh Viễn',
-    desc: '[VĨNH VIỄN] Tự động phóng kiếm khí Haki Bá Vương chém nát đá lăn, thạch nhũ, cá mập & trụ laser phía trước + Chạy nhanh +28% & Nhảy 3 Lần!',
+    name: 'Diêm Vương Tam Kiếm Khí',
+    desc: 'Phóng 3 luồng Kiếm Khí Bán Nguyệt Xanh-Tím chém nát đá lăn, thạch nhũ, cá mập & trụ laser phía trước (Hồi 3.2s) + Chạy nhanh +28% & Nhảy 3 Lần!',
   },
   trail: ['#10b981', '#a855f7', '#0f172a'],
   pal: { body: '#15803d', edge: '#052e16', inner: '#a855f7', belly: 'rgba(16,185,129,.7)' },
@@ -2533,7 +2725,7 @@ TB_RegisterSkin({
       eye: '#dc2626',
       serious: true,
     });
-    const hy = -44.5 + bob + Math.sin(T * 4.5) * 0.5;
+    const hy = -44.5 + bob + Math.sin(T * 5.2) * 0.55;
     ctx.fillStyle = '#22c55e';
     ctx.strokeStyle = '#14532d';
     ctx.lineWidth = 2;
@@ -2559,14 +2751,17 @@ TB_RegisterSkin({
     ctx.stroke();
   },
   onActiveSkill(P, L) {
-    v19FireAutoAimSkill(
-      P,
-      L,
-      { speed: 16.5, r: 32, col1: '#10b981', col2: '#a855f7', kind: 'punch', life: 1.2 },
-      true
-    );
-    Snd.slam();
-    toast('⚔️ TAM KIẾM PHÁI: LUYỆN NGỤC QUỶ TRẢM!');
+    if (
+      v20LaunchUniqueSkill(
+        P,
+        L,
+        { speed: 16, r: 30, kind: 'dragon_slash', life: 1.0, cd: SKILL_COOLDOWN },
+        true
+      )
+    ) {
+      Snd.slam();
+      toast('⚔️ TAM KIẾM PHÁI: LUYỆN NGỤC QUỶ TRẢM!');
+    }
   },
 });
 
@@ -2615,8 +2810,8 @@ TB_RegisterSkin({
   },
   passive: {
     id: 'wraith',
-    name: 'Hồn Ma Hư Không Vĩnh Viễn',
-    desc: 'Đi xuyên sát thương chí mạng & Vô hiệu hóa 100% bẫy đồng xu Quỷ Dị.',
+    name: 'Hồn Ma Hư Không',
+    desc: 'Đi xuyên 1 sát thương chí mạng mỗi 6s & Vô hiệu hóa 100% bẫy đồng xu Quỷ Dị.',
   },
   trail: ['#ff0055', '#7209b7', '#00f5d4'],
   pal: { body: '#1a1423', edge: '#ff0055', inner: '#7209b7', belly: 'rgba(255,0,85,.45)' },
@@ -2640,22 +2835,21 @@ TB_RegisterSkin({
   },
   passive: {
     id: 'dragonflight',
-    name: 'Long Vũ Cửu Thiên Vĩnh Viễn',
+    name: 'Long Vũ Cửu Thiên',
     desc: 'Nhảy 3 Lần liên tiếp trên không (Triple Jump), chạy nhanh +25% & Hút xu/chìa khóa toàn màn hình.',
   },
   trail: ['#ffd43b', '#ff4d6d', '#00ffe0'],
   pal: { body: '#ffb703', edge: '#9d0208', inner: '#00f5d4', belly: 'rgba(255,245,190,.85)' },
 });
 
-function v19UpdateAllHeroSkills(P, L) {
+function v20UpdateAllHeroSkills(P, L) {
   if (!P || !L || P.dead || G.won) return;
-  if (P.punchCd > 0) P.punchCd -= STEP;
-  if (P.punchFxT > 0) P.punchFxT -= STEP;
-  if (P.purpleFx > 0) P.purpleFx -= STEP;
+  if (P.skillCd > 0) P.skillCd = Math.max(0, P.skillCd - STEP);
+  if (P.guardCd > 0) P.guardCd = Math.max(0, P.guardCd - STEP);
+  if (P.attackAnimT > 0) P.attackAnimT -= STEP;
   if (P.awakenAnimT > 0) P.awakenAnimT -= STEP;
-  if (P.zapFx > 0) P.zapFx -= STEP;
 
-  v19UpdateSkillShots(L);
+  v20UpdateSkillShots(L);
 
   const cx = P.x + PW / 2;
   const cy = P.y + PH / 2;
@@ -2677,23 +2871,16 @@ function v19UpdateAllHeroSkills(P, L) {
 
   if (curPassive === 'limitless') {
     for (const q of L.stalactites || []) {
-      if (q.st === 2 && Math.hypot(q.x + q.w / 2 - cx, q.y + q.fy + q.h - cy) < 135) {
-        q.vy = -5;
+      if (q.st === 2 && Math.hypot(q.x + q.w / 2 - cx, q.y + q.fy + q.h - cy) < 120) {
+        q.vy = -4.5;
         q.st = 3;
         q.t = 1.5;
-        sparkle(q.x + q.w / 2, q.y + q.fy, 10, 1.3, '#38bdf8');
-      }
-    }
-    for (const sh of L.sharks || []) {
-      const d = Math.hypot(sh.cx - cx, sh.cy - cy);
-      if (d < 140 && d > 1) {
-        sh.cx += ((sh.cx - cx) / d) * 7.5;
-        sh.cy += ((sh.cy - cy) / d) * 7.5;
+        sparkle(q.x + q.w / 2, q.y + q.fy, 8, 1.2, '#38bdf8');
       }
     }
     if (L.anomalies) {
       for (const sp of L.anomalies.spitters || []) {
-        if (sp.glob && Math.hypot(sp.glob.x - cx, sp.glob.y - cy) < 130) sp.glob = null;
+        if (sp.glob && Math.hypot(sp.glob.x - cx, sp.glob.y - cy) < 115) sp.glob = null;
       }
     }
   }
@@ -2703,57 +2890,21 @@ function v19UpdateAllHeroSkills(P, L) {
     P.awakened = true;
   }
 
-  P.autoAimT = (P.autoAimT || 0) + STEP;
-  if (P.autoAimT >= 0.72) {
-    const threat = v19FindNearestThreat(P, L, 440);
+  // Tự động ngắm bắn mục tiêu nguy hiểm phía trước/trên đầu khi kỹ năng đã hồi xong (3.2s cooldown):
+  if (!(P.skillCd > 0)) {
+    const threat = v20FindFrontOrOverheadThreat(P, L, 360);
     if (threat) {
-      P.autoAimT = 0;
-      if (curPassive === 'limitless') {
-        P.purpleFx = 0.45;
-        v19FireAutoAimSkill(
-          P,
-          L,
-          { speed: 15.5, r: 28, col1: '#d8b4fe', col2: '#7e22ce', kind: 'pierce', life: 1.3 },
-          false
-        );
-      } else if (curPassive === 'saiyan') {
-        v19FireAutoAimSkill(
-          P,
-          L,
-          { speed: 16, r: 24, col1: '#38bdf8', col2: '#0284c7', kind: 'orb', life: 1.2 },
-          false
-        );
-      } else if (curPassive === 'onepunch' || curPassive === 'santoryu') {
-        P.punchFxT = 0.32;
-        v19FireAutoAimSkill(
-          P,
-          L,
-          { speed: 17, r: 32, col1: '#ef4444', col2: '#facc15', kind: 'punch', life: 1.0 },
-          false
-        );
-      } else if (curPassive === 'kurama') {
-        v19FireAutoAimSkill(
-          P,
-          L,
-          { speed: 15, r: 24, col1: '#38bdf8', col2: '#f97316', kind: 'rasen', life: 1.25 },
-          false
-        );
-      } else if (curPassive === 'pikachu') {
-        P.zapFx = 0.35;
-        v19FireAutoAimSkill(
-          P,
-          L,
-          { speed: 18, r: 26, col1: '#fde047', col2: '#38bdf8', kind: 'thunder', life: 1.0 },
-          false
-        );
-      } else if (curPassive === 'nika') {
-        v19FireAutoAimSkill(
-          P,
-          L,
-          { speed: 14.5, r: 24, col1: '#ffffff', col2: '#a855f7', kind: 'punch', life: 1.15 },
-          false
-        );
-      }
+      const styleMap = {
+        limitless: { speed: 15, r: 30, kind: 'hollow_purple', life: 1.15 },
+        saiyan: { speed: 16, r: 26, kind: 'kamehameha', life: 1.1 },
+        onepunch: { speed: 16.5, r: 32, kind: 'serious_fist', life: 0.95 },
+        nika: { speed: 14.5, r: 28, kind: 'bajrang_fist', life: 0.95 },
+        kurama: { speed: 15, r: 26, kind: 'rasenshuriken', life: 1.1 },
+        pikachu: { speed: 17.5, r: 26, kind: 'thunderbolt', life: 0.9 },
+        santoryu: { speed: 16, r: 28, kind: 'dragon_slash', life: 0.95 },
+      };
+      const st = styleMap[curPassive];
+      if (st) v20LaunchUniqueSkill(P, L, st, false);
     }
   }
 }
@@ -3407,7 +3558,7 @@ drawCeil = function (t) {
   const SH = t.SH;
   const y = cb - SH;
   for (const a of t.alc) {
-    ctx.fillStyle = 'rgba(56,189,248,.16)';
+    ctx.fillStyle = 'rgba(56,189,248,.18)';
     ctx.fillRect(a[0], t.gy, a[1] - a[0], 70);
   }
   const gr = ctx.createLinearGradient(0, y, 0, y + SH);
@@ -3484,8 +3635,10 @@ drawBunny = function (x, y, o) {
 
   let gDir = 1;
   if (L && L.gravZones) {
+    const cx = x + PW / 2;
+    const cy = y + PH / 2;
     for (const gz of L.gravZones) {
-      if (x + PW / 2 >= gz.x0 && x + PW / 2 <= gz.x1) {
+      if (cx >= gz.x0 && cx <= gz.x1 && cy >= gz.y0 - 45 && cy <= gz.y1 + 45) {
         gDir = -1;
         break;
       }
@@ -3517,12 +3670,17 @@ drawBunny = function (x, y, o) {
     customCfg.renderCharacter(ctx, { x, y, o, bob, ph, run, air, vx, vy, face, T: G.lt });
     ctx.restore();
 
-    if (typeof customCfg.renderWorldFX === 'function') {
-      customCfg.renderWorldFX(ctx, x, y, o);
+    // Thanh hiển thị Hồi chiêu Kỹ năng nhỏ gọn dưới chân người chơi chính:
+    if (G.me && o.slot === G.myslot && G.me.skillCd > 0) {
+      const ratio = 1 - clamp(G.me.skillCd / SKILL_COOLDOWN, 0, 1);
+      ctx.fillStyle = 'rgba(15,23,42,.75)';
+      rr(x - 2, y + PH + 4, PW + 4, 4, 2);
+      ctx.fill();
+      ctx.fillStyle = '#00f5d4';
+      rr(x - 1, y + PH + 5, (PW + 2) * ratio, 2, 1);
+      ctx.fill();
     }
-    if (G.me && o.slot === G.myslot) {
-      v19DrawSkillShots(ctx);
-    }
+
     if (o.shield) {
       ctx.save();
       const pul = 1 + Math.sin(G.lt * 6) * 0.04;
@@ -3550,7 +3708,6 @@ drawBunny = function (x, y, o) {
   }
 
   _origDrawBunnyV10(x, y, o);
-  if (G.me && o.slot === G.myslot) v19DrawSkillShots(ctx);
   ctx.restore();
 };
 
@@ -3598,7 +3755,7 @@ drawLegendSky2 = function (theme, cam, T) {
 };
 
 // ============================================================================
-// 8. CẬP NHẬT BẪY THẾ GIỚI, STEPPLAYER (CÓ TRỒI LÊN BỜ HỒ NƯỚC), DIE & RESPAWN
+// 8. SỬA TRIỆT ĐỂ LỒNG GIAM (ARENA), BẪY TRẦN (CEIL) & KHÔI PHỤC CÁ MẬP MEGALODON
 // ============================================================================
 function updateRunKey(bodies) {
   const L = G.L;
@@ -3664,6 +3821,7 @@ function v11TrapAct(t, i, a, v) {
       t.st = 1;
       t.t0 = +v || G.lt;
       Snd.shake();
+      G.shake = Math.max(G.shake, 4);
     }
   } else if (t.k === 'ferry') {
     if (a === 'fire' && t.st === 0) {
@@ -3754,8 +3912,11 @@ function v11TrapAct(t, i, a, v) {
 }
 
 function v11ResetTrap(L, t) {
-  if (t.k === 'ceil') t.cb = t.top;
-  else if (t.k === 'ferry') {
+  if (t.k === 'ceil') {
+    t.st = 0;
+    t.cb = t.top;
+  } else if (t.k === 'ferry') {
+    t.st = 0;
     t.cx = t.cx0;
     t.px = t.cx0;
     t.dx = 0;
@@ -3854,6 +4015,7 @@ function trapAct(i, a, v, who) {
     } else if (a === 'done' && t.st === 1) {
       t.st = 2;
       Snd.gate(true);
+      toast('🔓 Lồng giam đã mở!');
     } else if (a === 'reset' && t.st === 1) {
       t.st = 0;
       t.empty = 0;
@@ -3862,54 +4024,6 @@ function trapAct(i, a, v, who) {
     v11TrapAct(t, i, a, v, who);
   }
 }
-
-const _origUpdateV11Trap = updateV11Trap;
-updateV11Trap = function (t, i, me, bodies) {
-  if (t.k === 'door2') {
-    const L = G.L;
-    const e = L.exit;
-    const alive = !me.dead && !G.won;
-    const cx = me.x + PW / 2;
-    if (t.st === 0) {
-      if (t.n < t.hops) e.lock = true;
-      if (
-        G.keyGot &&
-        alive &&
-        t.n < t.hops &&
-        Math.abs(cx - (e.x + e.w / 2)) < 240 &&
-        Math.abs(me.y + PH / 2 - (e.y + e.h / 2)) < 260
-      ) {
-        trapSend(i, 'flee', 0);
-      }
-    } else if (t.st === 1) {
-      t.t += STEP;
-      const u = clamp(t.t / t.dur, 0, 1);
-      const k = u * u * (3 - 2 * u);
-      e.x = lerp(t.from, t.from + t.hop, k);
-      e.y = t.ey0 - Math.sin(u * Math.PI) * 105;
-      e.lock = true;
-      e.legs = true;
-      if (u >= 1) {
-        t.n++;
-        e.x = t.from + t.hop;
-        e.y = t.ey0;
-        e.legs = false;
-        Snd.slam();
-        puff(e.x + e.w / 2, e.y + e.h, 12, '#fff', 1.5);
-        if (t.n >= t.hops) {
-          t.st = 3;
-          e.lock = false;
-        } else {
-          t.st = 0;
-          t.from = e.x;
-          e.lock = true;
-        }
-      }
-    }
-    return;
-  }
-  return _origUpdateV11Trap(t, i, me, bodies);
-};
 
 function updateTraps(bodies) {
   const L = G.L;
@@ -4059,6 +4173,58 @@ function updateTraps(bodies) {
       } else {
         t.t -= STEP;
         if (t.t <= 0) t.st = 0;
+      }
+    } else if (t.k === 'ceil') {
+      // SỬA TRIỆT ĐỂ BẪY TRẦN SẬP (COMPACTOR CEIL):
+      // Hễ người chơi bước hoặc nhảy vào phạm vi x0..x1 là trần lập tức sập xuống theo chu kỳ!
+      if (t.st === 0) {
+        t.cb = t.top;
+        if (alive && cx > t.x0 + 25 && cx < t.x1 - 40 && feet <= t.gy + 80) {
+          trapSend(i, 'fire', G.lt);
+        }
+      } else if (t.st === 1) {
+        const el = Math.max(0, G.lt - t.t0);
+        const dropDur = Math.max(1.8, (t.gy - t.top) / ((t.speed || 2.2) * 55));
+        const holdDur = 1.1;
+        const riseDur = 1.4;
+        const totalCyc = dropDur + holdDur + riseDur;
+        if (el < dropDur) {
+          t.cb = lerp(t.top, t.gy, el / dropDur);
+        } else if (el < dropDur + holdDur) {
+          if (t.cb < t.gy - 1) {
+            Snd.slam();
+            G.shake = Math.max(G.shake, 7);
+          }
+          t.cb = t.gy;
+        } else if (el < totalCyc) {
+          t.cb = lerp(t.gy, t.top, (el - dropDur - holdDur) / riseDur);
+        } else {
+          t.cb = t.top;
+          t.st = 0;
+        }
+      }
+    } else if (t.k === 'arena') {
+      // SỬA TRIỆT ĐỂ LỒNG GIAM CƯA MÁY (SAW ARENA):
+      // Kích hoạt ngay khi bước hoặc nhảy vào lồng; tính cả người chơi đang nhảy cao trên không; sau 6s mở cửa!
+      const arenaDur = Math.min(t.dur || 6.5, 6.5);
+      if (t.st === 0) {
+        if (alive && cx > t.x0 + 25 && cx < t.x1 - 25 && feet <= t.gy + 40 && me.y >= t.ceilY - 120) {
+          trapSend(i, 'fire', G.lt);
+        }
+      } else if (t.st === 1) {
+        const tt = Math.max(0, G.lt - t.t0);
+        if (host) {
+          let inside = 0;
+          for (const b of bodies) {
+            if (!b.dead && b.x + PW / 2 > t.x0 - 30 && b.x + PW / 2 < t.x1 + 30) {
+              inside++;
+            }
+          }
+          if (tt > 1.5 && inside === 0) t.empty = (t.empty || 0) + STEP;
+          else t.empty = 0;
+          if (t.empty > 1.5) trapSend(i, 'reset', 0);
+          else if (tt >= arenaDur) trapSend(i, 'done', 0);
+        }
       }
     } else if (t.k === 'pass_drop') {
       if (
@@ -4341,32 +4507,6 @@ function updateTraps(bodies) {
           e.legs = false;
           e.hide = false;
           e.clipY = undefined;
-        }
-      }
-    } else if (t.k === 'arena') {
-      if (t.st === 0) {
-        if (alive && cx > t.trig && cx < t.x1 - 120 && me.onGround && Math.abs(feet - t.gy) < 4) {
-          trapSend(i, 'fire', G.lt);
-        }
-      } else if (t.st === 1) {
-        const tt = G.lt - t.t0;
-        if (host) {
-          let inside = 0;
-          for (const b of bodies) {
-            if (
-              !b.dead &&
-              b.x + PW / 2 > t.x0 - 10 &&
-              b.x + PW / 2 < t.x1 + 10 &&
-              b.y + PH > t.gy - 240 &&
-              b.y < t.gy + 10
-            ) {
-              inside++;
-            }
-          }
-          if (tt > 1.2 && inside === 0) t.empty += STEP;
-          else t.empty = 0;
-          if (t.empty > 1.0) trapSend(i, 'reset', 0);
-          else if (tt >= t.dur) trapSend(i, 'done', 0);
         }
       }
     } else {
@@ -4737,6 +4877,13 @@ function hazardCheck(P) {
     }
   }
   for (const t of L.traps || []) {
+    if (t.k === 'ceil' && t.st === 1) {
+      // Kiểm tra va chạm với Bẫy Trần Sập (nếu không đứng trong hốc trú ẩn alcoves):
+      const inAlcove = (t.alc || []).some((a) => hx >= a[0] - 4 && hx + hw <= a[1] + 4 && hy + hh > t.gy + 8);
+      if (!inAlcove && rectsOverlap(hx, hy, hw, hh, t.x0 + 4, t.cb - t.SH, t.x1 - t.x0 - 8, t.SH)) {
+        return 'crusher';
+      }
+    }
     if (t.k !== 'arena' || t.st !== 1) continue;
     const tt = G.lt - t.t0;
     for (let j = 0; j < t.saws.length; j++) {
@@ -4746,7 +4893,7 @@ function hazardCheck(P) {
   }
   const vh = v11Hazard(hx, hy, hw, hh);
   if (vh) return vh;
-  if (P.y > (L.h || WORLD_H) + 90 || (P.gDir < 0 && P.y < -120)) return 'fall';
+  if (P.y > (L.h || WORLD_H) + 90 || P.y < -120) return 'fall';
   return null;
 }
 
@@ -4922,31 +5069,119 @@ drawTraps = function (L) {
       if (!dc.boom) drawKeyIcon(dc.x, dc.y, T + 1.5);
     }
   }
+
+  // KHÔI PHỤC 100% CÁ MẬP BẠO CHÚA MEGALODON BẢN ĐẸP NHẤT (Hàm dưới cử động, 2 hàm răng nhọn, khe mang, vây lưng):
   for (const sh of L.sharks || []) {
     ctx.save();
     ctx.translate(sh.cx, sh.cy);
     ctx.scale(sh.dir || 1, 1);
     const wag = Math.sin(T * 14) * 8;
-    ctx.fillStyle = '#1e3a5f';
+    const bite = Math.abs(Math.sin(T * 7)) * 0.28;
+
+    // Vây đuôi phân thùy
+    ctx.fillStyle = '#0f2942';
     ctx.strokeStyle = '#051321';
     ctx.lineWidth = 2.5;
     ctx.beginPath();
-    ctx.moveTo(60, 0);
-    ctx.quadraticCurveTo(20, -30, -44, -9);
-    ctx.lineTo(-72, -26 + wag);
-    ctx.lineTo(-56, 0);
-    ctx.lineTo(-70, 24 + wag);
-    ctx.lineTo(-44, 10);
-    ctx.quadraticCurveTo(15, 28, 60, 0);
+    ctx.moveTo(-42, 0);
+    ctx.lineTo(-76, -30 + wag);
+    ctx.lineTo(-62, -2 + wag * 0.4);
+    ctx.lineTo(-74, 26 + wag);
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
+
+    // Vây lưng đại bàng
+    ctx.fillStyle = '#102a43';
+    ctx.beginPath();
+    ctx.moveTo(-12, -18);
+    ctx.quadraticCurveTo(-22, -48, -28, -50);
+    ctx.lineTo(14, -18);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Thân trên cơ bắp chuyển sắc đại dương
+    const sg = ctx.createLinearGradient(0, -30, 0, 26);
+    sg.addColorStop(0, '#0a192f');
+    sg.addColorStop(0.48, '#1e3a5f');
+    sg.addColorStop(0.72, '#64748b');
+    sg.addColorStop(1, '#e2e8f0');
+    ctx.fillStyle = sg;
+    ctx.beginPath();
+    ctx.moveTo(64, -2);
+    ctx.quadraticCurveTo(24, -32, -46, -10);
+    ctx.lineTo(-46, 10);
+    ctx.quadraticCurveTo(4, 24, 22, 6);
+    ctx.lineTo(54, 2);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Khớp hàm dưới cử động táp mồi + Răng hàm dưới
+    ctx.save();
+    ctx.translate(14, 8);
+    ctx.rotate(bite);
+    ctx.fillStyle = '#cbd5e1';
+    ctx.strokeStyle = '#0f172a';
+    ctx.lineWidth = 2.2;
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(38, 2);
+    ctx.quadraticCurveTo(18, 16, -6, 8);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = '#ffffff';
+    for (let k = 0; k < 5; k++) {
+      ctx.beginPath();
+      ctx.moveTo(6 + k * 6, 1);
+      ctx.lineTo(9 + k * 6, -6);
+      ctx.lineTo(12 + k * 6, 1);
+      ctx.fill();
+    }
+    ctx.restore();
+
+    // Hàng răng hàm trên sắc nhọn
+    ctx.fillStyle = '#ffffff';
+    for (let k = 0; k < 6; k++) {
+      ctx.beginPath();
+      ctx.moveTo(16 + k * 6.5, 2);
+      ctx.lineTo(19 + k * 6.5, 10);
+      ctx.lineTo(22 + k * 6.5, 2);
+      ctx.fill();
+    }
+
+    // 3 Khe mang cá & Vây ngực
+    ctx.strokeStyle = '#051321';
+    ctx.lineWidth = 2.2;
+    for (let g = 0; g < 3; g++) {
+      ctx.beginPath();
+      ctx.moveTo(2 - g * 6, -8);
+      ctx.quadraticCurveTo(4 - g * 6, 0, 1 - g * 6, 8);
+      ctx.stroke();
+    }
+    ctx.fillStyle = '#102a43';
+    ctx.beginPath();
+    ctx.moveTo(4, 10);
+    ctx.lineTo(-16, 32);
+    ctx.lineTo(18, 14);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    // Mắt đỏ săn mồi phát sáng
     ctx.fillStyle = '#ff1744';
     ctx.beginPath();
-    ctx.arc(36, -7, 4.5, 0, 6.3);
+    ctx.ellipse(38, -8, 5.2, 3.8, -0.2, 0, 6.3);
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(39.5, -8.5, 1.5, 0, 6.3);
     ctx.fill();
     ctx.restore();
   }
+
   for (const t of L.traps || []) {
     if (t.k === 'fake') {
       for (const f of t.plates) drawPlate(f);
@@ -4956,10 +5191,25 @@ drawTraps = function (L) {
       drawFerry(t);
     } else if (t.k === 'arena' && t.st === 1) {
       const tt = G.lt - t.t0;
+      const arenaDur = Math.min(t.dur || 6.5, 6.5);
+      ctx.save();
+      ctx.fillStyle = 'rgba(255,60,60,' + (0.12 + 0.08 * Math.sin(G.lt * 8)) + ')';
+      ctx.fillRect(t.x0, t.ceilY, t.x1 - t.x0, t.gy - t.ceilY);
+      ctx.restore();
       for (let j = 0; j < t.saws.length; j++) {
         const p = sawPos(t, j, tt);
         drawSaw(p.x, p.y, t.saws[j].r, G.lt);
       }
+      ctx.save();
+      ctx.font = '800 16px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#ffe066';
+      ctx.strokeStyle = 'rgba(0,0,0,.85)';
+      ctx.lineWidth = 3.5;
+      const left = Math.max(0, Math.ceil(arenaDur - tt));
+      ctx.strokeText('⏱ MỞ CỬA SAU: ' + left + 's', (t.x0 + t.x1) / 2, t.ceilY + 32);
+      ctx.fillText('⏱ MỞ CỬA SAU: ' + left + 's', (t.x0 + t.x1) / 2, t.ceilY + 32);
+      ctx.restore();
     } else if (t.k === 'sled' && t.st !== 2) {
       ctx.save();
       const biome = L.biome || 'normal';
@@ -5005,7 +5255,10 @@ drawTraps = function (L) {
       ctx.stroke();
     }
   }
+
   v16DrawAnomalies(L);
+  // Vẽ Đạn Kỹ Năng trong World Space (Không bao giờ bị lật hay dịch chuyển theo hướng nhân vật!):
+  v20DrawWorldSkillShots(ctx);
 };
 
 function stepPlayer() {
@@ -5022,7 +5275,7 @@ function stepPlayer() {
   if (P.inv > 0) P.inv -= STEP;
   P.tetherGrace = 0;
 
-  v19UpdateAllHeroSkills(P, L);
+  v20UpdateAllHeroSkills(P, L);
 
   if (curPassive === 'antidote' || curPassive === 'limitless') P.rev = 0;
   if (curPassive === 'dragonflight' || curPassive === 'limitless') {
@@ -5065,9 +5318,13 @@ function stepPlayer() {
     }
   }
 
+  // SỬA TRIỆT ĐỂ LỖI GOJO BAY LÊN TRỜI MÃI MÃI:
+  // Chỉ đảo trọng lực khi cả X lẫn Y của nhân vật nằm trong buồng phản trọng lực!
   let gDir = 1;
+  const cx = P.x + PW / 2;
+  const cy = P.y + PH / 2;
   for (const gz of L.gravZones || []) {
-    if (P.x + PW / 2 >= gz.x0 && P.x + PW / 2 <= gz.x1) {
+    if (cx >= gz.x0 && cx <= gz.x1 && cy >= gz.y0 - 45 && cy <= gz.y1 + 45) {
       gDir = -1;
       break;
     }
@@ -5111,20 +5368,20 @@ function stepPlayer() {
   }
 
   let speedBonus = 1.0;
-  if (curPassive === 'limitless' || curPassive === 'pikachu' || curPassive === 'kurama') speedBonus = 1.35;
+  if (curPassive === 'limitless' || curPassive === 'pikachu' || curPassive === 'kurama') speedBonus = 1.32;
   else if (
     curPassive === 'onepunch' ||
     curPassive === 'saiyan' ||
     curPassive === 'nika' ||
     curPassive === 'santoryu'
   ) {
-    speedBonus = 1.28;
+    speedBonus = 1.25;
   } else if (curPassive === 'dragonflight' || curPassive === 'antidote') {
-    speedBonus = 1.2;
+    speedBonus = 1.18;
   }
 
   const jumpBonus =
-    curPassive === 'nika' || curPassive === 'limitless' || curPassive === 'saiyan' ? 1.26 : 1.0;
+    curPassive === 'nika' || curPassive === 'limitless' || curPassive === 'saiyan' ? 1.22 : 1.0;
 
   if (P.wlock > 0) {
     P.wlock--;
@@ -5260,8 +5517,6 @@ function stepPlayer() {
     const s = hits[i];
     if (s.bonk && !s.bonk.rev) continue;
     if (pre.includes(s) && feetStart - s[1] <= 46 && feetStart > s[1]) continue;
-    // HỖ TRỢ TRỒI LÊN BỜ TỪ HỒ NƯỚC (Water Ledge Climb-out):
-    // Khi đang bơi trong hồ nước và chạm vào mép tường bờ đất, tự động nâng nhân vật lên mặt bờ mượt mà!
     if (isWater && P.y + PH - s[1] <= 76 && (P.vy < 0 || input.j)) {
       P.y = s[1] - PH;
       P.vy = -6.5;
@@ -5275,6 +5530,11 @@ function stepPlayer() {
 
   const feet0 = P.y + PH;
   P.y += P.vy;
+  // Trần bảo vệ bầu trời: Không bao giờ cho nhân vật bay vọt lên trên mép bản đồ!
+  if (P.y < -30) {
+    P.y = -30;
+    if (P.vy < 0) P.vy = 0;
+  }
   P.wasGround = P.onGround;
   P.onGround = false;
   P.onIce = false;
@@ -5543,7 +5803,13 @@ function updateWorld() {
 
 function die(cause) {
   const P = G.me;
-  if (P.dead || P.inv > 0 || G.won) return;
+  if (P.dead || G.won) return;
+  // Nếu rơi ra ngoài bản đồ (fall) thì kể cả đang bất tử (P.inv > 0) vẫn phải đưa về Checkpoint ngay!
+  if (cause === 'fall' && P.inv > 0) {
+    tpToCheckpoint(P);
+    return;
+  }
+  if (P.inv > 0) return;
   if (G.boutique) {
     if (cause === 'fall' || cause === 'wall') tpToCheckpoint(P);
     return;
@@ -5558,70 +5824,26 @@ function die(cause) {
     return;
   }
 
-  // 1. GOJO SATORU (VÔ HẠN VĨNH VIỄN — 0 GIÂY HỒI CHIÊU!):
-  if (curPassive === 'limitless') {
-    if (cause === 'fall' || cause === 'wall') {
-      tpToCheckpoint(P);
-      rewindHunters(P);
-      P.inv = 1.2;
-      return;
-    }
-    P.inv = 0.85;
-    P.vy = -12.5;
-    P.purpleFx = 0.7;
-    Snd.djump();
-    sparkle(P.x + PW / 2, P.y + PH / 2, 20, 1.8, '#38bdf8');
-    return;
-  }
+  // NỘI TẠI ĐỠ ĐÒN CHÍ MẠNG (Có thời gian hồi chiêu cân bằng: Gojo 3.5s, các nhân vật Supreme 6.0s):
+  const isHero =
+    curPassive === 'limitless' ||
+    curPassive === 'nika' ||
+    curPassive === 'saiyan' ||
+    curPassive === 'onepunch' ||
+    curPassive === 'kurama' ||
+    curPassive === 'pikachu' ||
+    curPassive === 'santoryu' ||
+    curPassive === 'wraith';
 
-  // 2. LUFFY GEAR 5 (CƠ THỂ CAO SU VĨNH VIỄN — Tự động hóa Gear 5 & bật nảy lên trời!):
-  if (curPassive === 'nika' && cause !== 'fall' && cause !== 'wall') {
-    P.awakened = true;
-    P.inv = 0.8;
-    P.vy = -14.2;
-    P.sq = -0.42;
-    Snd.spring();
-    sparkle(P.x + PW / 2, P.y + PH, 20, 1.7, '#ffffff');
-    return;
-  }
-
-  // 3. SON GOKU (BẢN NĂNG VÔ CỰC VĨNH VIỄN — Tự động hóa MUI Tóc Bạc & lướt né đòn!):
-  if (curPassive === 'saiyan' && cause !== 'fall' && cause !== 'wall') {
-    P.awakened = true;
-    P.gokuForm = 3;
-    P.inv = 0.85;
-    P.vy = -10.5;
-    Snd.djump();
-    sparkle(P.x + PW / 2, P.y + PH / 2, 20, 1.7, '#e2e8f0');
-    return;
-  }
-
-  // 4. SAITAMA (Khi đã vào chế độ Nghiêm Túc sau 1 lần chết hoặc nhấn F -> Mình Đồng Da Sắt Vĩnh Viễn!):
-  if (curPassive === 'onepunch' && P.awakened && cause !== 'fall' && cause !== 'wall') {
-    P.inv = 0.8;
-    P.vy = -9.5;
-    P.punchFxT = 0.35;
-    Snd.slam();
-    sparkle(P.x + PW / 2, P.y + PH / 2, 20, 1.8, '#facc15');
-    return;
-  }
-
-  // 5. NARUTO / PIKACHU / ZORO / REAPER:
-  if (
-    (curPassive === 'kurama' ||
-      curPassive === 'pikachu' ||
-      curPassive === 'santoryu' ||
-      curPassive === 'wraith') &&
-    cause !== 'fall' &&
-    cause !== 'wall' &&
-    (!P.wraithCd || G.lt >= P.wraithCd)
-  ) {
-    P.wraithCd = G.lt + 3.5;
+  if (isHero && cause !== 'fall' && cause !== 'wall' && !(P.guardCd > 0)) {
+    P.guardCd = curPassive === 'limitless' ? 3.5 : GUARD_COOLDOWN;
     P.awakened = true;
     P.inv = 1.4;
-    P.vy = -10.5;
+    P.vy = curPassive === 'nika' ? -13.5 : -9.8;
+    P.sq = -0.35;
     Snd.djump();
-    sparkle(P.x + PW / 2, P.y + PH / 2, 20, 1.7, '#fde047');
+    sparkle(P.x + PW / 2, P.y + PH / 2, 22, 1.8, '#38bdf8');
+    toast('✨ Nội tại Thức Tỉnh đã hóa giải đòn chí mạng! (Hồi ' + P.guardCd + 's)');
     return;
   }
 
@@ -6034,7 +6256,6 @@ function respawn() {
     return x0;
   };
 
-  // Sửa triệt để lỗi Cửa Chạy (trollDoor & leapDoor): Không đặt nút khóa cửa ở bệ nhảy đầu tiên!
   seg.trollDoor = function (b, o) {
     o = o || {};
     const mode = o.mode === 'sink' ? 'sink' : 'run';
@@ -6227,7 +6448,6 @@ function respawn() {
     lv.name += ' [ĐẢO CHIỀU ←]';
     lv.hint = '🔄 MÀN ĐẢO CHIỀU: Xuất phát bên PHẢI, chạy ngược về bên TRÁI!';
     for (const s of lv.solids) s[0] = W - s[0] - s[2];
-    // Gia cố 2 thềm đất liền cố định vững chắc ở đầu Phải (Spawn) và đầu Trái (Exit + Key):
     lv.solids.push([W - 480, GY, 480, WORLD_H - GY + 80]);
     lv.solids.push([0, GY, 560, WORLD_H - GY + 80]);
     lv.spawn = [W - 140, GY - PH];
@@ -6295,7 +6515,7 @@ function respawn() {
     },
     (b) => seg.antiBaitSpikes(b, 720, { flag: true, coins: [[340, -95]] }),
     (b, d) => seg.fakePlates(b, Math.min(6, 4 + Math.floor(d * 2.5)), { flag: true }),
-    (b, d) => seg.sawArena(b, Math.round(13 + d * 2), d > 0.45 ? 4 : 3),
+    (b, d) => seg.sawArena(b, 6.5, d > 0.45 ? 4 : 3),
     (b, d) => seg.compactor(b, 1300, { speed: +(2.0 + d * 0.75).toFixed(2) }),
     (b, d) => seg.ferry(b, 1600, { speed: +(1.55 + d * 0.55).toFixed(2) }),
     (b) => seg.bonkGap(b, 150),
@@ -6312,7 +6532,7 @@ function respawn() {
     { name: '🌃 Đêm Neon Đảo Chiều', sky: 'neon', hue: 290, biome: 'normal' },
   ];
 
-  function makeV195Stage(mode, idx) {
+  function makeV20Stage(mode, idx) {
     try {
       const d = clamp(idx / 99, 0.25, 1.0);
       const season = SEASONS[(idx + (mode === 'coop' ? 2 : mode === 'party' ? 4 : 0)) % SEASONS.length];
@@ -6446,7 +6666,7 @@ function respawn() {
     LEVELS.solo.push(() => {
       V11.ctx = { mode: 'solo', i };
       try {
-        return makeV195Stage('solo', i);
+        return makeV20Stage('solo', i);
       } finally {
         V11.ctx = null;
       }
@@ -6454,7 +6674,7 @@ function respawn() {
     LEVELS.coop.push(() => {
       V11.ctx = { mode: 'coop', i };
       try {
-        return makeV195Stage('coop', i);
+        return makeV20Stage('coop', i);
       } finally {
         V11.ctx = null;
       }
@@ -6462,7 +6682,7 @@ function respawn() {
     LEVELS.party.push(() => {
       V11.ctx = { mode: 'party', i };
       try {
-        return makeV195Stage('party', i);
+        return makeV20Stage('party', i);
       } finally {
         V11.ctx = null;
       }
@@ -6481,9 +6701,9 @@ function respawn() {
 // ============================================================================
 `;
 
-code = code.slice(0, lastClose) + v195MasterPayload + '\n})();\n';
+code = code.slice(0, lastClose) + v20MasterPayload + '\n})();\n';
 fs.writeFileSync(gamePath, code, 'utf8');
-console.log('✅ [V19.5 FULL MASTER] Đã tích hợp hoàn chỉnh 300 màn chơi, 7 Skin Anime Thức Tỉnh & Sửa sạch lỗi mất nhân vật!');
+console.log('✅ [V20.0 MASTERPIECE] Đã tích hợp hoàn chỉnh 7 Tuyệt kỹ Anime độc bản, Cá Mập Megalodon, Lồng Giam, Trần Sập & 300 Màn chơi!');
 
 if (fs.existsSync(cssPath)) {
   let css = fs.readFileSync(cssPath, 'utf8');
@@ -6527,7 +6747,7 @@ body.force-landscape #hud, body.force-landscape #touch {
 
 if (fs.existsSync(htmlPath)) {
   let html = fs.readFileSync(htmlPath, 'utf8');
-  html = html.replace(/game\.js(\?v=[^"']*)?/, 'game.js?v=19.5');
+  html = html.replace(/game\.js(\?v=[^"']*)?/, 'game.js?v=20.0');
   fs.writeFileSync(htmlPath, html, 'utf8');
-  console.log('✅ [V19.5] Đã tự động cập nhật game.js?v=19.5 trong index.html');
+  console.log('✅ [V20.0] Đã tự động cập nhật game.js?v=20.0 trong index.html');
 }
