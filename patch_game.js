@@ -1,10 +1,9 @@
 /**
- * Tether Bunnies v19.0 ANIME AWAKENING MASTER - PHẦN 1 / 3
- *  - Hệ thống Biến Hình Chủ Động & Tự Động (Phím F / Shift trên PC hoặc nút 🔥 AWAKEN trên Mobile)
- *  - Hệ thống Tự Động Ngắm Bắn 360 Độ (Auto-Aiming Projectile Engine): Kỹ năng tự khóa mục tiêu vào bẫy/quái
- *    đang tấn công hoặc nằm phía trước/trên đầu mà không cần người chơi phải nhảy lên!
- *  - Sửa triệt để lỗi Cửa Chạy (leapDoor / trollDoor) ở Màn 94 và lỗi Cờ/Đất ở Màn Đảo Chiều (Màn 97)
- *  - Điều chỉnh giá Vàng & Kim Cương đắt giá xứng tầm độ hiếm + Buff Nội Tại Vĩnh Viễn không chờ hồi chiêu!
+ * Tether Bunnies v19.5 FULL MASTER - PHẦN 1 / 3
+ *  - Đóng gói đầy đủ 100% hệ thống Anomaly (v16InitAnomalies, v16UpdateAnomalies, v16DrawAnomalies)
+ *    ngay từ Phần 1 để tuyệt đối không bao giờ xảy ra lỗi dừng hàm render() làm mất nhân vật!
+ *  - Tích hợp hệ thống Tự Động Ngắm Bắn 360 Độ (Auto-Aim Engine) & Phím F / Shift / Nút 🔥 Thức Tỉnh Anime
+ *  - Tích hợp cơ chế Tự động trồi lên bờ khi bơi qua Hồ Nước Dưới Vực (Water Ledge Climb-out)
  */
 'use strict';
 const fs = require('fs');
@@ -34,6 +33,7 @@ code = code.replace(/const effTheme =/g, 'let effTheme =');
   '/* === TB_V18_0_MODULAR_MASTER === */',
   '/* === TB_V18_5_ULTIMATE_MASTER === */',
   '/* === TB_V19_0_AWAKENING_MASTER === */',
+  '/* === TB_V19_5_FULL_MASTER === */',
 ].forEach((mk) => {
   if (code.includes(mk)) code = code.slice(0, code.indexOf(mk)) + '})();\n';
 });
@@ -44,8 +44,8 @@ if (lastClose === -1) {
   process.exit(0);
 }
 
-const v19MasterPayload = `
-/* === TB_V19_0_AWAKENING_MASTER === */
+const v195MasterPayload = `
+/* === TB_V19_5_FULL_MASTER === */
 // ============================================================================
 // 1. KIẾN TRÚC ĐĂNG KÝ TRANG PHỤC MÔ-ĐUN & TRẠNG THÁI BIẾN HÌNH (NORMAL <-> AWAKENED)
 // ============================================================================
@@ -84,9 +84,10 @@ function TB_RegisterSkin(cfg) {
 }
 window.TB_RegisterSkin = TB_RegisterSkin;
 
-// Trạng thái Thức Tỉnh (Awakened Form) và Danh sách Đạn Kỹ Năng Tự Ngắm (Auto-Aim Projectiles):
 G.skillShots = [];
 G.groundShockwaves = [];
+G.cursedConsumed = new Set();
+G.chaosSeed = 1;
 
 function v19ToggleAwaken(manual) {
   const P = G.me;
@@ -94,7 +95,7 @@ function v19ToggleAwaken(manual) {
   const skinId = Save.equipped();
   const cfg = CUSTOM_SKINS.get(skinId);
   if (!cfg) {
-    if (manual) toast('⚠️ Trang phục hiện tại không có Dạng Thức Tỉnh Anime!');
+    if (manual) toast('⚠️ Hãy trang bị Skin Anime trong Shop để Biến Hình Thức Tỉnh!');
     return;
   }
   P.awakened = !P.awakened;
@@ -120,7 +121,6 @@ function v19ToggleAwaken(manual) {
   }
 }
 
-// Gắn phím F và phím Shift để Chuyển Đổi Trạng Thái (Normal <-> Awakened) + Phím Q/E kích hoạt tuyệt kỹ:
 window.addEventListener('keydown', (e) => {
   if (e.target && e.target.tagName === 'INPUT') return;
   if (!G.inGame || !G.me || e.repeat) return;
@@ -132,7 +132,6 @@ window.addEventListener('keydown', (e) => {
 
 // ============================================================================
 // 2. HỆ THỐNG TỰ ĐỘNG NGẮM BẮN 360 ĐỘ (AUTO-AIMING PROJECTILE & THREAT ENGINE)
-//    Tự động dò tìm bẫy đang lao tới hoặc bẫy phía trước/trên đầu để bắn hạ!
 // ============================================================================
 function v19FindNearestThreat(P, L, maxRange) {
   if (!P || !L) return null;
@@ -147,7 +146,6 @@ function v19FindNearestThreat(P, L, maxRange) {
     const dy = ty - cy;
     const dist = Math.hypot(dx, dy);
     if (dist > (maxRange || 460)) return;
-    // Ưu tiên mục tiêu đang ở phía trước mặt hoặc đang rơi từ trên đầu xuống
     const inFront = dx * face >= -60 || dy < -30;
     const score = dist * (inFront ? 0.72 : 1.25) - (priorityBonus || 0);
     if (score < bestScore) {
@@ -156,21 +154,17 @@ function v19FindNearestThreat(P, L, maxRange) {
     }
   };
 
-  // 1. Thạch nhũ trên trần (đang rơi hoặc sắp rơi phía trước):
   (L.stalactites || []).forEach((q, idx) => {
     if (q.st < 3) {
       consider(q.x + q.w / 2, q.y + (q.fy || 0) + q.h / 2, 'stalactite', q, idx, q.st === 2 ? 160 : 50);
     }
   });
-  // 2. Đá lăn (Boulders) & Đá dốc (Rocks):
   (L.boulders || []).forEach((b, idx) => {
     consider(b.cx, b.y - b.r, 'boulder', b, idx, 110);
   });
-  // 3. Cá Mập Megalodon:
   (L.sharks || []).forEach((sh, idx) => {
     consider(sh.cx, sh.cy, 'shark', sh, idx, 130);
   });
-  // 4. Trụ Laser xoay & Pháo đài bắn tỉa (Turrets) & Rìu lắc lư (Pendulums):
   (L.lasers || []).forEach((ls, idx) => {
     consider(ls.x, ls.y, 'laser', ls, idx, 100);
   });
@@ -181,7 +175,6 @@ function v19FindNearestThreat(P, L, maxRange) {
     const th = Math.sin(G.lt * pd.spd + pd.off) * 1.05;
     consider(pd.x + Math.sin(th) * pd.len, pd.y + Math.cos(th) * pd.len, 'pendulum', pd, idx, 85);
   });
-  // 5. Thực thể Quỷ Dị (Doppelgängers, Weeping Ghosts, Acid Globs, Mimic Coins):
   if (L.anomalies) {
     (L.anomalies.doppels || []).forEach((dp, idx) => {
       consider(dp.x + PW / 2, dp.y + PH / 2, 'doppel', dp, idx, 180);
@@ -246,7 +239,6 @@ function v19DestroyThreat(L, target) {
   }
 }
 
-// Bắn đạn kỹ năng tự động khóa mục tiêu (Homing / Auto-Aiming Projectile):
 function v19FireAutoAimSkill(P, L, style, manual) {
   if (!P || !L) return;
   const cx = P.x + PW / 2;
@@ -286,7 +278,6 @@ function v19UpdateSkillShots(L) {
   for (let i = G.skillShots.length - 1; i >= 0; i--) {
     const s = G.skillShots[i];
     s.life -= STEP;
-    // Tự động bẻ lái đuổi theo mục tiêu (Homing Tracking):
     if (s.target && s.target.ref) {
       let tx = s.target.x;
       let ty = s.target.y;
@@ -317,7 +308,6 @@ function v19UpdateSkillShots(L) {
       sparkle(s.x + rnd(-12, 12), s.y + rnd(-12, 12), 1, 0.9, s.col1);
     }
 
-    // Quét va chạm trên đường đạn bay (xóa sổ mọi bẫy đạn chạm phải):
     const hitThreat = v19FindNearestThreat({ x: s.x - PW / 2, y: s.y - PH / 2, face: 1 }, L, s.r + 36);
     if (hitThreat && hitThreat.dist <= s.r + 32) {
       v19DestroyThreat(L, hitThreat);
@@ -339,7 +329,6 @@ function v19UpdateSkillShots(L) {
 
 function v19DrawSkillShots(ctx) {
   const T = G.lt;
-  // Vẽ Sóng Xung Kích mặt đất (Ground Crater Shockwaves):
   for (const sw of G.groundShockwaves) {
     ctx.save();
     ctx.globalAlpha = clamp(sw.life * 2.2, 0, 1);
@@ -351,7 +340,6 @@ function v19DrawSkillShots(ctx) {
     ctx.restore();
   }
 
-  // Vẽ Đạn Tuyệt Kỹ Anime (Hư Thức: Tử, Kamehameha, Rasenshuriken, Sấm Sét 100.000V, Nắm Đấm Nghiêm Túc):
   for (const s of G.skillShots) {
     ctx.save();
     ctx.translate(s.x, s.y);
@@ -403,7 +391,552 @@ function v19DrawSkillShots(ctx) {
 }
 
 // ============================================================================
-// 3. KẾT NỐI MẠNG 30HZ & CHỐNG NHÂN ĐÔI NHÂN VẬT KHI ĐỔI MẠNG
+// 3. ĐÓNG GÓI ĐẦY ĐỦ HỆ THỐNG QUỶ DỊ (ANOMALIES) NGAY TRONG PHẦN 1
+//    (Đảm bảo render() -> drawTraps() luôn có sẵn v16DrawAnomalies!)
+// ============================================================================
+function v16InitAnomalies(L) {
+  if (!L) return;
+  L.anomalies = L.anomalies || {
+    doppels: [],
+    hands: [],
+    ghosts: [],
+    spitters: [],
+    floorMaws: [],
+  };
+  const seed = (G.lvIdx + 1) * 97 + (G.deaths + 1) * 31;
+
+  (L.coins || []).forEach((c, idx) => {
+    const cid = 'coin_' + G.mode + '_' + G.lvIdx + '_' + idx;
+    const nearLaser = (L.lasers || []).some((ls) => Math.abs(ls.x - c.x) < 220);
+    if (
+      G.cursedConsumed.has(cid) ||
+      curPassive === 'wraith' ||
+      curPassive === 'limitless' ||
+      nearLaser
+    ) {
+      c.anomaly = 0;
+      c.trig = false;
+      return;
+    }
+    const h = hash1(seed + idx * 17.3);
+    c.anomaly = h < 0.78 ? 0 : 1 + (Math.floor(h * 100) % 5);
+    c.cid = cid;
+    c.trig = false;
+    c.x0 = c.x0 || c.x;
+    c.y0 = c.y0 || c.y;
+    c.x = c.x0;
+    c.y = c.y0;
+  });
+
+  (L.springs || []).forEach((sp, idx) => {
+    const sid = 'spr_' + G.mode + '_' + G.lvIdx + '_' + idx;
+    if (sp.x0 === undefined) sp.x0 = sp.x;
+    sp.x = sp.x0;
+    sp.sid = sid;
+    sp.cursed = !G.cursedConsumed.has(sid) && hash1(seed + idx * 29.1) > 0.55;
+    sp.dodged = false;
+  });
+
+  L.anomalies.floorMaws = [];
+  for (let i = 0; i < (L.solids || []).length; i++) {
+    const s = L.solids[i];
+    if (s.bonk || s.isVehicle || s[2] < 420 || s[3] < 90) continue;
+    const mid = 'maw_' + G.mode + '_' + G.lvIdx + '_' + i;
+    if (!G.cursedConsumed.has(mid) && hash1(seed + i * 41.7) > 0.65) {
+      L.anomalies.floorMaws.push({
+        id: mid,
+        x: s[0] + s[2] * 0.55,
+        y: s[1],
+        open: 0,
+        st: 0,
+      });
+    }
+  }
+
+  L.anomalies.doppels = [];
+  L.anomalies.hands = [];
+  const ghostId = 'ghost_' + G.mode + '_' + G.lvIdx;
+  L.anomalies.ghosts = [];
+  if (!G.cursedConsumed.has(ghostId) && L.w > 1800 && (G.lvIdx + G.deaths) % 2 === 0) {
+    L.anomalies.ghosts.push({ id: ghostId, x: 520, y: GY - 140, frozen: false });
+  }
+
+  L.anomalies.spitters = [];
+  if (L.biome === 'toxic') {
+    for (const s of L.solids || []) {
+      if (s.bonk || s.isVehicle || s[2] < 320 || s[3] < 90) continue;
+      L.anomalies.spitters.push({
+        x: s[0] + s[2] * 0.5,
+        y: s[1] - 18,
+        t: (s[0] * 0.01) % 2.5,
+        glob: null,
+      });
+    }
+  }
+}
+
+function v16SpawnDoppelganger(L, me, fx, fy, flagIdx) {
+  if (!L || !me) return;
+  const did = 'doppel_' + G.mode + '_' + G.lvIdx + '_' + flagIdx;
+  if (G.cursedConsumed.has(did)) return;
+  let fakeName = 'Bóng Ma ' + (G.myName || 'Bunny');
+  let fakeSlot = (me.slot + 1) % 10;
+  let fakeSkin = Save.equipped();
+  if (G.remotes.size > 0) {
+    const arr = [...G.remotes.values()];
+    const pick = arr[flagIdx % arr.length];
+    fakeSlot = pick.slot;
+    fakeName = G.names[pick.slot] || 'Đồng đội';
+    fakeSkin = G.skins[pick.slot] || 'classic';
+  }
+  L.anomalies = L.anomalies || {
+    doppels: [],
+    hands: [],
+    ghosts: [],
+    spitters: [],
+    floorMaws: [],
+  };
+  L.anomalies.doppels.push({
+    id: did,
+    x: fx - 48,
+    y: fy - PH,
+    face: 1,
+    slot: fakeSlot,
+    name: fakeName,
+    skin: fakeSkin,
+    age: 0,
+    evil: false,
+    life: 5.2,
+  });
+}
+
+function v16UpdateAnomalies() {
+  const L = G.L;
+  const me = G.me;
+  if (!L || !me || me.dead || G.won) return;
+  const A = L.anomalies;
+  if (!A) return;
+  const cx = me.x + PW / 2;
+  const cy = me.y + PH / 2;
+  const feet = me.y + PH;
+  const immune =
+    curPassive === 'antidote' ||
+    curPassive === 'wraith' ||
+    curPassive === 'kurama' ||
+    curPassive === 'limitless' ||
+    curPassive === 'nika' ||
+    curPassive === 'saiyan' ||
+    curPassive === 'onepunch';
+
+  for (const sp of L.springs || []) {
+    if (
+      sp.cursed &&
+      !sp.dodged &&
+      !me.onGround &&
+      Math.abs(cx - (sp.x + sp.w / 2)) < 68 &&
+      feet < sp.y + 10 &&
+      feet > sp.y - 110
+    ) {
+      sp.dodged = true;
+      G.cursedConsumed.add(sp.sid);
+      sp.x += cx < sp.x + sp.w / 2 ? 42 : -42;
+      Snd.pop();
+    }
+  }
+
+  for (const mw of A.floorMaws || []) {
+    const dist = Math.abs(cx - mw.x);
+    if (mw.st === 0 && dist < 72 && Math.abs(feet - mw.y) < 35) {
+      mw.st = 1;
+      mw.t = 0.9;
+      Snd.shake();
+    } else if (mw.st === 1) {
+      mw.t -= STEP;
+      mw.open = Math.sin(clamp(1 - mw.t / 0.9, 0, 1) * Math.PI);
+      if (mw.open > 0.55 && dist < 34 && Math.abs(feet - mw.y) < 18) {
+        G.cursedConsumed.add(mw.id);
+        die('floor_maw');
+        return;
+      }
+      if (mw.t <= 0) {
+        mw.st = 2;
+        mw.open = 0;
+        G.cursedConsumed.add(mw.id);
+      }
+    }
+  }
+
+  for (const c of L.coins || []) {
+    if (c.got || !c.anomaly) continue;
+    const d = Math.hypot(cx - c.x, cy - c.y);
+    if (c.anomaly === 1) {
+      if (!c.trig && d < 88) {
+        c.trig = true;
+        Snd.grab();
+      }
+      if (c.trig) {
+        c.x += ((cx - c.x) / Math.max(1, d)) * 4.7;
+        c.y += ((cy - c.y) / Math.max(1, d)) * 4.7;
+        if (d < 22) {
+          G.cursedConsumed.add(c.cid);
+          die('mimic_coin');
+          return;
+        }
+      }
+    } else if (c.anomaly === 2 && d < 75) {
+      c.x += Math.sign(c.x - cx) * 4.5;
+      c.y -= 1.2;
+    } else if (d < 28) {
+      c.got = true;
+      c.pop = 0.5;
+      G.cursedConsumed.add(c.cid);
+      if (!immune) {
+        if (c.anomaly === 3) {
+          me.vy = 12;
+          me.heavyT = 2.2;
+          Snd.slam();
+        } else if (c.anomaly === 4) {
+          me.rev = 2.6;
+          Snd.shake();
+        } else if (c.anomaly === 5) {
+          L.stalactites.push({
+            x: cx - 17,
+            y: me.y - 260,
+            w: 34,
+            h: 66,
+            st: 2,
+            t: 0,
+            fy: 0,
+            vy: 9,
+            gnd: feet + 40,
+            dyn: true,
+          });
+        }
+      }
+    }
+  }
+  if (me.heavyT > 0) {
+    me.heavyT -= STEP;
+    me.vy += GRAV * 0.85;
+  }
+
+  for (let i = (A.doppels || []).length - 1; i >= 0; i--) {
+    const dp = A.doppels[i];
+    dp.age += STEP;
+    dp.life -= STEP;
+    if (dp.life <= 0) {
+      puff(dp.x + PW / 2, dp.y + PH / 2, 10, '#7209b7', 1.2);
+      A.doppels.splice(i, 1);
+      continue;
+    }
+    const dx = cx - (dp.x + PW / 2);
+    const dy = cy - (dp.y + PH / 2);
+    const dist = Math.max(1, Math.hypot(dx, dy));
+    dp.face = dx >= 0 ? 1 : -1;
+    if (dp.age < 1.65) {
+      dp.x += clamp((me.x - me.face * 42 - dp.x) * 0.12, -4.5, 4.5);
+      dp.y += (me.y - dp.y) * 0.18;
+    } else {
+      if (!dp.evil) {
+        dp.evil = true;
+        Snd.shake();
+        sparkle(dp.x + PW / 2, dp.y + PH / 2, 14, 1.4, '#ff0055');
+      }
+      dp.x += (dx / dist) * 5.2;
+      dp.y += (dy / dist) * 4.1;
+      if (dist < 24) {
+        G.cursedConsumed.add(dp.id);
+        die('doppelganger');
+        return;
+      }
+    }
+  }
+
+  for (let i = (A.ghosts || []).length - 1; i >= 0; i--) {
+    const gh = A.ghosts[i];
+    const dx = cx - gh.x;
+    const dy = cy - gh.y;
+    const dist = Math.max(1, Math.hypot(dx, dy));
+    if (dist > 750) continue;
+    gh.frozen = (dx > 0 && me.face < 0) || (dx < 0 && me.face > 0);
+    if (!gh.frozen) {
+      gh.x += (dx / dist) * 3.85;
+      gh.y += (dy / dist) * 3.1;
+      if (dist < 24) {
+        G.cursedConsumed.add(gh.id);
+        die('weeping_ghost');
+        return;
+      }
+    }
+  }
+
+  const handKey = 'hand_' + G.mode + '_' + G.lvIdx + '_' + Math.floor(cx / 300);
+  if (
+    me.onGround &&
+    Math.abs(me.vx) < 0.3 &&
+    !immune &&
+    !G.cursedConsumed.has(handKey) &&
+    cx > 300
+  ) {
+    me.idleT = (me.idleT || 0) + STEP;
+    if (me.idleT > 1.05) {
+      me.idleT = 0;
+      A.hands.push({ id: handKey, x: cx, y: feet, t: 0, dur: 0.75 });
+      Snd.shake();
+    }
+  } else {
+    me.idleT = 0;
+  }
+
+  for (let i = (A.hands || []).length - 1; i >= 0; i--) {
+    const hd = A.hands[i];
+    hd.t += STEP;
+    if (
+      hd.t > 0.28 &&
+      hd.t < 0.62 &&
+      Math.abs(cx - hd.x) < 22 &&
+      Math.abs(feet - hd.y) < 34
+    ) {
+      G.cursedConsumed.add(hd.id);
+      die('abyss_hand');
+      return;
+    }
+    if (hd.t >= hd.dur) A.hands.splice(i, 1);
+  }
+
+  for (const sp of A.spitters || []) {
+    sp.t += STEP;
+    if (sp.t >= 2.5 && Math.abs(cx - sp.x) < 480) {
+      sp.t = 0;
+      sp.glob = {
+        x: sp.x,
+        y: sp.y - 16,
+        vx: clamp((cx - sp.x) * 0.017, -5.2, 5.2),
+        vy: -8.0,
+      };
+    }
+    if (sp.glob) {
+      const g = sp.glob;
+      g.x += g.vx;
+      g.y += g.vy;
+      g.vy += GRAV * 0.55;
+      if (Math.hypot(cx - g.x, cy - g.y) < 20 && !immune) {
+        die('toxic_acid');
+        return;
+      }
+      if (g.y > WORLD_H) sp.glob = null;
+    }
+  }
+}
+
+function v16DrawAnomalies(L) {
+  if (!L || !L.anomalies) return;
+  const A = L.anomalies;
+  const T = G.lt;
+  for (const mw of A.floorMaws || []) {
+    if (mw.open <= 0.02) continue;
+    const w = 44 * mw.open;
+    ctx.save();
+    ctx.fillStyle = '#090101';
+    ctx.strokeStyle = '#ff0055';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(mw.x - w, mw.y);
+    ctx.lineTo(mw.x, mw.y + 48 * mw.open);
+    ctx.lineTo(mw.x + w, mw.y);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+  }
+  for (const dp of A.doppels || []) {
+    drawBunny(dp.x, dp.y, {
+      slot: dp.slot,
+      skin: dp.skin,
+      face: dp.face,
+      vx: 3,
+      vy: 0,
+      ground: true,
+      runT: T * 5,
+      name: dp.evil ? '👹 ' + dp.name : dp.name,
+    });
+  }
+  for (const gh of A.ghosts || []) {
+    ctx.save();
+    ctx.translate(gh.x, gh.y + Math.sin(T * 5) * 5);
+    ctx.fillStyle = gh.frozen ? 'rgba(148,163,184,.65)' : 'rgba(244,63,94,.88)';
+    ctx.strokeStyle = '#0f172a';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.arc(0, -6, 18, Math.PI, 0);
+    ctx.lineTo(18, 18);
+    ctx.lineTo(9, 12);
+    ctx.lineTo(0, 18);
+    ctx.lineTo(-9, 12);
+    ctx.lineTo(-18, 18);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = gh.frozen ? '#334155' : '#ffeb3b';
+    ctx.beginPath();
+    ctx.arc(-6, -6, 3.5, 0, 6.3);
+    ctx.arc(6, -6, 3.5, 0, 6.3);
+    ctx.fill();
+    ctx.restore();
+  }
+  for (const hd of A.hands || []) {
+    const reach = Math.sin(clamp(hd.t / hd.dur, 0, 1) * Math.PI) * 52;
+    ctx.save();
+    ctx.fillStyle = '#0f172a';
+    ctx.strokeStyle = '#ff0055';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(hd.x - 14, hd.y);
+    ctx.lineTo(hd.x - 10, hd.y - reach);
+    ctx.lineTo(hd.x, hd.y - reach - 10);
+    ctx.lineTo(hd.x + 10, hd.y - reach);
+    ctx.lineTo(hd.x + 14, hd.y);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    ctx.restore();
+  }
+  for (const sp of A.spitters || []) {
+    ctx.save();
+    ctx.fillStyle = '#7209b7';
+    ctx.strokeStyle = '#081c15';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.arc(sp.x, sp.y + 10, 18, Math.PI, 0);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = '#80ed99';
+    ctx.beginPath();
+    ctx.arc(sp.x, sp.y - 2, 6, 0, 6.3);
+    ctx.fill();
+    if (sp.glob) {
+      ctx.fillStyle = '#80ed99';
+      ctx.strokeStyle = '#1b4332';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(sp.glob.x, sp.glob.y, 9, 0, 6.3);
+      ctx.fill();
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
+function v15RandomizeTrapsOnDeath(L) {
+  if (!L) return;
+  G.chaosSeed = (G.chaosSeed * 1664525 + 1013904223) >>> 0;
+  const rng = (k) => hash1(G.chaosSeed * 0.0001 + k * 13.37);
+  for (let i = 0; i < (L.bonks || []).length; i++) {
+    const bk = L.bonks[i];
+    if (bk.baseX === undefined) bk.baseX = bk.x;
+    if (!bk.rev) {
+      bk.x = bk.baseX + Math.round((rng(i) - 0.5) * 34);
+      const s = L.solids.find((q) => q.bonk === bk);
+      if (s) s[0] = bk.x;
+    }
+  }
+  for (let i = 0; i < (L.traps || []).length; i++) {
+    const t = L.traps[i];
+    if (t.k === 'fake' && t.allPos && t.realPlate) {
+      const pick = Math.floor(rng(i + 77) * t.allPos.length) % t.allPos.length;
+      t.realPlate.x = t.allPos[pick];
+      let fi = 0;
+      for (let j = 0; j < t.allPos.length; j++) {
+        if (j === pick) continue;
+        if (t.plates[fi]) {
+          t.plates[fi].x = t.allPos[j];
+          t.plates[fi].used = false;
+          fi++;
+        }
+      }
+    } else if (t.k === 'sled') {
+      t.x = t.x0;
+      t.vx = 0;
+      t.st = 0;
+      t.wait = 0;
+    } else if (t.k === 'syncgate' || t.k === 'skygate') {
+      t.open = false;
+      if (L.gates[t.gi]) L.gates[t.gi].act = false;
+    } else if (t.k === 'double_bluff' || t.k === 'shift_ledge') {
+      t.st = 0;
+      t.t = 0;
+      t.cur = 0;
+      if (L.solids[t.si]) L.solids[t.si][0] = t.baseX;
+      if (t.topSpk) {
+        t.topSpk.x = t.baseX + 115;
+        t.topSpk.hid = true;
+        t.topSpk.live = false;
+        t.topSpk.ph = 0;
+      }
+    } else if (t.k === 'swap_pad') {
+      t.used = false;
+    }
+  }
+  v16InitAnomalies(L);
+}
+
+function initV11Level(L) {
+  if (!L) return;
+  L.slopes = L.slopes || [];
+  L.bonks = L.bonks || [];
+  L.rocks = L.rocks || [];
+  L.portals = L.portals || [];
+  L.sharks = L.sharks || [];
+  L.gravZones = L.gravZones || [];
+  L.decoys = L.decoys || [];
+  L.lasers = L.lasers || [];
+  L.blackHoles = L.blackHoles || [];
+  L.mimics = L.mimics || [];
+  L.conveyors = L.conveyors || [];
+  L.pendulums = L.pendulums || [];
+  L.turrets = L.turrets || [];
+  L.phantoms = L.phantoms || [];
+  L.solids = L.solids.filter((s) => !s.bonk);
+  L.bonks.forEach((bk, i) => {
+    bk.i = i;
+    if (bk.rev === undefined) bk.rev = false;
+    bk.sh = 0;
+    const r = [bk.x, bk.y, bk.w, bk.h];
+    r.bonk = bk;
+    L.solids.push(r);
+  });
+  L.rocks.forEach((r) => {
+    r.cyc = -1;
+  });
+  const k = L.key;
+  if (k && k.run) {
+    if (k.hx === undefined) {
+      k.hx = k.x;
+      k.hy = k.y;
+    }
+    k.x = k.hx;
+    k.y = k.hy;
+    k.vx = 0;
+    k.vy = 0;
+    k.fl = 0;
+    k.t = 0;
+    k.tx = k.x;
+    k.ty = k.y;
+    k.arc = null;
+    k.cool = 0;
+    const R = k.run;
+    L.decoys = [
+      { x: R.x0 + 130, y: R.gy - 125, boom: false },
+      { x: R.x1 - 130, y: R.gy - 125, boom: false },
+    ];
+  }
+  v16InitAnomalies(L);
+}
+// === KẾT THÚC PHẦN 1 / 3 — NHẮN "TIẾP" ĐỂ LẤY PHẦN 2 / 3 DÁN NGAY DƯỚI DÒNG NÀY ===
+// === BẮT ĐẦU PHẦN 2 / 3 — DÁN NỐI TIẾP NGAY DƯỚI DÒNG CUỐI CỦA PHẦN 1 / 3 ===
+
+// ============================================================================
+// 4. ĐỒNG BỘ MẠNG 30HZ, XỬ LÝ SỰ KIỆN BẪY & CỬA HÀNG CAO CẤP (×1 / ×10 / ×100)
 // ============================================================================
 const V18_CID = (() => {
   let id = '';
@@ -557,9 +1090,6 @@ function stepRemotes() {
   }
 }
 
-// ============================================================================
-// 4. CỬA HÀNG CAO CẤP + CỜ MỞ ĐƯỜNG QUA VỰC (#6) + NÚT BIẾN HÌNH TRÊN ĐIỆN THOẠI
-// ============================================================================
 SKY_CFG.toxic = {
   stops: [
     [0, '#071c15'],
@@ -639,12 +1169,16 @@ BUFF_KEYS.Numpad6 = 'warpflag';
     aw.style.color = '#fff';
     aw.textContent = '🔥';
     aw.title = 'Biến Hình Thức Tỉnh Anime (PC: Phím F hoặc Shift)';
-    aw.addEventListener('touchstart', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      Snd.init();
-      v19ToggleAwaken(true);
-    }, { passive: false });
+    aw.addEventListener(
+      'touchstart',
+      (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        Snd.init();
+        v19ToggleAwaken(true);
+      },
+      { passive: false }
+    );
     aw.addEventListener('mousedown', (e) => {
       e.preventDefault();
       e.stopPropagation();
@@ -956,8 +1490,6 @@ buyBuff = function (id, qty) {
     true
   );
 })();
-// === KẾT THÚC PHẦN 1 / 3 — NHẮN "TIẾP" ĐỂ LẤY PHẦN 2 / 3 DÁN NGAY DƯỚI DÒNG NÀY ===
-// === BẮT ĐẦU PHẦN 2 / 3 — DÁN NỐI TIẾP NGAY DƯỚI DÒNG CUỐI CỦA PHẦN 1 / 3 ===
 
 // ============================================================================
 // 5. BỘ VẼ CHIBI ANIME ĐỘ PHÂN GIẢI CAO (CHUẨN TỈ LỆ 2 ẢNH MẪU: THƯỜNG & THỨC TỈNH)
@@ -967,7 +1499,6 @@ function drawChibiProportions(ctx, bob, ph, run, air, T, cfg) {
   const fy = air ? -3.5 : -1.2;
   const breath = Math.sin(T * 4.5) * 0.6;
 
-  // 1. Đôi giày / dép Chibi
   ctx.fillStyle = cfg.shoe || '#0f172a';
   ctx.strokeStyle = '#090d16';
   ctx.lineWidth = 2;
@@ -977,13 +1508,11 @@ function drawChibiProportions(ctx, bob, ph, run, air, T, cfg) {
   ctx.fill();
   ctx.stroke();
 
-  // 2. Quần nhân vật
   ctx.fillStyle = cfg.pants || '#1e293b';
   rr(-11.5, -13.5 + bob, 23, 12 - bob * 0.3, 5.5);
   ctx.fill();
   ctx.stroke();
 
-  // 3. Thân áo (Có đổ bóng 3D & hiệu ứng thở nhẹ)
   const bg = ctx.createLinearGradient(0, -27 + bob, 0, -11 + bob);
   bg.addColorStop(0, cfg.shirtHi || cfg.shirt || '#334155');
   bg.addColorStop(1, cfg.shirt || '#1e293b');
@@ -992,7 +1521,6 @@ function drawChibiProportions(ctx, bob, ph, run, air, T, cfg) {
   ctx.fill();
   ctx.stroke();
 
-  // 4. Đai lưng (nếu có)
   if (cfg.belt) {
     ctx.fillStyle = cfg.belt;
     ctx.fillRect(-12, -14.5 + bob, 24, 3.4);
@@ -1003,7 +1531,6 @@ function drawChibiFace(ctx, bob, T, cfg) {
   const breath = Math.sin(T * 4.5) * 0.5;
   const hy = -44.5 + bob + breath;
 
-  // Đầu Chibi to tròn cân đối với má phúng phính (Tỉ lệ chuẩn ảnh mẫu)
   const fg = ctx.createRadialGradient(-3, hy + 7, 2, 0, hy + 10, 18);
   fg.addColorStop(0, cfg.skinHi || '#fff5eb');
   fg.addColorStop(1, cfg.skin || '#ffe0c8');
@@ -1014,7 +1541,6 @@ function drawChibiFace(ctx, bob, T, cfg) {
   ctx.fill();
   ctx.stroke();
 
-  // Hai tai người nhỏ xinh hai bên thái dương
   ctx.fillStyle = cfg.skin || '#ffe0c8';
   ctx.beginPath();
   ctx.arc(-14.5, hy + 11.5, 3.2, 0, 6.3);
@@ -1023,7 +1549,6 @@ function drawChibiFace(ctx, bob, T, cfg) {
   ctx.stroke();
 
   if (cfg.baldFacial) {
-    // KHUÔN MẶT SAITAMA: Dạng thường (Mắt chấm tròn ngơ ngác) vs Dạng Nghiêm Túc (Mắt trắng sắc lạnh!)
     if (!cfg.awakened) {
       ctx.fillStyle = '#0f172a';
       ctx.beginPath();
@@ -1040,7 +1565,6 @@ function drawChibiFace(ctx, bob, T, cfg) {
       ctx.lineTo(7.5, hy + 15.5);
       ctx.stroke();
     } else {
-      // Khuôn mặt Serious Mode (Ảnh 4): Lông mày nhíu chặt, mắt sắc trắng rực, gân trán & đường đổ bóng sống mũi!
       ctx.fillStyle = '#ffffff';
       ctx.strokeStyle = '#0f172a';
       ctx.lineWidth = 2;
@@ -1068,7 +1592,6 @@ function drawChibiFace(ctx, bob, T, cfg) {
       ctx.arc(8.8, hy + 11.4, 1.1, 0, 6.3);
       ctx.fill();
 
-      // Đường bóng đổ sắc lạnh trên trán & sống mũi Saitama
       ctx.strokeStyle = '#0f172a';
       ctx.lineWidth = 2.2;
       ctx.beginPath();
@@ -1084,7 +1607,6 @@ function drawChibiFace(ctx, bob, T, cfg) {
     return;
   }
 
-  // Đôi mắt Anime Chibi tiêu chuẩn
   if (!cfg.hideEyes) {
     ctx.fillStyle = '#ffffff';
     ctx.beginPath();
@@ -1121,7 +1643,6 @@ function drawChibiFace(ctx, bob, T, cfg) {
     ctx.stroke();
   }
 
-  // Miệng cười lớn (Luffy Gear 5) hoặc miệng mỉm cười tự tin
   ctx.strokeStyle = '#1e293b';
   ctx.lineWidth = 1.6;
   if (cfg.bigLaugh) {
@@ -1140,9 +1661,7 @@ function drawChibiFace(ctx, bob, T, cfg) {
   }
 }
 
-// ----------------------------------------------------------------------------
-// 1. SATORU GOJO (25.000 XU + 350 KIM CƯƠNG — SKIN ĐẮT & MẠNH NHẤT GAME)
-// ----------------------------------------------------------------------------
+// 1. SATORU GOJO (25.000 XU + 350 KIM CƯƠNG — HIẾM & MẠNH NHẤT)
 TB_RegisterSkin({
   id: 'gojo',
   tier: 'transcendent',
@@ -1173,7 +1692,6 @@ TB_RegisterSkin({
     const awk = !!(P && (P.awakened || P.purpleFx > 0));
     const hy = -44.5 + bob + Math.sin(T * 4.5) * 0.5;
 
-    // Hào quang Vô Hạ Hạn + Sét Đỏ-Xanh khi Thức Tỉnh (Chuẩn Ảnh 4)
     const ag = ctx.createRadialGradient(0, -24 + bob, 4, 0, -24 + bob, awk ? 42 : 32);
     ag.addColorStop(0, awk ? 'rgba(192,132,252,.55)' : 'rgba(56,189,248,.38)');
     ag.addColorStop(0.6, 'rgba(56,189,248,.18)');
@@ -1183,7 +1701,6 @@ TB_RegisterSkin({
     ctx.arc(0, -24 + bob, awk ? 42 : 32, 0, 6.3);
     ctx.fill();
 
-    // Thân áo cao chuyên Chú Thuật Sư đen tím than có 4 cúc vàng dọc giữa ngực (Chuẩn Ảnh 3)
     drawChibiProportions(ctx, bob, ph, run, air, T, {
       shoe: '#090d16',
       pants: '#0f172a',
@@ -1197,7 +1714,6 @@ TB_RegisterSkin({
       ctx.fill();
     }
 
-    // Đầu Gojo + Cổ áo cao
     drawChibiFace(ctx, bob, T, {
       skin: '#fff1e6',
       eye: '#00f5d4',
@@ -1213,7 +1729,6 @@ TB_RegisterSkin({
     ctx.stroke();
 
     if (!awk) {
-      // DẠNG THƯỜNG (Ảnh 3): Băng bịt mắt đen với 2 tròng sáng xanh Cyan phát quang
       ctx.fillStyle = '#090d16';
       rr(-14.5, hy + 6.5, 29, 8.2, 3.5);
       ctx.fill();
@@ -1227,7 +1742,6 @@ TB_RegisterSkin({
       ctx.fill();
       ctx.shadowBlur = 0;
     } else {
-      // DẠNG THỨC TỈNH (Ảnh 4): Mở băng bịt mắt lộ đôi mắt Lục Nhãn (Six Eyes) rực sáng & tia chớp!
       ctx.fillStyle = '#00f5d4';
       ctx.shadowColor = '#38bdf8';
       ctx.shadowBlur = 12;
@@ -1238,7 +1752,6 @@ TB_RegisterSkin({
       ctx.shadowBlur = 0;
     }
 
-    // Mái tóc trắng bạc nhiều lớp chỉa nhọn (Chuẩn Ảnh 3 & 4)
     ctx.fillStyle = '#f8fafc';
     ctx.strokeStyle = '#94a3b8';
     ctx.lineWidth = 2;
@@ -1258,7 +1771,6 @@ TB_RegisterSkin({
     ctx.fill();
     ctx.stroke();
 
-    // Các quả cầu Thương (Xanh), Hách (Đỏ) và Tử (Tím) lơ lửng hai bên (Chuẩn Ảnh 3 & 4)
     const bobOrb = Math.sin(T * 6) * 2.5;
     ctx.fillStyle = '#ef4444';
     ctx.beginPath();
@@ -1269,7 +1781,6 @@ TB_RegisterSkin({
     ctx.arc(-18, -17 + bob - bobOrb, 4.5, 0, 6.3);
     ctx.fill();
 
-    // Quả cầu Hư Thức: Tử (Hollow Purple) xoáy tím trên tay phải
     const pR = awk ? 9.5 + Math.sin(T * 25) * 1.5 : 5.5;
     const pg = ctx.createRadialGradient(18, -19 + bob, 1, 18, -19 + bob, pR * 1.4);
     pg.addColorStop(0, '#ffffff');
@@ -1281,7 +1792,6 @@ TB_RegisterSkin({
     ctx.arc(18, -19 + bob, pR * 1.4, 0, 6.3);
     ctx.fill();
 
-    // Tia chớp Đỏ & Xanh phóng quanh người khi Thức Tỉnh (Ảnh 4)
     if (awk && Math.floor(T * 18) % 2 === 0) {
       ctx.strokeStyle = '#ef4444';
       ctx.lineWidth = 2;
@@ -1311,9 +1821,7 @@ TB_RegisterSkin({
   },
 });
 
-// ----------------------------------------------------------------------------
 // 2. SON GOKU (15.000 XU + 220 KIM CƯƠNG — BASE <-> MASTERED ULTRA INSTINCT)
-// ----------------------------------------------------------------------------
 TB_RegisterSkin({
   id: 'goku',
   tier: 'supreme',
@@ -1344,7 +1852,6 @@ TB_RegisterSkin({
     const mui = !!(P && (P.awakened || (P.gokuForm || 0) >= 3));
     const hy = -44.5 + bob + Math.sin(T * 4.5) * 0.5;
 
-    // Hào quang Ngân Hà Bản Năng Vô Cực (Xanh - Tím - Bạc lấp lánh như Ảnh 4)
     const rA = mui ? 38 + Math.sin(T * 24) * 4 : 28;
     const ag = ctx.createRadialGradient(0, -24 + bob, 4, 0, -24 + bob, rA);
     if (mui) {
@@ -1361,7 +1868,6 @@ TB_RegisterSkin({
     ctx.arc(0, -24 + bob, rA, 0, 6.3);
     ctx.fill();
 
-    // Võ phục Kame cam, áo lót xanh dương, băng cổ tay xanh & đai lưng xanh (Chuẩn Ảnh 3 & 4)
     drawChibiProportions(ctx, bob, ph, run, air, T, {
       shoe: '#1e3a8a',
       pants: '#ea580c',
@@ -1386,7 +1892,6 @@ TB_RegisterSkin({
       serious: true,
     });
 
-    // Mái tóc Goku chuẩn thiết kế (Ảnh 3: Tóc đen chỉa 2 bên; Ảnh 4: Tóc bạc dựng cao ánh kim)
     ctx.fillStyle = hairCol;
     ctx.strokeStyle = mui ? '#64748b' : '#000000';
     ctx.lineWidth = 2.2;
@@ -1434,9 +1939,7 @@ TB_RegisterSkin({
   },
 });
 
-// ----------------------------------------------------------------------------
 // 3. LUFFY (14.000 XU + 200 KIM CƯƠNG — DẠNG THƯỜNG MŨ RƠM <-> GEAR 5 THẦN NIKA)
-// ----------------------------------------------------------------------------
 TB_RegisterSkin({
   id: 'luffy',
   tier: 'supreme',
@@ -1468,7 +1971,6 @@ TB_RegisterSkin({
     const hy = -44.5 + bob + Math.sin(T * 4.5) * 0.5;
 
     if (!gear5) {
-      // DẠNG THƯỜNG (Chuẩn Ảnh 3): Quần short xanh, đai vàng, áo ghi-lê đỏ mở ngực chữ X, đội Nón Rơm trên đầu!
       drawChibiProportions(ctx, bob, ph, run, air, T, {
         shoe: '#78350f',
         pants: '#1d4ed8',
@@ -1476,7 +1978,6 @@ TB_RegisterSkin({
         shirt: '#dc2626',
         belt: '#facc15',
       });
-      // Ngực trần ở giữa áo ghi-lê đỏ + Sẹo chữ X
       ctx.fillStyle = '#ffe0c8';
       ctx.fillRect(-3.5, -26 + bob, 9, 11);
       ctx.strokeStyle = '#b91c1c';
@@ -1493,7 +1994,6 @@ TB_RegisterSkin({
         eye: '#0f172a',
         brow: '#0f172a',
       });
-      // Vết sẹo khâu dưới mắt trái Luffy
       ctx.strokeStyle = '#7f1d1d';
       ctx.lineWidth = 1.3;
       ctx.beginPath();
@@ -1501,7 +2001,6 @@ TB_RegisterSkin({
       ctx.lineTo(12, hy + 14.5);
       ctx.stroke();
 
-      // Tóc đen lòa xòa dưới vành mũ
       ctx.fillStyle = '#0f172a';
       ctx.beginPath();
       ctx.moveTo(-14, hy + 6);
@@ -1511,7 +2010,6 @@ TB_RegisterSkin({
       ctx.lineTo(14, hy + 6);
       ctx.fill();
 
-      // Chiếc Nón Rơm đội trên đỉnh đầu (Ảnh 3)
       ctx.fillStyle = '#eab308';
       ctx.strokeStyle = '#78350f';
       ctx.lineWidth = 2.2;
@@ -1526,7 +2024,6 @@ TB_RegisterSkin({
       ctx.fillStyle = '#dc2626';
       ctx.fillRect(-13, hy - 2.5, 26, 3.5);
     } else {
-      // DẠNG THỨC TỈNH GEAR 5 NIKA (Chuẩn Ảnh 4): Dải khói mây trắng, nón rơm đeo lưng, quần áo trắng đai tím, tóc mây trắng & miệng cười lớn!
       ctx.fillStyle = 'rgba(255,255,255,.95)';
       ctx.strokeStyle = '#c084fc';
       ctx.lineWidth = 1.8;
@@ -1539,7 +2036,6 @@ TB_RegisterSkin({
         ctx.fill();
         ctx.stroke();
       }
-      // Nón rơm đeo sau lưng
       ctx.fillStyle = '#facc15';
       ctx.strokeStyle = '#854d0e';
       ctx.lineWidth = 2;
@@ -1562,7 +2058,6 @@ TB_RegisterSkin({
         bigLaugh: true,
       });
 
-      // Tóc mây trắng xoăn bồng bềnh
       ctx.fillStyle = '#ffffff';
       ctx.strokeStyle = '#a855f7';
       ctx.lineWidth = 2;
@@ -1579,7 +2074,6 @@ TB_RegisterSkin({
         ctx.stroke();
       });
 
-      // Sét vàng-đen Haki Bá Vương
       if (Math.floor(T * 16) % 2 === 0) {
         ctx.strokeStyle = '#facc15';
         ctx.lineWidth = 2.5;
@@ -1604,9 +2098,7 @@ TB_RegisterSkin({
   },
 });
 
-// ----------------------------------------------------------------------------
 // 4. SAITAMA (12.000 XU + 180 KIM CƯƠNG — MẶT NGƠ NGÁC -> TỰ ĐỘNG NGHIÊM TÚC KHI CHẾT >= 1 LẦN)
-// ----------------------------------------------------------------------------
 TB_RegisterSkin({
   id: 'saitama',
   tier: 'supreme',
@@ -1637,7 +2129,6 @@ TB_RegisterSkin({
     const serious = !!(P && (P.awakened || G.deaths >= 1 || P.punchFxT > 0));
     const hy = -44.5 + bob + Math.sin(T * 4.5) * 0.5;
 
-    // Áo choàng trắng: Dạng thường rủ gọn gàng (Ảnh 3); Dạng Nghiêm Túc phồng lớn tung bay dữ dội (Ảnh 4)
     const wave = Math.sin(T * 12) * (serious ? 8 : 3) + Math.min(16, Math.abs(vx) * 2.6);
     ctx.fillStyle = '#f8fafc';
     ctx.strokeStyle = '#475569';
@@ -1657,7 +2148,6 @@ TB_RegisterSkin({
     ctx.fill();
     ctx.stroke();
 
-    // Bộ đồ vàng khóa kéo trắng + Thắt lưng đen mặt khóa vàng tròn + Ủng đỏ (Chuẩn Ảnh 3)
     drawChibiProportions(ctx, bob, ph, run, air, T, {
       shoe: '#b91c1c',
       pants: '#eab308',
@@ -1665,7 +2155,6 @@ TB_RegisterSkin({
       shirt: '#eab308',
       belt: '#1e293b',
     });
-    // Khóa kéo trắng trước ngực & Mặt thắt lưng vàng tròn
     ctx.strokeStyle = '#ffffff';
     ctx.lineWidth = 2;
     ctx.beginPath();
@@ -1680,26 +2169,22 @@ TB_RegisterSkin({
     ctx.fill();
     ctx.stroke();
 
-    // Hai khuy tròn giữ áo choàng trên vai
     ctx.fillStyle = '#1e293b';
     ctx.beginPath();
     ctx.arc(-6.5, -25 + bob, 2.6, 0, 6.3);
     ctx.arc(9.5, -25 + bob, 2.6, 0, 6.3);
     ctx.fill();
 
-    // Khuôn mặt đầu trọc Saitama (Tự động đổi từ Ngơ Ngác sang Nghiêm Túc!)
     drawChibiFace(ctx, bob, T, {
       skin: '#ffedd5',
       baldFacial: true,
       awakened: serious,
     });
-    // Ánh sáng phản chiếu trên đỉnh đầu trọc
     ctx.fillStyle = 'rgba(255,255,255,.85)';
     ctx.beginPath();
     ctx.ellipse(-4, hy + 4, 5, 2.4, -0.3, 0, 6.3);
     ctx.fill();
 
-    // Đôi găng tay đỏ đấm bốc
     const punchExt = P && P.punchFxT > 0 ? 14 : 0;
     ctx.fillStyle = '#dc2626';
     ctx.strokeStyle = '#7f1d1d';
@@ -1718,16 +2203,21 @@ TB_RegisterSkin({
       { speed: 16.5, r: 36, col1: '#ef4444', col2: '#facc15', kind: 'punch', life: 1.1 },
       true
     );
-    G.groundShockwaves.push({ x: P.x + PW / 2, y: P.y + PH, r: 15, maxR: 170, col: '#facc15', life: 0.45 });
+    G.groundShockwaves.push({
+      x: P.x + PW / 2,
+      y: P.y + PH,
+      r: 15,
+      maxR: 170,
+      col: '#facc15',
+      life: 0.45,
+    });
     Snd.slam();
     G.shake = Math.max(G.shake, 9);
     toast('🥊 SERIOUS SERIES: SERIOUS PUNCH!');
   },
 });
 
-// ----------------------------------------------------------------------------
 // 5. NARUTO (12.000 XU + 180 KIM CƯƠNG — DẠNG THƯỜNG <-> BARYON / CỬU VĨ KURAMA MODE)
-// ----------------------------------------------------------------------------
 TB_RegisterSkin({
   id: 'naruto',
   tier: 'supreme',
@@ -1759,7 +2249,6 @@ TB_RegisterSkin({
     const hy = -44.5 + bob + Math.sin(T * 4.5) * 0.5;
 
     if (baryon) {
-      // DẠNG THỨC TỈNH BARYON KURAMA (Chuẩn Ảnh 4): 9 Đuôi lửa đỏ-cam đồ sộ bùng cháy phía sau lưng!
       for (let t = -4; t <= 4; t++) {
         const ang = -Math.PI * 0.5 + t * 0.24 + Math.sin(T * 8 + t) * 0.08;
         const tx = Math.cos(ang) * 42;
@@ -1781,7 +2270,6 @@ TB_RegisterSkin({
       }
     }
 
-    // Quần cam, áo khoác cam-đen có sọc đen ngang và khóa kéo trắng giữa ngực (Chuẩn Ảnh 3 & 4)
     drawChibiProportions(ctx, bob, ph, run, air, T, {
       shoe: '#0f172a',
       pants: '#ea580c',
@@ -1804,7 +2292,6 @@ TB_RegisterSkin({
       serious: baryon,
     });
 
-    // 3 vệt râu Cửu Vĩ hai bên má + Viền mắt đen-đỏ khi hóa Baryon (Ảnh 4)
     ctx.strokeStyle = '#451a03';
     ctx.lineWidth = 1.4;
     for (let w = 0; w < 3; w++) {
@@ -1816,7 +2303,6 @@ TB_RegisterSkin({
       ctx.stroke();
     }
 
-    // Băng trán Ninja Làng Lá có tấm kim loại bạc ở giữa (Ảnh 3)
     ctx.fillStyle = '#1e293b';
     rr(-14, hy + 1.5, 28, 5.8, 2);
     ctx.fill();
@@ -1824,7 +2310,6 @@ TB_RegisterSkin({
     rr(-2, hy + 2.2, 12, 4.4, 1.5);
     ctx.fill();
 
-    // Tóc vàng nhọn (Khi hóa Baryon có thêm 2 sừng tai cáo Chakra dựng lên!)
     ctx.fillStyle = '#facc15';
     ctx.strokeStyle = '#ca8a04';
     ctx.lineWidth = 2;
@@ -1842,7 +2327,6 @@ TB_RegisterSkin({
     ctx.fill();
     ctx.stroke();
 
-    // Quả cầu Rasengan xanh xoay tít trên tay phải (Ảnh 4)
     if (baryon) {
       const rg = ctx.createRadialGradient(16, -18 + bob, 1, 16, -18 + bob, 9);
       rg.addColorStop(0, '#ffffff');
@@ -1866,9 +2350,7 @@ TB_RegisterSkin({
   },
 });
 
-// ----------------------------------------------------------------------------
 // 6. PIKACHU (10.000 XU + 150 KIM CƯƠNG — DẠNG THƯỜNG <-> GIGANTAMAX SUPER CHARGED)
-// ----------------------------------------------------------------------------
 TB_RegisterSkin({
   id: 'pikachu',
   tier: 'supreme',
@@ -1898,7 +2380,6 @@ TB_RegisterSkin({
     const P = G.me && o.slot === G.myslot ? G.me : null;
     const gmax = !!(P && (P.awakened || P.zapFx > 0));
 
-    // Đuôi tia chớp vàng lớn (Khi hóa Gigantamax đuôi phát sáng rực rỡ như Ảnh 4)
     ctx.fillStyle = gmax ? '#fef08a' : '#facc15';
     ctx.strokeStyle = '#78350f';
     ctx.lineWidth = 2.2;
@@ -1913,7 +2394,6 @@ TB_RegisterSkin({
     ctx.fill();
     ctx.stroke();
 
-    // Đôi tai vàng dài với chót tai đen
     const earRot = Math.sin(T * 6) * 0.08;
     [
       [-7, -0.35 - earRot],
@@ -1936,7 +2416,6 @@ TB_RegisterSkin({
       ctx.restore();
     });
 
-    // Thân Pikachu vàng mũm mĩm (Chuẩn Ảnh 3 & 4)
     const fo = run ? Math.sin(ph) * 4 : 0;
     ctx.fillStyle = '#eab308';
     ctx.beginPath();
@@ -1954,7 +2433,6 @@ TB_RegisterSkin({
     ctx.fill();
     ctx.stroke();
 
-    // Mắt đen long lanh, miệng chữ 'w' và 2 má đỏ phóng điện
     ctx.fillStyle = '#0f172a';
     ctx.beginPath();
     ctx.arc(2.2, -25 + bob, 3.2, 0, 6.3);
@@ -1967,7 +2445,6 @@ TB_RegisterSkin({
     ctx.fill();
 
     if (gmax) {
-      // Lông mày giận dữ & 3 đám mây đỏ Gigantamax bay quanh vai (Chuẩn Ảnh 4)
       ctx.strokeStyle = '#78350f';
       ctx.lineWidth = 2.2;
       ctx.beginPath();
@@ -2017,7 +2494,83 @@ TB_RegisterSkin({
   },
 });
 
-// 3 SKIN MYTHIC CAO CẤP (Độc Vương, Tử Thần Hư Không, Long Thần):
+// 7. RORONOA ZORO (13.500 XU + 190 KIM CƯƠNG — TAM KIẾM PHÁI HAKI DIÊM VƯƠNG)
+TB_RegisterSkin({
+  id: 'zoro',
+  tier: 'supreme',
+  name: 'Roronoa Zoro (King of Hell)',
+  awakenedTitle: 'ZORO — DIÊM VƯƠNG TAM KIẾM PHÁI',
+  icon: '⚔️',
+  coins: 13500,
+  dia: 190,
+  env: {
+    name: 'King of Hell Wano',
+    desc: 'Tam Kiếm Phái ngậm Hòa Đạo Nhất Văn, Haki Diêm Vương Enma tự động chém nát bẫy!',
+    sky: 'storm',
+    solidHue: 145,
+    grassHue: 130,
+    tint: 'rgba(16,185,129,.05)',
+    fx: 'sparks',
+    rate: 22,
+  },
+  passive: {
+    id: 'santoryu',
+    name: 'Diêm Vương Tam Kiếm Vĩnh Viễn',
+    desc: '[VĨNH VIỄN] Tự động phóng kiếm khí Haki Bá Vương chém nát đá lăn, thạch nhũ, cá mập & trụ laser phía trước + Chạy nhanh +28% & Nhảy 3 Lần!',
+  },
+  trail: ['#10b981', '#a855f7', '#0f172a'],
+  pal: { body: '#15803d', edge: '#052e16', inner: '#a855f7', belly: 'rgba(16,185,129,.7)' },
+  renderCharacter(ctx, { bob, ph, run, air, T }) {
+    drawChibiProportions(ctx, bob, ph, run, air, T, {
+      shoe: '#0f172a',
+      pants: '#064e3b',
+      shirtHi: '#22c55e',
+      shirt: '#15803d',
+      belt: '#dc2626',
+    });
+    drawChibiFace(ctx, bob, T, {
+      skin: '#ffedd5',
+      eye: '#dc2626',
+      serious: true,
+    });
+    const hy = -44.5 + bob + Math.sin(T * 4.5) * 0.5;
+    ctx.fillStyle = '#22c55e';
+    ctx.strokeStyle = '#14532d';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(-14, hy + 6);
+    ctx.lineTo(-20, hy - 4);
+    ctx.lineTo(-9, hy - 2);
+    ctx.lineTo(-11, hy - 12);
+    ctx.lineTo(-1, hy - 4);
+    ctx.lineTo(6, hy - 13);
+    ctx.lineTo(10, hy - 3);
+    ctx.lineTo(19, hy - 6);
+    ctx.lineTo(14, hy + 6);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.strokeStyle = '#e2e8f0';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(4, -27 + bob);
+    ctx.lineTo(26, -29 + bob + Math.sin(T * 12) * 2);
+    ctx.stroke();
+  },
+  onActiveSkill(P, L) {
+    v19FireAutoAimSkill(
+      P,
+      L,
+      { speed: 16.5, r: 32, col1: '#10b981', col2: '#a855f7', kind: 'punch', life: 1.2 },
+      true
+    );
+    Snd.slam();
+    toast('⚔️ TAM KIẾM PHÁI: LUYỆN NGỤC QUỶ TRẢM!');
+  },
+});
+
+// 3 SKIN MYTHIC CAO CẤP:
 TB_RegisterSkin({
   id: 'plague',
   tier: 'mythic',
@@ -2094,9 +2647,6 @@ TB_RegisterSkin({
   pal: { body: '#ffb703', edge: '#9d0208', inner: '#00f5d4', belly: 'rgba(255,245,190,.85)' },
 });
 
-// ============================================================================
-// 6. VẬN HÀNH NỘI TẠI VĨNH VIỄN & AUTO-AIM TỰ ĐỘNG CHO CÁC SKIN ANIME
-// ============================================================================
 function v19UpdateAllHeroSkills(P, L) {
   if (!P || !L || P.dead || G.won) return;
   if (P.punchCd > 0) P.punchCd -= STEP;
@@ -2115,17 +2665,16 @@ function v19UpdateAllHeroSkills(P, L) {
     curPassive === 'nika' ||
     curPassive === 'onepunch' ||
     curPassive === 'kurama' ||
-    curPassive === 'pikachu';
+    curPassive === 'pikachu' ||
+    curPassive === 'santoryu';
 
   if (!isAnimeHero) return;
 
-  // Mọi trang phục Anime đều được BUFF VĨNH VIỄN: Nhảy Đa Tầng (2–3 bước), Miễn nhiễm Đảo Phím & Hút Vật Phẩm!
   P.rev = 0;
   P.dj = true;
   P.djT = 999;
   if (P.onGround) P.extraHops = 2;
 
-  // 1. SATORU GOJO: Vô Hạ Hạn đẩy lùi mọi vật thể nguy hiểm trong tầm 135px VĨNH VIỄN + Auto-Aim Hư Thức: Tử!
   if (curPassive === 'limitless') {
     for (const q of L.stalactites || []) {
       if (q.st === 2 && Math.hypot(q.x + q.w / 2 - cx, q.y + q.fy + q.h - cy) < 135) {
@@ -2149,13 +2698,11 @@ function v19UpdateAllHeroSkills(P, L) {
     }
   }
 
-  // 2. SAITAMA: Hễ chết >= 1 lần là tự động bật khuôn mặt Nghiêm Túc (Serious Mode)!
   if (curPassive === 'onepunch' && G.deaths >= 1 && !P._autoSerious) {
     P._autoSerious = true;
     P.awakened = true;
   }
 
-  // 3. TỰ ĐỘNG NGẮM BẮN 360 ĐỘ (AUTO-AIM): Tự động dò tìm bẫy đang lao tới hoặc bẫy phía trước/trên đầu mỗi 0.75s!
   P.autoAimT = (P.autoAimT || 0) + STEP;
   if (P.autoAimT >= 0.72) {
     const threat = v19FindNearestThreat(P, L, 440);
@@ -2176,7 +2723,7 @@ function v19UpdateAllHeroSkills(P, L) {
           { speed: 16, r: 24, col1: '#38bdf8', col2: '#0284c7', kind: 'orb', life: 1.2 },
           false
         );
-      } else if (curPassive === 'onepunch') {
+      } else if (curPassive === 'onepunch' || curPassive === 'santoryu') {
         P.punchFxT = 0.32;
         v19FireAutoAimSkill(
           P,
@@ -2214,7 +2761,7 @@ function v19UpdateAllHeroSkills(P, L) {
 // === BẮT ĐẦU PHẦN 3 / 3 (PHẦN CUỐI) — DÁN NỐI TIẾP NGAY DƯỚI DÒNG CUỐI CỦA PHẦN 2 / 3 ===
 
 // ============================================================================
-// 7. VẬT LÝ DÂY NGẮN (60px -> 96px MAX) + KÉO CẢ ĐỘI + THÁP SỐNG CÕNG NHAU NHẢY
+// 6. VẬT LÝ DÂY NGẮN (60px -> 96px MAX) + KÉO CẢ ĐỘI + THÁP SỐNG CÕNG NHAU NHẢY
 // ============================================================================
 const V15_ROPE_REST = 60;
 const V15_ROPE_SPRING = 78;
@@ -2439,7 +2986,7 @@ function drawTether() {
 }
 
 // ============================================================================
-// 8. ĐỒ HỌA ĐỊA HÌNH, ĐÁ CUỘI 3D, HỐ NƯỚC BƠI QUA ĐƯỢC & VẼ NHÂN VẬT ANIME
+// 7. ĐỒ HỌA ĐỊA HÌNH, ĐÁ CUỘI 3D, HỐ NƯỚC BƠI & BỘ VẼ NHÂN VẬT DRAWBUNNY
 // ============================================================================
 drawSolid = function (L, s) {
   if (s.ice || L.biome === 'ice') {
@@ -2822,10 +3369,103 @@ function v18IsInSwimPit(P, L) {
   const cx = P.x + PW / 2;
   const feet = P.y + PH;
   for (const s of L.spikes || []) {
-    if (s.swimPit && cx >= s.x && cx <= s.x + s.w && feet >= GY + 18) return true;
+    if (s.swimPit && cx >= s.x - 16 && cx <= s.x + s.w + 16 && feet >= GY + 12) return true;
   }
   return false;
 }
+
+drawCrusher = function (c, cb) {
+  const sx = c.shake ? Math.sin(G.lt * 130) * 3.5 : 0;
+  const x = c.x + sx;
+  const y = cb - c.h;
+  const w = c.w;
+  const h = c.h;
+  const cx = x + w / 2;
+  ctx.fillStyle = '#334155';
+  ctx.fillRect(cx - 16, c.top, 10, Math.max(0, y - c.top));
+  ctx.fillRect(cx + 6, c.top, 10, Math.max(0, y - c.top));
+  const gr = ctx.createLinearGradient(x, y, x + w, y + h - 20);
+  gr.addColorStop(0, '#475569');
+  gr.addColorStop(0.5, '#1e293b');
+  gr.addColorStop(1, '#0f172a');
+  ctx.fillStyle = gr;
+  rr(x, y, w, h - 20, 6);
+  ctx.fill();
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = c.shake ? '#ef4444' : '#090d16';
+  ctx.stroke();
+  ctx.fillStyle = c.shake || cb > c.restB + 10 ? '#ff1744' : '#38bdf8';
+  ctx.beginPath();
+  ctx.arc(cx, y + (h - 32) * 0.5, 11, 0, 6.3);
+  ctx.fill();
+  drawSpikesRaw({ x: x + 2, y: y + h - 20, w: w - 4, h: 20, dir: 'down' });
+};
+
+drawCeil = function (t) {
+  const cb = t.st === 1 ? t.cb : t.top;
+  const w = t.x1 - t.x0;
+  const SH = t.SH;
+  const y = cb - SH;
+  for (const a of t.alc) {
+    ctx.fillStyle = 'rgba(56,189,248,.16)';
+    ctx.fillRect(a[0], t.gy, a[1] - a[0], 70);
+  }
+  const gr = ctx.createLinearGradient(0, y, 0, y + SH);
+  gr.addColorStop(0, '#334155');
+  gr.addColorStop(1, '#0f172a');
+  ctx.fillStyle = gr;
+  ctx.fillRect(t.x0, y, w, SH - 20);
+  ctx.strokeStyle = '#020617';
+  ctx.lineWidth = 4;
+  ctx.strokeRect(t.x0, y, w, SH - 20);
+  drawSpikesRaw({ x: t.x0 + 4, y: y + SH - 20, w: w - 8, h: 20, dir: 'down' });
+};
+
+drawSweeper = function (s, cam) {
+  const T = G.lt;
+  const front = s.cx + s.w;
+  const y = cam.y - 100;
+  const h = cam.vh + 200;
+  const biome = (G.L && G.L.biome) || 'normal';
+  ctx.save();
+  const c0 =
+    biome === 'toxic'
+      ? 'rgba(8,28,21,.96)'
+      : biome === 'water'
+      ? 'rgba(5,20,38,.96)'
+      : 'rgba(15,5,25,.96)';
+  const c1 =
+    biome === 'toxic'
+      ? 'rgba(45,106,79,.88)'
+      : biome === 'water'
+      ? 'rgba(15,65,110,.88)'
+      : 'rgba(80,15,40,.9)';
+  const bg = ctx.createLinearGradient(front - 480, 0, front, 0);
+  bg.addColorStop(0, c0);
+  bg.addColorStop(1, c1);
+  ctx.fillStyle = bg;
+  ctx.fillRect(front - 1400, y, 1400, h);
+  for (let yy = Math.floor(y / 130) * 130; yy < y + h; yy += 130) {
+    const cy = yy + 65;
+    const wag = Math.sin(T * 7 + yy * 0.02) * 18;
+    if (biome === 'water' || biome === 'toxic') {
+      ctx.strokeStyle = biome === 'toxic' ? '#80ed99' : '#00f5d4';
+      ctx.lineWidth = 14;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(front - 40, cy);
+      ctx.quadraticCurveTo(front + 15, cy + wag, front + 48, cy - wag * 0.7);
+      ctx.stroke();
+    } else {
+      drawSaw(front + 10, cy, 42, T * 1.8);
+    }
+    ctx.fillStyle = biome === 'toxic' ? '#b5179e' : '#ff1744';
+    ctx.beginPath();
+    ctx.ellipse(front - 55, cy, 18, 10, 0, 0, 6.3);
+    ctx.fill();
+  }
+  ctx.restore();
+};
 
 const _origDrawBunnyV10 = drawBunny;
 drawBunny = function (x, y, o) {
@@ -2914,95 +3554,315 @@ drawBunny = function (x, y, o) {
   ctx.restore();
 };
 
-// ============================================================================
-// 9. SỬA TRIỆT ĐỂ LỖI CỬA CHẠY (MÀN 94) & LỖI CHECKPOINT ĐẢO CHIỀU (MÀN 97)
-// ============================================================================
-// Ghi đè seg.trollDoor và seg.leapDoor:
-// 1. KHÔNG đặt nút khóa cửa (t.btn) ở ngay bệ nhảy đầu tiên để tránh người chơi vô tình dẫm trúng làm cửa đứng im!
-// 2. Khóa cứng e.lock = true ngay từ lúc khởi tạo màn chơi và kích hoạt chạy trốn ngay khi lại gần 240px!
-seg.trollDoor = function (b, o) {
-  o = o || {};
-  const mode = o.mode === 'sink' ? 'sink' : 'run';
-  const x0 = b.ground(820);
-  const gy = b.gy;
-  b.key = { x: x0 + 280, y: gy - 56 };
-  b.flag(x0 + 45);
-  b.solids.push([x0 + 70, gy - 88, 104, 18]);
-  b.coin(x0 + 122, gy - 88 - 52);
-
-  // Nút khóa cửa bí mật được giấu ở tít trên cao phía sau cửa (chỉ ai chủ động tìm mới chạm tới, không bao giờ dẫm nhầm!)
-  const btn = { x: x0 + 760, y: gy - 260, w: 44, h: 10 };
-  const decoy = { x: x0 + 670, y: gy - 74, w: 54, h: 74, lock: true };
-  const GAP = 115;
-  const hops = [
-    [-30, 175],
-    [-70, 150],
-    [-25, 150],
-    [-68, 165],
-    [-35, 340],
-  ];
-  let cx = b.x;
-  b.spikes.push({
-    x: cx,
-    y: WORLD_H - 26,
-    w: hops.reduce((s, h) => s + h[1] + GAP, 0),
-    h: 26,
-    dir: 'up',
-    pit: true,
-  });
-  let lastTop = gy;
-  let lastX = cx;
-  hops.forEach(([dy, w], i) => {
-    cx += GAP;
-    b.solids.push([cx, gy + dy, w, 22]);
-    if (i === 0) b.flags.push({ x: cx + 85, y: gy + dy });
-    if (i === 1 || i === 3) b.coin(cx + w / 2, gy + dy - 56);
-    lastTop = gy + dy;
-    lastX = cx;
-    cx += w;
-  });
-  const dest = { x: lastX + 220, y: lastTop - 74 };
-  b.x = cx + 80;
-  b.exitOv = decoy;
-  b.traps.push({
-    k: 'door',
-    mode,
-    btn,
-    ex0: decoy.x,
-    ey0: decoy.y,
-    dx: dest.x,
-    dy: dest.y,
-    st: 0,
-    t: 0,
-    dur: mode === 'sink' ? 1.35 : 1.15,
-  });
-  return x0;
+const _origDrawLegendSky2 = drawLegendSky2;
+drawLegendSky2 = function (theme, cam, T) {
+  const L = G.L;
+  if (theme === 'heaven') {
+    const sx = cw * 0.5 - cam.x * 0.008;
+    const sy = ch * 0.22;
+    const r = Math.min(cw, ch) * 0.16;
+    const g = ctx.createRadialGradient(sx, sy, r * 0.2, sx, sy, r * 3.8);
+    g.addColorStop(0, 'rgba(255,253,220,.95)');
+    g.addColorStop(0.4, 'rgba(253,224,71,.45)');
+    g.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, cw, ch);
+    drawSkyCloudLayer(L, cam, 0.05, ch * 0.12, 1.5, 'rgba(255,255,255,.92)', 6);
+    drawSkyCloudLayer(L, cam, 0.14, ch * 0.28, 1.2, 'rgba(254,249,195,.88)', 5);
+    return;
+  }
+  if (theme === 'hell') {
+    const mx = cw * 0.72 - cam.x * 0.01;
+    const my = ch * 0.24;
+    const r = Math.min(cw, ch) * 0.14;
+    const g = ctx.createRadialGradient(mx, my, r * 0.2, mx, my, r * 3.2);
+    g.addColorStop(0, '#ef4444');
+    g.addColorStop(0.5, 'rgba(153,27,27,.45)');
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, cw, ch);
+    ctx.fillStyle = '#dc2626';
+    ctx.beginPath();
+    ctx.arc(mx, my, r, 0, 6.3);
+    ctx.fill();
+    drawSkyCloudLayer(L, cam, 0.06, ch * 0.1, 1.5, 'rgba(40,5,5,.75)', 5);
+    return;
+  }
+  if (theme === 'toxic') {
+    drawStars(cam, T, 0.45);
+    drawSkyCloudLayer(L, cam, 0.06, ch * 0.1, 1.5, 'rgba(45,106,79,.55)', 5);
+    drawSkyCloudLayer(L, cam, 0.14, ch * 0.26, 1.2, 'rgba(114,9,183,.35)', 4);
+    return;
+  }
+  return _origDrawLegendSky2(theme, cam, T);
 };
 
-seg.leapDoor = function (b) {
-  const x0 = b.ground(1640);
-  const gy = b.gy;
-  b.key = { x: x0 + 240, y: gy - 56 };
-  b.flag(x0 + 45);
-  const e0 = { x: x0 + 620, y: gy - 74, w: 54, h: 74, lock: true };
-  b.exitOv = e0;
-  b.traps.push({
-    k: 'door2',
-    mode: 'leap',
-    ex0: e0.x,
-    ey0: e0.y,
-    hop: 275,
-    hops: 3,
-    n: 0,
-    st: 0,
-    t: 0,
-    dur: 0.72,
-    from: e0.x,
-  });
-  return x0;
-};
+// ============================================================================
+// 8. CẬP NHẬT BẪY THẾ GIỚI, STEPPLAYER (CÓ TRỒI LÊN BỜ HỒ NƯỚC), DIE & RESPAWN
+// ============================================================================
+function updateRunKey(bodies) {
+  const L = G.L;
+  const k = L.key;
+  if (!k || !k.run || G.keyGot) return;
+  const R = k.run;
+  if (isNet() && !isHostSlot()) {
+    k.x += (k.tx - k.x) * 0.35;
+    k.y += (k.ty - k.y) * 0.35;
+    return;
+  }
+  let nb = null;
+  let nd = 1e9;
+  for (const b of bodies) {
+    if (b.dead) continue;
+    const d = Math.hypot(b.x + PW / 2 - k.x, b.y + PH / 2 - k.y);
+    if (d < nd) {
+      nd = d;
+      nb = b;
+    }
+  }
+  k.t += STEP;
+  if (k.cool > 0) k.cool -= STEP;
+  if (nb && nd < 130 && !(k.cool > 0) && k.fl < 4) {
+    const spots = [
+      [R.x0 + 70, R.gy - 150],
+      [R.x1 - 70, R.gy - 155],
+      [(R.x0 + R.x1) / 2, R.gy - 190],
+      [clamp(nb.x + (nb.face > 0 ? -230 : 230), R.x0 + 55, R.x1 - 55), R.gy - 65],
+    ];
+    const pick = spots[(k.fl + (G.chaosSeed % 4)) % spots.length];
+    sparkle(k.x, k.y, 16, 1.5, '#ff4d6d');
+    k.x = pick[0];
+    k.y = pick[1];
+    k.fl++;
+    k.cool = 0.72;
+    Snd.djump();
+  } else if (nb && nd < 175 && k.fl >= 4) {
+    k.x = clamp(k.x + Math.sign(k.x - nb.x) * 2.1, R.x0 + 45, R.x1 - 45);
+    k.y = R.gy - 90 + Math.sin(G.lt * 6.5) * 52;
+  }
+}
 
-// Sửa updateV11Trap để cửa leapDoor (door2) luôn khóa khi chưa nhảy đủ 3 lần và nhạy hơn (230px):
+function onBonk(P, s, how) {
+  const bk = s.bonk;
+  P.vx = 0;
+  if (how === 'head') P.vy = 1.5;
+  if (!bk.rev) {
+    bk.rev = true;
+    bk.sh = 1;
+    P.wlock = Math.max(P.wlock, 16);
+    Snd.pop();
+    G.shake = Math.max(G.shake, 6);
+    sparkle(bk.x + bk.w / 2, bk.y + bk.h, 12, 1.3, '#ffcc66');
+    netEv({ t: 'bonk', i: bk.i });
+  }
+}
+
+function v11TrapAct(t, i, a, v) {
+  const L = G.L;
+  if (t.k === 'ceil') {
+    if (a === 'fire' && t.st === 0) {
+      t.st = 1;
+      t.t0 = +v || G.lt;
+      Snd.shake();
+    }
+  } else if (t.k === 'ferry') {
+    if (a === 'fire' && t.st === 0) {
+      t.st = 1;
+      t.t0 = +v || G.lt;
+      Snd.shake();
+    }
+  } else if (t.k === 'door2') {
+    if (a === 'flee' && t.st === 0) {
+      t.st = 1;
+      t.t = 0;
+      t.from = L.exit.x;
+      Snd.shake();
+    }
+  } else if (t.k === 'betray') {
+    if (a === 'fire' && t.st === 0) {
+      t.st = 1;
+      t.t = 3.8;
+      Snd.shake();
+      const n = t.cr.length;
+      t.cr.forEach((ci, k) => {
+        const c = L.crumbles[ci];
+        if (c && c.st === 0) {
+          c.st = 1;
+          c.t = 0.07 + (n - 1 - k) * 0.07;
+        }
+      });
+    }
+  } else if (t.k === 'pass_drop') {
+    if (a === 'fire' && t.st === 0) {
+      t.st = 1;
+      t.t = 2.8;
+      t.cr.forEach((ci, k) => {
+        const c = L.crumbles[ci];
+        if (c && c.st === 0) {
+          c.st = 1;
+          c.t = 0.03 + k * 0.04;
+          c.fast = true;
+        }
+      });
+    }
+  } else if (t.k === 'ambush') {
+    if (a === 'fire' && t.st === 0) {
+      t.st = 1;
+      t.t = 0.2;
+      for (const q of L.stalactites || []) {
+        if (q.sniper && q.st === 0 && Math.abs(q.x - t.zx1) < 340) {
+          q.st = 2;
+          q.vy = 9.5;
+          q.fy = 0;
+          q.gnd = groundBelow(q.x, q.x + q.w, q.y + q.h);
+        }
+      }
+    }
+  } else if (t.k === 'shift_ledge' || t.k === 'double_bluff') {
+    if (a === 'fire' && t.st === 0) {
+      t.st = 1;
+      t.t = 0;
+    } else if (a === 'hit' && t.st === 1) {
+      t.st = 2;
+      t.t = 1.6;
+      if (t.topSpk) {
+        t.topSpk.hid = false;
+        t.topSpk.live = true;
+        t.topSpk.ph = 1;
+      }
+      Snd.slam();
+    }
+  } else if (t.k === 'troll_spring') {
+    if (a === 'fire' && t.st === 0) {
+      t.st = 1;
+      t.t = 4.0;
+      const sp = L.springs[t.sIdx];
+      if (sp) sp.power = 23.8;
+      for (const s of L.spikes) {
+        if (s.bt === i) {
+          s.hid = false;
+          s.live = true;
+          s.ph = 1;
+        }
+      }
+    }
+  } else if ((t.k === 'syncgate' || t.k === 'skygate') && a === 'sync') {
+    t.open = true;
+    if (L.gates[t.gi]) L.gates[t.gi].act = true;
+    Snd.gate(true);
+  }
+}
+
+function v11ResetTrap(L, t) {
+  if (t.k === 'ceil') t.cb = t.top;
+  else if (t.k === 'ferry') {
+    t.cx = t.cx0;
+    t.px = t.cx0;
+    t.dx = 0;
+    t.dir = 0;
+    t.rot = 0;
+  } else if (t.k === 'door2') {
+    const e = L.exit;
+    e.x = t.ex0;
+    e.y = t.ey0;
+    e.lock = true;
+    e.legs = false;
+    e.hide = false;
+    t.n = 0;
+    t.from = t.ex0;
+  } else if (t.k === 'shift_ledge' || t.k === 'double_bluff') {
+    t.cur = 0;
+    const s = L.solids[t.si];
+    if (s) s[0] = t.baseX;
+    if (t.topSpk) {
+      t.topSpk.x = t.baseX + 115;
+      t.topSpk.hid = true;
+      t.topSpk.live = false;
+      t.topSpk.ph = 0;
+    }
+  } else if (t.k === 'troll_spring') {
+    const sp = L.springs[t.sIdx];
+    if (sp) sp.power = 17.5;
+  } else if (t.k === 'sled') {
+    t.x = t.x0;
+    t.vx = 0;
+    t.st = 0;
+    t.wait = 0;
+    if (L.solids[t.si]) L.solids[t.si][0] = t.x0;
+  } else if (t.k === 'syncgate' || t.k === 'skygate') {
+    t.open = false;
+    if (L.gates[t.gi]) L.gates[t.gi].act = false;
+  } else if (t.k === 'swap_pad') {
+    t.used = false;
+  }
+}
+
+function trapAct(i, a, v, who) {
+  const L = G.L;
+  if (!L || !L.traps) return;
+  const t = L.traps[i];
+  if (!t) return;
+  const mine = who === G.myslot;
+  if (t.k === 'bait') {
+    if (a === 'fire' && t.st === 0) {
+      t.st = 1;
+      t.t = 0.13;
+    }
+  } else if (t.k === 'fake') {
+    const f = t.plates[v | 0];
+    if (a === 'hit' && f && !f.used) {
+      f.used = true;
+      Snd.plate(true);
+      if (f.v === 'stalac') {
+        for (let q = 0; q < 4; q++) {
+          L.stalactites.push({
+            x: f.x - 40 + q * 65,
+            y: f.y + 10 - 300,
+            w: 34,
+            h: 66,
+            st: 2,
+            t: 0,
+            fy: 0,
+            vy: 6.5,
+            gnd: f.y + 10,
+            dyn: true,
+          });
+        }
+      } else if (mine) {
+        G.me.rev = 4.2;
+      }
+    }
+  } else if (t.k === 'door') {
+    const e = L.exit;
+    if (a === 'flee' && t.st === 0) {
+      t.st = 1;
+      t.t = 0;
+      Snd.shake();
+    } else if (a === 'fix' && t.st === 0) {
+      t.st = 3;
+      e.lock = false;
+      e.x = t.ex0;
+      e.y = t.ey0;
+      Snd.key();
+    }
+  } else if (t.k === 'arena') {
+    if (a === 'fire' && t.st === 0) {
+      t.st = 1;
+      t.t0 = +v || G.lt;
+      t.empty = 0;
+      Snd.shake();
+    } else if (a === 'done' && t.st === 1) {
+      t.st = 2;
+      Snd.gate(true);
+    } else if (a === 'reset' && t.st === 1) {
+      t.st = 0;
+      t.empty = 0;
+    }
+  } else {
+    v11TrapAct(t, i, a, v, who);
+  }
+}
+
 const _origUpdateV11Trap = updateV11Trap;
 updateV11Trap = function (t, i, me, bodies) {
   if (t.k === 'door2') {
@@ -3016,7 +3876,7 @@ updateV11Trap = function (t, i, me, bodies) {
         G.keyGot &&
         alive &&
         t.n < t.hops &&
-        Math.abs(cx - (e.x + e.w / 2)) < 230 &&
+        Math.abs(cx - (e.x + e.w / 2)) < 240 &&
         Math.abs(me.y + PH / 2 - (e.y + e.h / 2)) < 260
       ) {
         trapSend(i, 'flee', 0);
@@ -3051,9 +3911,603 @@ updateV11Trap = function (t, i, me, bodies) {
   return _origUpdateV11Trap(t, i, me, bodies);
 };
 
-// ============================================================================
-// 10. BỘ QUÉT SỬA LỖI ĐỊA HÌNH TOÀN CỤC & VÒNG LẶP VẬT LÝ STEPPLAYER / DIE
-// ============================================================================
+function updateTraps(bodies) {
+  const L = G.L;
+  const me = G.me;
+  const cx = me.x + PW / 2;
+  const cy = me.y + PH / 2;
+  const feet = me.y + PH;
+  const alive = !me.dead && !G.won;
+  const host = isHostSlot();
+
+  v16UpdateAnomalies();
+
+  if (me.portalCd > 0) me.portalCd -= STEP;
+  for (const pt of L.portals || []) {
+    if (alive && !(me.portalCd > 0) && Math.hypot(cx - pt.x0, cy - pt.y0) < 38) {
+      me.x = pt.x1 - PW / 2;
+      me.y = pt.y1 - PH / 2;
+      me.portalCd = 1.1;
+      Snd.key();
+      sparkle(pt.x1, pt.y1, 20, 1.6, '#00ffe0');
+      break;
+    }
+  }
+  for (const dc of L.decoys || []) {
+    if (!dc.boom && alive && Math.hypot(cx - dc.x, cy - dc.y) < 32) {
+      dc.boom = true;
+      Snd.slam();
+      G.shake = 9;
+      die('decoy_key');
+    }
+  }
+  for (const bh of L.blackHoles || []) {
+    const dx = bh.x - cx;
+    const dy = bh.y - cy;
+    const d = Math.hypot(dx, dy);
+    if (alive && d < bh.pullR && d > 8) {
+      const f = (1 - d / bh.pullR) * 0.58;
+      me.vx += (dx / d) * f;
+      me.vy += (dy / d) * f;
+      if (d < bh.killR) die('black_hole');
+    }
+  }
+  for (const cv of L.conveyors || []) {
+    if (alive && me.onGround && cx >= cv.x && cx <= cv.x + cv.w && Math.abs(feet - cv.y) < 10) {
+      me.x += cv.spd;
+    }
+  }
+  for (const ph of L.phantoms || []) {
+    const wave = Math.sin(G.lt * ph.spd + ph.phase);
+    ph.solid = wave > -0.15;
+    ph.alpha = clamp((wave + 0.35) / 0.8, 0.08, 1);
+    if (L.solids[ph.si]) L.solids[ph.si][1] = ph.solid ? ph.y : 9999;
+  }
+  for (const trt of L.turrets || []) {
+    const dist = Math.hypot(cx - trt.x, cy - trt.y);
+    trt.ang = Math.atan2(cy - trt.y, cx - trt.x);
+    if (dist < 560 && alive) {
+      trt.charge = (trt.charge || 0) + STEP;
+      if (trt.charge >= trt.period) {
+        trt.charge = 0;
+        trt.fireT = 0.22;
+        trt.hitX = cx;
+        trt.hitY = cy;
+        Snd.slam();
+      }
+      if (trt.fireT > 0) {
+        trt.fireT -= STEP;
+        if (Math.abs(trt.ang - Math.atan2(trt.hitY - trt.y, trt.hitX - trt.x)) < 0.14) {
+          die('sniper_laser');
+        }
+      }
+    } else {
+      trt.charge = Math.max(0, (trt.charge || 0) - STEP * 0.5);
+    }
+  }
+  for (const sh of L.sharks || []) {
+    sh.cx = pingPong(sh.x0, sh.x1, sh.speed, sh.off, G.lt);
+    sh.dir =
+      Math.cos((((G.lt + sh.off) * sh.speed * 60) / Math.max(1, sh.x1 - sh.x0)) * Math.PI) >= 0
+        ? 1
+        : -1;
+    const tg = nearestBodyTo(sh.cx, sh.cy);
+    sh.cy += ((tg ? clamp(tg.y + PH / 2, sh.minY, sh.maxY) : sh.baseY) - sh.cy) * 0.055;
+    if (alive && rectsOverlap(me.x + 4, me.y + 4, PW - 8, PH - 8, sh.cx - 48, sh.cy - 22, 96, 44)) {
+      die('shark');
+    }
+  }
+
+  const tr = L.traps;
+  if (!tr || !tr.length) return;
+  for (let i = 0; i < tr.length; i++) {
+    const t = tr[i];
+    if (t.k === 'bait') {
+      const sp = t._sp || (t._sp = L.spikes.filter((s) => s.bt === i));
+      if (t.st === 0) {
+        if (alive && cx > t.zx0 && cx < t.zx1 && Math.abs(feet - t.gy) < 170) {
+          const bt = (me.bt = me.bt || {});
+          const s = (bt[i] = bt[i] || { armed: false, maxX: cx });
+          const grounded = me.onGround && Math.abs(feet - t.gy) < 4;
+          if (grounded) {
+            s.armed = true;
+            if (cx > s.maxX) s.maxX = cx;
+          } else if (s.armed && feet < t.gy - 12) {
+            trapSend(i, 'fire', 0);
+          }
+          if (t.st === 0 && grounded && s.armed && me.vx < -1.2 && cx < s.maxX - 45) {
+            trapSend(i, 'fire', 1);
+          }
+        }
+      } else if (t.st === 1) {
+        t.t -= STEP;
+        sp.forEach((s) => {
+          s.hid = false;
+          s.ph = clamp(1 - t.t / 0.13, 0, 1) * 0.4;
+        });
+        if (t.t <= 0) {
+          t.st = 2;
+          t.t = 1.8;
+          sp.forEach((s) => {
+            s.live = true;
+            s.ph = 1;
+          });
+          Snd.slam();
+        }
+      } else if (t.st === 2) {
+        t.t -= STEP;
+        if (t.t <= 0) {
+          t.st = 3;
+          t.t = 0.35;
+          sp.forEach((s) => {
+            s.live = false;
+          });
+        }
+      } else if (t.st === 3) {
+        t.t -= STEP;
+        sp.forEach((s) => {
+          s.ph = Math.max(0, t.t / 0.35);
+        });
+        if (t.t <= 0) {
+          t.st = 4;
+          t.t = 0.7;
+          sp.forEach((s) => {
+            s.hid = true;
+            s.ph = 0;
+          });
+        }
+      } else {
+        t.t -= STEP;
+        if (t.t <= 0) t.st = 0;
+      }
+    } else if (t.k === 'pass_drop') {
+      if (
+        t.st === 0 &&
+        alive &&
+        cx > t.x0 + (t.x1 - t.x0) * 0.35 &&
+        cx < t.x1 + 30 &&
+        Math.abs(feet - t.gy) < 28
+      ) {
+        trapSend(i, 'fire', G.lt);
+      } else if (t.st === 1) {
+        t.t -= STEP;
+        if (t.t <= 0) t.st = 0;
+      }
+    } else if (t.k === 'ambush') {
+      const sp = t._sp || (t._sp = L.spikes.filter((s) => s.bt === i));
+      if (t.st === 0 && alive && cx > t.zx0 + 65 && cx < t.zx1 && Math.abs(feet - t.gy) < 42) {
+        trapSend(i, 'fire', 0);
+      } else if (t.st === 1) {
+        t.t -= STEP;
+        if (t.t <= 0) {
+          t.st = 2;
+          t.t = 1.9;
+          sp.forEach((s) => {
+            s.hid = false;
+            s.live = true;
+            s.ph = 1;
+          });
+          Snd.slam();
+        }
+      } else if (t.st === 2) {
+        t.t -= STEP;
+        if (t.t <= 0) {
+          t.st = 0;
+          sp.forEach((s) => {
+            s.hid = true;
+            s.live = false;
+            s.ph = 0;
+          });
+        }
+      }
+    } else if (t.k === 'shift_ledge' || t.k === 'double_bluff') {
+      const s = L.solids[t.si];
+      if (t.st === 0 && alive && cx > t.gx - 24 && cx < t.baseX + 45 && !me.onGround && me.vy < 4) {
+        trapSend(i, 'fire', 0);
+      } else if (t.st === 1 && s) {
+        t.t += STEP;
+        t.cur = t.shift * clamp(t.t / 0.16, 0, 1);
+        s[0] = t.baseX + t.cur;
+        if (t.topSpk) t.topSpk.x = s[0] + 115;
+        if (t.k === 'double_bluff' && alive && me.onGround && cx > s[0] + 95 && cx < s[0] + s[2] - 10) {
+          trapSend(i, 'hit', 0);
+        }
+        if (t.t > 3.2) {
+          t.st = 0;
+          t.cur = 0;
+          s[0] = t.baseX;
+          if (t.topSpk) t.topSpk.x = t.baseX + 115;
+        }
+      } else if (t.st === 2) {
+        t.t -= STEP;
+        if (t.t <= 0) {
+          t.st = 0;
+          t.cur = 0;
+          if (s) s[0] = t.baseX;
+          if (t.topSpk) {
+            t.topSpk.x = t.baseX + 115;
+            t.topSpk.hid = true;
+            t.topSpk.live = false;
+            t.topSpk.ph = 0;
+          }
+        }
+      }
+    } else if (t.k === 'troll_spring') {
+      const sp = L.springs[t.sIdx];
+      if (t.st === 0 && sp && sp.sq > 0.5) trapSend(i, 'fire', 0);
+      else if (t.st === 1) {
+        t.t -= STEP;
+        if (t.t <= 0) {
+          t.st = 0;
+          if (sp) sp.power = 17.5;
+          for (const s of L.spikes) {
+            if (s.bt === i) {
+              s.hid = true;
+              s.live = false;
+              s.ph = 0;
+            }
+          }
+        }
+      }
+    } else if (t.k === 'sled') {
+      const totalPlayers = presentCount();
+      let riders = 0;
+      let meOnSled = false;
+      for (const b of bodies) {
+        if (
+          !b.dead &&
+          b.x + PW - 4 > t.x &&
+          b.x + 4 < t.x + t.w &&
+          b.y + PH >= t.y - 6 &&
+          b.y + PH <= t.y + 18
+        ) {
+          riders++;
+          if (b === me) meOnSled = true;
+        }
+      }
+      if (t.st === 0) {
+        t.dx = 0;
+        if (riders > 0) {
+          t.wait += STEP;
+          if (riders >= totalPlayers || t.wait >= 1.35) {
+            t.st = 1;
+            Snd.shake();
+          }
+        } else {
+          t.wait = 0;
+        }
+      } else if (t.st === 1) {
+        const prevX = t.x;
+        t.vx = Math.min(t.maxV || 6.0, (t.vx || 1.6) + 0.045);
+        t.x = Math.min(t.x1, t.x + t.vx);
+        t.dx = t.x - prevX;
+        if (
+          totalPlayers > 1 &&
+          t.x > t.x0 + (t.x1 - t.x0) * 0.36 &&
+          t.x < t.x1 - 150 &&
+          riders < totalPlayers
+        ) {
+          t.st = 2;
+          t.shatterT = 2.0;
+          t.dx = 0;
+          Snd.crumble();
+          G.shake = 10;
+          if (meOnSled) die('sled_betray');
+        } else if (t.x >= t.x1) {
+          t.dx = 0;
+        }
+      } else if (t.st === 2) {
+        t.dx = 0;
+        t.shatterT -= STEP;
+        if (t.shatterT <= 0) {
+          t.st = 0;
+          t.x = t.x0;
+          t.vx = 0;
+          t.wait = 0;
+        }
+      }
+      const s = L.solids[t.si];
+      if (s) {
+        s[0] = t.st === 2 ? -9999 : t.x;
+        s[1] = t.y;
+      }
+      if (meOnSled && t.st === 1) me.x += t.dx;
+    } else if (t.k === 'redeye') {
+      if (cx < t.x0 || cx > t.x1) continue;
+      const ph = (G.lt + (t.off || 0)) % 4.5;
+      t.state = ph < 2.45 ? 0 : ph < 3.2 ? 1 : 2;
+      if (
+        t.state === 2 &&
+        alive &&
+        (input.l || input.r || input.j || Math.abs(me.vx) > 1.7 || (!me.onGround && Math.abs(me.vy) > 3.4))
+      ) {
+        die('redeye');
+      }
+    } else if (t.k === 'syncgate') {
+      const g = L.gates[t.gi];
+      if (!g || t.open) {
+        if (g) g.act = true;
+        continue;
+      }
+      let allAir = bodies.length > 0;
+      let near = false;
+      for (const b of bodies) {
+        if (b.dead) {
+          allAir = false;
+          break;
+        }
+        if (Math.abs(b.x + PW / 2 - t.x) < 280) near = true;
+        if (b.onGround || Math.abs(b.x + PW / 2 - t.x) > 350) {
+          allAir = false;
+          break;
+        }
+      }
+      if (near && allAir) {
+        t.open = true;
+        g.act = true;
+        Snd.gate(true);
+        if (isNet()) trapSend(i, 'sync', 1);
+      }
+    } else if (t.k === 'skygate') {
+      const g = L.gates[t.gi];
+      if (!g || t.open) {
+        if (g) g.act = true;
+        continue;
+      }
+      const byEff = presentCount() <= 1 ? t.by + 65 : t.by;
+      for (const b of bodies) {
+        if (!b.dead && rectsOverlap(b.x, b.y, PW, PH, t.bx, byEff, 54, 26)) {
+          t.open = true;
+          g.act = true;
+          Snd.gate(true);
+          if (isNet()) trapSend(i, 'sync', 1);
+          break;
+        }
+      }
+    } else if (t.k === 'swap_pad' && !t.used && alive) {
+      if (Math.hypot(cx - t.x, cy - t.y) < 34 && G.remotes.size > 0) {
+        const others = [...G.remotes.values()].filter((r) => !r.dead);
+        if (others.length) {
+          t.used = true;
+          const target = others[G.chaosSeed % others.length];
+          me.x = target.x;
+          me.y = target.y;
+          Snd.djump();
+        }
+      }
+    } else if (t.k === 'fake') {
+      for (let j = 0; j < t.plates.length; j++) {
+        const f = t.plates[j];
+        let pr = false;
+        for (const b of bodies) {
+          if (standsOn(b, f)) {
+            pr = true;
+            break;
+          }
+        }
+        f.pr = pr;
+        f.on = pr;
+        if (!f.used && alive && standsOn(me, f)) trapSend(i, 'hit', j);
+      }
+    } else if (t.k === 'door') {
+      const e = L.exit;
+      let down = false;
+      for (const b of bodies) {
+        if (standsOn(b, t.btn)) {
+          down = true;
+          break;
+        }
+      }
+      if (down && !t.btnDown) Snd.plate(true);
+      t.btnDown = down;
+      if (t.st === 0) {
+        e.lock = true;
+        if (alive) {
+          if (standsOn(me, t.btn)) trapSend(i, 'fix', 0);
+          else if (Math.hypot(cx - (e.x + e.w / 2), cy - (e.y + e.h / 2)) < 240) {
+            trapSend(i, 'flee', 0);
+          }
+        }
+      } else if (t.st === 1) {
+        t.t += STEP;
+        const u = clamp(t.t / t.dur, 0, 1);
+        e.lock = true;
+        if (t.mode === 'run') {
+          const k = u * u * (3 - 2 * u);
+          e.x = lerp(t.ex0, t.dx, k);
+          e.y = lerp(t.ey0, t.dy, k) - Math.abs(Math.sin(u * Math.PI * 7)) * 46 * Math.sin(u * Math.PI);
+          e.legs = true;
+        } else if (u < 0.4) {
+          e.x = t.ex0;
+          e.y = t.ey0 + e.h * (u / 0.4);
+          e.clipY = t.ey0 + e.h;
+          e.hide = false;
+        } else if (u < 0.6) {
+          e.hide = true;
+          e.x = t.dx;
+          e.y = t.dy + e.h;
+        } else {
+          const k = (u - 0.6) / 0.4;
+          e.hide = false;
+          e.x = t.dx;
+          e.y = t.dy + e.h * (1 - k);
+          e.clipY = t.dy + e.h;
+        }
+        if (u >= 1) {
+          t.st = 2;
+          e.x = t.dx;
+          e.y = t.dy;
+          e.lock = false;
+          e.legs = false;
+          e.hide = false;
+          e.clipY = undefined;
+        }
+      }
+    } else if (t.k === 'arena') {
+      if (t.st === 0) {
+        if (alive && cx > t.trig && cx < t.x1 - 120 && me.onGround && Math.abs(feet - t.gy) < 4) {
+          trapSend(i, 'fire', G.lt);
+        }
+      } else if (t.st === 1) {
+        const tt = G.lt - t.t0;
+        if (host) {
+          let inside = 0;
+          for (const b of bodies) {
+            if (
+              !b.dead &&
+              b.x + PW / 2 > t.x0 - 10 &&
+              b.x + PW / 2 < t.x1 + 10 &&
+              b.y + PH > t.gy - 240 &&
+              b.y < t.gy + 10
+            ) {
+              inside++;
+            }
+          }
+          if (tt > 1.2 && inside === 0) t.empty += STEP;
+          else t.empty = 0;
+          if (t.empty > 1.0) trapSend(i, 'reset', 0);
+          else if (tt >= t.dur) trapSend(i, 'done', 0);
+        }
+      }
+    } else {
+      updateV11Trap(t, i, me, bodies);
+    }
+  }
+  for (let q = L.stalactites.length - 1; q >= 0; q--) {
+    if (L.stalactites[q].dyn && L.stalactites[q].gone) L.stalactites.splice(q, 1);
+  }
+}
+
+function updateStalactites(bodies) {
+  const L = G.L;
+  for (const s of L.stalactites || []) {
+    if (s.st === 0) {
+      for (const b of bodies) {
+        const cx = b.x + PW / 2 + (b.vx || 0) * 14;
+        if (cx > s.x - 68 && cx < s.x + s.w + 68 && b.y > s.y + s.h * 0.4 && b.y < s.y + s.h + 540) {
+          s.st = 1;
+          s.t = 0.22;
+          s.aimVx = clamp((b.vx || 0) * 0.45, -3.2, 3.2);
+          break;
+        }
+      }
+    } else if (s.st === 1) {
+      s.t -= STEP;
+      if (s.t <= 0) {
+        s.st = 2;
+        s.vy = 3.2;
+        s.fy = 0;
+        if (s.gnd === undefined) s.gnd = groundBelow(s.x, s.x + s.w, s.y + s.h);
+      }
+    } else if (s.st === 2) {
+      s.vy = Math.min(s.vy + 1.05, 22);
+      s.fy += s.vy;
+      if (s.aimVx) s.x += s.aimVx;
+      if (s.y + s.h + s.fy >= s.gnd) {
+        s.fy = Math.max(0, s.gnd - s.y - s.h);
+        s.st = 3;
+        s.t = 2.8;
+      }
+    } else {
+      s.t -= STEP;
+      if (s.t <= 0) {
+        s.st = 0;
+        s.fy = 0;
+        s.vy = 0;
+        if (s.dyn) s.gone = true;
+      }
+    }
+  }
+}
+
+function onNetEv(e) {
+  if (!e || !G.inGame || !isNet()) return;
+  switch (e.t) {
+    case 'pcount':
+      PARTY_N = Math.max(1, Math.min(10, e.n | 0));
+      updateDiffBadge();
+      break;
+    case 'trap':
+      if (e.lv === G.lvIdx) trapAct(e.i, e.a, e.v, e.s);
+      break;
+    case 'lvl':
+      if (e.pn) PARTY_N = Math.max(1, Math.min(10, e.pn | 0));
+      loadLevel(e.n);
+      break;
+    case 'cp':
+      if (e.lv === G.lvIdx && G.me) {
+        const M = G.me;
+        const L = G.L;
+        M.cp = { x: e.x, y: e.y };
+        if (L && L.flags && e.fi >= 0 && L.flags[e.fi]) L.flags[e.fi].on = true;
+        if (e.pull || M.dead || Math.hypot(M.x - e.x, M.y - e.y) > 180) {
+          M.dead = false;
+          M.x = e.x + (M.slot % 4) * 14;
+          M.y = e.y;
+          M.vx = 0;
+          M.vy = 0;
+          M.rope = null;
+          G.cam.snap = true;
+        }
+        toast('⚑ ' + (G.names[e.s] || 'Đồng đội') + ' chạm Checkpoint — Toàn đội dịch chuyển lên!');
+      }
+      break;
+    case 'restart':
+      if (e.pn) PARTY_N = Math.max(1, Math.min(10, e.pn | 0));
+      restartLevel();
+      break;
+    case 'custom_lvl':
+      if (e.data) loadLevel(-1, e.data);
+      break;
+    case 'hoist':
+      if (e.lv === G.lvIdx && e.to === G.myslot && G.me && !G.me.dead) {
+        const M = G.me;
+        if (M.rope) M.rope.len = Math.max(150, M.rope.len - 10);
+        else {
+          M.vy = -11.0;
+          const r = G.remotes.get(e.s);
+          if (r) M.vx += Math.sign(r.x - M.x) * 4.0;
+        }
+      }
+      break;
+    case 'key':
+      if (e.lv === G.lvIdx) collectKey(false, e.s);
+      break;
+    case 'keyst':
+      if (e.lv === G.lvIdx && e.v && !G.keyGot) {
+        G.keyGot = true;
+        const ks = $('keyStat');
+        if (ks) {
+          ks.textContent = '🔑 ✓';
+          ks.classList.add('got');
+        }
+      }
+      break;
+    case 'win':
+      if (e.lv === G.lvIdx) triggerWin(false);
+      break;
+    case 'die':
+      if (e.lv === G.lvIdx) {
+        G.deaths++;
+        setText('deaths', '💥 ' + G.deaths);
+        Snd.die();
+        if (e.wipe && G.me && !G.won) {
+          toast('💀 ' + (G.names[e.s] || 'Đồng đội') + ' tử nạn — Cả đội quay về Checkpoint!');
+          respawn();
+        }
+      }
+      break;
+    case 'clk':
+      if (e.lv === G.lvIdx && e.s === G.hostSlot && e.s !== G.myslot) {
+        const target = e.v + G.pingMs / 2000;
+        const diff = target - G.lt;
+        if (Math.abs(diff) > 1.2) G.lt = target;
+        else if (Math.abs(diff) > 0.08) G.lt += clamp(diff * 0.15, -0.02, 0.02);
+      }
+      break;
+  }
+}
+
 function v15SanitizeLevel(lv) {
   if (!lv) return lv;
   const H = lv.h || WORLD_H;
@@ -3102,7 +4556,6 @@ function v15SanitizeLevel(lv) {
     surfaceKeepOuts.push([gt.x - 16, gt.x + gt.w + 16, gt.y - 10, gt.y + gt.h + 15]);
   }
 
-  // Đảm bảo 100% Cờ Checkpoint luôn cắm chặt trên mặt đất cố định (không bao giờ lơ lửng ở màn Đảo Chiều!):
   for (const f of lv.flags || []) {
     let validGround = false;
     for (let i = 0; i < (lv.solids || []).length; i++) {
@@ -3624,9 +5077,9 @@ function stepPlayer() {
   const isWater = v18IsInSwimPit(P, L);
   const isSpace = L.biome === 'space';
 
-  if (isWater && L.biome !== 'water' && P.y > GY + 65) {
-    P.y = GY + 65;
-    if (P.vy > 0) P.vy = -3.5;
+  if (isWater && L.biome !== 'water' && P.y > GY + 60) {
+    P.y = GY + 60;
+    if (P.vy > 0) P.vy = -3.8;
     P.onGround = true;
   }
 
@@ -3659,8 +5112,16 @@ function stepPlayer() {
 
   let speedBonus = 1.0;
   if (curPassive === 'limitless' || curPassive === 'pikachu' || curPassive === 'kurama') speedBonus = 1.35;
-  else if (curPassive === 'onepunch' || curPassive === 'saiyan' || curPassive === 'nika') speedBonus = 1.28;
-  else if (curPassive === 'dragonflight' || curPassive === 'antidote') speedBonus = 1.2;
+  else if (
+    curPassive === 'onepunch' ||
+    curPassive === 'saiyan' ||
+    curPassive === 'nika' ||
+    curPassive === 'santoryu'
+  ) {
+    speedBonus = 1.28;
+  } else if (curPassive === 'dragonflight' || curPassive === 'antidote') {
+    speedBonus = 1.2;
+  }
 
   const jumpBonus =
     curPassive === 'nika' || curPassive === 'limitless' || curPassive === 'saiyan' ? 1.26 : 1.0;
@@ -3732,7 +5193,7 @@ function stepPlayer() {
   }
 
   if (isWater && (jumpPressedNow || (input.j && P.vy > 1.0))) {
-    P.vy = -8.6 * jumpMul(P) * jumpBonus;
+    P.vy = -9.6 * jumpMul(P) * jumpBonus;
     P.onGround = false;
     P.jbuf = 0;
     P.sq = -0.2;
@@ -3798,10 +5259,13 @@ function stepPlayer() {
   for (let i = 0; i < hits.length; i++) {
     const s = hits[i];
     if (s.bonk && !s.bonk.rev) continue;
-    if (
-      (pre.includes(s) && feetStart - s[1] <= 46 && feetStart > s[1]) ||
-      (isWater && P.vy < 0 && P.y + PH - s[1] < 38)
-    ) {
+    if (pre.includes(s) && feetStart - s[1] <= 46 && feetStart > s[1]) continue;
+    // HỖ TRỢ TRỒI LÊN BỜ TỪ HỒ NƯỚC (Water Ledge Climb-out):
+    // Khi đang bơi trong hồ nước và chạm vào mép tường bờ đất, tự động nâng nhân vật lên mặt bờ mượt mà!
+    if (isWater && P.y + PH - s[1] <= 76 && (P.vy < 0 || input.j)) {
+      P.y = s[1] - PH;
+      P.vy = -6.5;
+      P.onGround = true;
       continue;
     }
     if (P.vx > 0) P.x = s[0] - PW;
@@ -3907,7 +5371,176 @@ function stepPlayer() {
   if (h) die(h);
 }
 
-// HÀM DIE VỚI NỘI TẠI BẢO VỆ VĨNH VIỄN (0 GIÂY HỒI CHIÊU) CHO GOJO, LUFFY GEAR 5, GOKU MUI & SAITAMA SERIOUS MODE:
+function updateWorld() {
+  const L = G.L;
+  const me = G.me;
+  G.lt += STEP;
+  if (!G.won) G.levelTime += STEP;
+  const bodies = allBodies();
+  const camMidX = G.cam.x + (G.cam.vw || 800) / 2;
+  const hearRange = (G.cam.vw || 800) * 0.75;
+
+  for (const p of L.plates) {
+    let pr = false;
+    for (const b of bodies) {
+      if (standsOn(b, p)) {
+        pr = true;
+        break;
+      }
+    }
+    if (pr) p.t = Math.max(p.hold, 0.25);
+    else if (p.t > 0) p.t -= STEP;
+    const act = pr || p.t > 0;
+    if (act !== p.on && Math.abs(p.x - camMidX) < hearRange) Snd.plate(act);
+    p.on = act;
+    p.pr = pr;
+  }
+  for (const g of L.gates) {
+    let act;
+    if (g.tr !== undefined) {
+      const trObj = L.traps[g.tr];
+      if (!trObj) act = true;
+      else if (trObj.k === 'syncgate' || trObj.k === 'skygate') act = !!trObj.open;
+      else act = trapGateOpen(g);
+    } else if (g.mode === 'all') {
+      act = g.ctrl.every((id) => L.plates.find((p) => p.id === id).on);
+    } else if (g.mode === 'count') {
+      act =
+        g.ctrl.filter((id) => L.plates.find((p) => p.id === id).on).length >=
+        Math.min(g.need || g.ctrl.length, g.ctrl.length);
+    } else {
+      act = g.ctrl.some((id) => L.plates.find((p) => p.id === id).on);
+    }
+    if (act !== g.act && Math.abs(g.x - camMidX) < hearRange) Snd.gate(act);
+    g.act = act;
+  }
+  for (const c of L.crumbles) {
+    if (c.st === 0) {
+      if (!c.lock) {
+        for (const b of bodies) {
+          const feet = b.y + PH;
+          if (b.x + PW - 3 > c.x && b.x + 3 < c.x + c.w && feet >= c.y - 2 && feet <= c.y + 8) {
+            c.st = 1;
+            c.t = c.fast ? 0.09 : 0.22;
+            break;
+          }
+        }
+      }
+    } else if (c.st === 1) {
+      c.t -= STEP;
+      if (c.t <= 0) {
+        c.st = 2;
+        c.t = 2.5;
+        c.fy = 0;
+        c.vy = 0;
+        if (Math.abs(c.x - camMidX) < hearRange) Snd.crumble();
+      }
+    } else {
+      c.t -= STEP;
+      c.vy = (c.vy || 0) + 0.65;
+      c.fy += c.vy;
+      if (c.t <= 0) {
+        c.st = 0;
+        c.fy = 0;
+      }
+    }
+  }
+  for (const c of L.crushers) {
+    const prev = c.cb;
+    c.cb = crusherBottom(c, G.lt);
+    if (
+      prev !== undefined &&
+      prev < c.downB - 2 &&
+      c.cb >= c.downB - 2 &&
+      c.cb - prev < 40 &&
+      Math.abs(c.x + c.w / 2 - camMidX) < hearRange
+    ) {
+      Snd.slam();
+      G.shake = Math.max(G.shake, 4.5);
+    }
+  }
+  for (const b of L.boulders) {
+    const prev = b.cx;
+    b.cx = pingPong(b.x0, b.x1, b.speed, b.off, G.lt);
+    b.rot += (b.cx - prev) / b.r;
+  }
+  for (const s of L.sweepers) s.cx = s.x + s.speed * Math.max(0, G.lt - s.delay);
+  for (const r of L.risers || []) r.cy = r.y - r.speed * Math.max(0, G.lt - r.delay);
+  updateStalactites(bodies);
+  updateMeteors();
+  updateTraps(bodies);
+  updateRunKey(bodies);
+  updateRocks();
+  updateBonks();
+
+  for (const s of L.springs) if (s.sq > 0) s.sq = Math.max(0, s.sq - STEP * 5);
+
+  if (!me.dead) {
+    for (let fi = 0; fi < L.flags.length; fi++) {
+      const f = L.flags[fi];
+      if (!f.on && Math.abs(me.x + PW / 2 - f.x) < 40 && Math.abs(me.y + PH - f.y) < 90) {
+        f.on = true;
+        me.cp = { x: f.x - PW / 2, y: f.y - PH };
+        Snd.cp();
+        sparkle(f.x, f.y - 50, 14, 1, '#7cf');
+        toast('⚑ Checkpoint!');
+        v16SpawnDoppelganger(L, me, f.x, f.y, fi);
+        if (G.mode !== 'solo') {
+          netEv({ t: 'cp', x: Math.round(me.cp.x), y: Math.round(me.cp.y), fi, s: me.slot, pull: 1 });
+        }
+      } else if (
+        f.on &&
+        Math.abs(me.x + PW / 2 - f.x) < 40 &&
+        Math.abs(me.y + PH - f.y) < 90 &&
+        f.x - PW / 2 >= me.cp.x
+      ) {
+        me.cp = { x: f.x - PW / 2, y: f.y - PH };
+      }
+    }
+    const cx = me.x + PW / 2;
+    const cy = me.y + PH / 2;
+    const mg =
+      curPassive === 'magnet' ||
+      curPassive === 'dragonflight' ||
+      curPassive === 'limitless' ||
+      timedOn(me, 'magnet')
+        ? 2.5
+        : 1;
+    for (const c of L.coins) {
+      if (c.pop > 0) c.pop -= STEP;
+      if (c.got || c.anomaly) continue;
+      if (Math.abs(cx - c.x) < 24 * mg && Math.abs(cy - c.y) < 28 * mg) {
+        c.got = true;
+        c.pop = 0.5;
+        const dia = c.kind === 'diamond';
+        if (G.lvIdx >= 0) {
+          Save.markCoin(G.mode, G.lvIdx, c.id);
+          if (dia) Save.addDiamonds(1);
+          else Save.addCoins(1);
+        }
+        if (dia) {
+          Snd.key();
+          toast('💎 Diamond found!');
+        } else {
+          Snd.coin();
+        }
+      }
+    }
+    if (!G.keyGot) {
+      const k = keyPos();
+      const kg = mg > 1 ? 1.6 : 1;
+      if (Math.abs(cx - k.x) < 30 * kg && Math.abs(cy - k.y) < 34 * kg) {
+        collectKey(true, me.slot);
+      }
+    }
+    exitCheck();
+  }
+  if (G.won) {
+    G.winT += STEP;
+    if (G.winT > 3.6 && !G.finalShown) advanceAfterWin();
+  }
+}
+
 function die(cause) {
   const P = G.me;
   if (P.dead || P.inv > 0 || G.won) return;
@@ -3925,7 +5558,7 @@ function die(cause) {
     return;
   }
 
-  // 1. GOJO SATORU (VÔ HẠN VĨNH VIỄN — KHÔNG CHỜ HỒI CHIÊU!):
+  // 1. GOJO SATORU (VÔ HẠN VĨNH VIỄN — 0 GIÂY HỒI CHIÊU!):
   if (curPassive === 'limitless') {
     if (cause === 'fall' || cause === 'wall') {
       tpToCheckpoint(P);
@@ -3941,7 +5574,7 @@ function die(cause) {
     return;
   }
 
-  // 2. LUFFY GEAR 5 (CƠ THỂ CAO SU VĨNH VIỄN — Tự động hóa Gear 5 & bật nảy như đệm lò xo!):
+  // 2. LUFFY GEAR 5 (CƠ THỂ CAO SU VĨNH VIỄN — Tự động hóa Gear 5 & bật nảy lên trời!):
   if (curPassive === 'nika' && cause !== 'fall' && cause !== 'wall') {
     P.awakened = true;
     P.inv = 0.8;
@@ -3973,14 +5606,17 @@ function die(cause) {
     return;
   }
 
-  // 5. NARUTO / PIKACHU / REAPER: Khi đang bật Thức Tỉnh (P.awakened), tự động kháng đòn chí mạng (mỗi 4s):
+  // 5. NARUTO / PIKACHU / ZORO / REAPER:
   if (
-    (curPassive === 'kurama' || curPassive === 'pikachu' || curPassive === 'wraith') &&
+    (curPassive === 'kurama' ||
+      curPassive === 'pikachu' ||
+      curPassive === 'santoryu' ||
+      curPassive === 'wraith') &&
     cause !== 'fall' &&
     cause !== 'wall' &&
     (!P.wraithCd || G.lt >= P.wraithCd)
   ) {
-    P.wraithCd = G.lt + 4.0;
+    P.wraithCd = G.lt + 3.5;
     P.awakened = true;
     P.inv = 1.4;
     P.vy = -10.5;
@@ -4053,7 +5689,7 @@ function respawn() {
 }
 
 // ============================================================================
-// 11. KHỞI TẠO 300 MÀN CHƠI & SỬA TRIỆT ĐỂ MÀN ĐẢO CHIỀU (MÀN 97)
+// 9. TRÌNH KIẾN TẠO ĐẦY ĐỦ 300 MÀN CHƠI (100 SOLO / 100 CO-OP / 100 PARTY)
 // ============================================================================
 (() => {
   SKY_THEMES.length = 0;
@@ -4074,35 +5710,526 @@ function respawn() {
     'hell'
   );
 
-  // Ghi đè updateTraps cho cửa chạy (trollDoor) nhạy gấp đôi (240px) để người chơi không chạm thắng trước khi cửa kịp chạy!
-  const _prevUpdateTraps = updateTraps;
-  updateTraps = function (bodies) {
-    const L = G.L;
-    const me = G.me;
-    if (L && L.traps && me && !me.dead && !G.won) {
-      const cx = me.x + PW / 2;
-      const cy = me.y + PH / 2;
-      for (let i = 0; i < L.traps.length; i++) {
-        const t = L.traps[i];
-        if (t.k === 'door' && t.st === 0) {
-          L.exit.lock = true;
-          if (Math.hypot(cx - (L.exit.x + L.exit.w / 2), cy - (L.exit.y + L.exit.h / 2)) < 240) {
-            trapSend(i, 'flee', 0);
-          }
-        }
+  LB.prototype.gap = function (len) {
+    this.spikes.push({ x: this.x, y: WORLD_H - 26, w: len, h: 26, dir: 'up', pit: true });
+    this.x += len;
+  };
+
+  seg.bonkGap = function (b, gapW) {
+    gapW = gapW || 150;
+    const x0 = seg.run(b, 320, {});
+    const gx = b.x;
+    const gy = b.gy;
+    b.gap(gapW);
+    b.bonks.push({ x: gx + gapW / 2 - 22, y: gy - 166, w: 46, h: 40, rev: false, sh: 0 });
+    seg.run(b, 320, { flag: true });
+    return x0;
+  };
+
+  seg.passCollapse = function (b, len) {
+    const span = len || 350;
+    const x0 = b.ground(220);
+    const gy = b.gy;
+    const bx = b.x;
+    b.spikes.push({ x: bx, y: WORLD_H - 26, w: span, h: 26, dir: 'up', pit: true });
+    const nTiles = Math.max(3, Math.floor(span / 85));
+    const tw = Math.floor(span / nTiles);
+    const idxs = [];
+    for (let i = 0; i < nTiles; i++) {
+      b.crumbles.push({ x: bx + i * tw, y: gy, w: tw, h: 24, st: 0, t: 0, fy: 0, lock: true, stealth: true });
+      idxs.push(b.crumbles.length - 1);
+    }
+    b.traps.push({ k: 'pass_drop', x0: bx, x1: bx + span, gy, cr: idxs, st: 0, t: 0 });
+    b.x = bx + span;
+    b.ground(260);
+    b.coin(bx + span * 0.5, gy - 58);
+    return x0;
+  };
+
+  seg.delayedAmbush = function (b, len) {
+    len = Math.max(620, len || 680);
+    const x0 = b.ground(len);
+    const gy = b.gy;
+    const idx = b.traps.length;
+    for (let gx = x0 + 160; gx + 64 <= x0 + len - 140; gx += 130) {
+      b.spikes.push({ x: gx, y: gy - 24, w: 64, h: 24, dir: 'up', hid: true, bt: idx, ph: 0, live: false });
+    }
+    b.stalactites.push({ x: x0 + len - 220, y: gy - 310, w: 34, h: 66, st: 0, t: 0, fy: 0, vy: 0, sniper: true });
+    b.traps.push({ k: 'ambush', zx0: x0 + 120, zx1: x0 + len - 90, gy, st: 0, t: 0 });
+    b.coin(x0 + len * 0.5, gy - 64);
+    return x0;
+  };
+
+  seg.movingGap = function (b, gapW) {
+    gapW = gapW || 135;
+    const x0 = b.ground(260);
+    const gy = b.gy;
+    const gx = b.x;
+    const pw = 220;
+    const shiftAmt = 68;
+    const rightGap = 135;
+    b.spikes.push({ x: gx + 6, y: WORLD_H - 26, w: gapW + pw + rightGap - 12, h: 26, dir: 'up', pit: true });
+    const platIdx = b.solids.length;
+    const tIdx = b.traps.length;
+    const platSolid = [gx + gapW, gy, pw, 44];
+    platSolid.isVehicle = true;
+    b.solids.push(platSolid);
+    const topSpk = { x: gx + gapW + 115, y: gy - 24, w: 72, h: 24, dir: 'up', hid: true, bt: tIdx, ph: 0, live: false };
+    b.spikes.push(topSpk);
+    b.traps.push({ k: 'double_bluff', gx, gy, si: platIdx, baseX: gx + gapW, shift: shiftAmt, cur: 0, st: 0, t: 0, topSpk });
+    b.x = gx + gapW + pw + rightGap;
+    b.ground(280);
+    return x0;
+  };
+
+  seg.trollSpringTrap = function (b) {
+    const x0 = b.ground(340);
+    const gy = b.gy;
+    const spx = x0 + 185;
+    const sIdx = b.springs.length;
+    b.springs.push({ x: spx, y: gy - 14, w: 56, h: 14, power: 17.5, sq: 0, trollIdx: b.traps.length });
+    b.spikes.push({ x: spx - 30, y: gy - 285, w: 120, h: 26, dir: 'down' });
+    b.spikes.push({ x: x0 + 30, y: gy - 22, w: 70, h: 22, dir: 'up', hid: true, bt: b.traps.length, ph: 0, live: false });
+    b.traps.push({ k: 'troll_spring', sIdx, st: 0, t: 0 });
+    b.step(145);
+    b.ground(320);
+    return x0;
+  };
+
+  seg.fakePlates = function (b, n, o) {
+    o = o || {};
+    n = Math.max(4, Math.min(n || 5, 6));
+    const pitch = 145;
+    const lead = 110;
+    const tail = 220;
+    const hold = 4.2;
+    const x0 = b.ground(lead + n * pitch + tail + 180);
+    const idx = b.traps.length;
+    const realIdx = 1 + ((n + idx) % (n - 1));
+    const rid = 'p' + b.pid++;
+    const fakes = [];
+    const allPos = [];
+    let realPlate = null;
+    for (let i = 0; i < n; i++) {
+      const px = x0 + lead + i * pitch;
+      const py = b.gy - 10;
+      allPos.push(px);
+      if (i === realIdx) {
+        realPlate = { id: rid, x: px, y: py, w: 60, h: 10, hold, t: 0, on: false };
+        b.plates.push(realPlate);
+      } else {
+        fakes.push({
+          x: px,
+          y: py,
+          w: 60,
+          h: 10,
+          hold: 0,
+          t: 0,
+          on: false,
+          pr: false,
+          used: false,
+          v: (i + idx) % 2 === 0 ? 'stalac' : 'rev',
+        });
       }
     }
-    return _prevUpdateTraps(bodies);
+    const gx = x0 + lead + n * pitch + tail;
+    b.gates.push({ x: gx, y: b.gy - 340, w: 28, h: 340, ctrl: [rid], mode: 'any', open: false, inv: false });
+    b.traps.push({ k: 'fake', plates: fakes, allPos, realPlate });
+    if (o.flag) b.flag(x0 + 40);
+    return x0;
   };
+
+  seg.glacierSled = function (b, len, mode) {
+    baseDrop(b);
+    len = len || 1450;
+    const x0 = b.ground(280);
+    const gy = b.gy;
+    const cs = b.x;
+    const ce = cs + len;
+    b.spikes.push({ x: cs, y: WORLD_H - 26, w: len, h: 26, dir: 'up', pit: true });
+    for (let sx = cs + 420; sx < ce - 320; sx += 440) {
+      b.stalactites.push({ x: sx, y: gy - 310, w: 34, h: 66, st: 0, t: 0, fy: 0, vy: 0, sniper: true });
+    }
+    const sledW = mode === 'solo' ? 130 : 185;
+    const si = b.solids.length;
+    const sledSolid = [cs + 12, gy - 4, sledW, 24];
+    sledSolid.isVehicle = true;
+    b.solids.push(sledSolid);
+    b.traps.push({
+      k: 'sled',
+      si,
+      x0: cs + 12,
+      x1: ce - sledW - 14,
+      x: cs + 12,
+      y: gy - 4,
+      w: sledW,
+      maxV: 5.8,
+      vx: 0,
+      dx: 0,
+      st: 0,
+      wait: 0,
+    });
+    b.x = ce;
+    const landX = b.ground(360);
+    b.flag(landX + 90);
+    b.coin(cs + len * 0.5, gy - 85);
+    return landX;
+  };
+
+  seg.judgmentCorridor = function (b, len, mode) {
+    len = len || 840;
+    const x0 = b.ground(len);
+    const gy = b.gy;
+    b.traps.push({ k: 'redeye', x0: x0 + 70, x1: x0 + len - 90, off: (x0 * 0.01) % 3, state: 0 });
+    if (mode !== 'solo') {
+      const gi = b.gates.length;
+      const isSky = x0 % 2 === 0;
+      b.gates.push({
+        x: x0 + len - 90,
+        y: gy - 340,
+        w: 28,
+        h: 340,
+        ctrl: [],
+        mode: 'any',
+        open: false,
+        inv: false,
+        tr: b.traps.length,
+      });
+      if (isSky) b.traps.push({ k: 'skygate', gi, bx: x0 + len - 240, by: gy - 195, open: false });
+      else b.traps.push({ k: 'syncgate', gi, x: x0 + len - 210, open: false });
+    }
+    b.coin(x0 + len * 0.5, gy - 75);
+    return x0;
+  };
+
+  seg.antiGravChamber = function (b, len) {
+    len = len || 760;
+    const x0 = b.x;
+    const gy = b.gy;
+    const ceilY = gy - 290;
+    b.spikes.push({ x: x0, y: WORLD_H - 26, w: len, h: 26, dir: 'up', pit: true });
+    b.solids.push([x0, ceilY - 36, len, 36]);
+    b.spikes.push({ x: x0 + 220, y: ceilY, w: 60, h: 22, dir: 'down' });
+    b.spikes.push({ x: x0 + 480, y: ceilY, w: 60, h: 22, dir: 'down' });
+    b.gravZones = b.gravZones || [];
+    b.gravZones.push({ x0: x0 + 20, x1: x0 + len - 40, y0: ceilY, y1: gy });
+    b.x = x0 + len;
+    b.ground(300);
+    b.coin(x0 + len * 0.5, ceilY + 55);
+    return x0;
+  };
+
+  seg.laserCorridor = function (b, len, d) {
+    len = len || 820;
+    const x0 = b.ground(len);
+    const gy = b.gy;
+    b.lasers = b.lasers || [];
+    const nLasers = 2 + (d > 0.55 ? 1 : 0);
+    for (let i = 0; i < nLasers; i++) {
+      const lx = x0 + 220 + i * Math.floor((len - 340) / Math.max(1, nLasers - 1));
+      b.solids.push([lx - 28, gy - 115, 56, 18]);
+      b.lasers.push({
+        x: lx,
+        y: gy - 106,
+        len: 100,
+        spd: (i % 2 ? -1 : 1) * (1.8 + d * 0.85),
+        off: i * 1.1,
+        blades: d > 0.65 ? 3 : 2,
+      });
+    }
+    b.coin(x0 + len * 0.5, gy - 68);
+    return x0;
+  };
+
+  seg.blackHoleVortex = function (b, len, d) {
+    baseDrop(b);
+    len = len || 660;
+    const x0 = b.ground(220);
+    const gy = b.gy;
+    const gx = b.x;
+    b.spikes.push({ x: gx, y: WORLD_H - 26, w: len, h: 26, dir: 'up', pit: true });
+    for (let i = 0; i < 3; i++) {
+      b.solids.push([gx + 85 + i * 195, gy - (i % 2 ? 75 : 20), 95, 18]);
+    }
+    b.blackHoles = b.blackHoles || [];
+    b.blackHoles.push({ x: gx + len * 0.5, y: gy - 175, pullR: 245, killR: 26 + Math.round(d * 8) });
+    b.x = gx + len;
+    b.ground(240);
+    return x0;
+  };
+
+  seg.phantomBridge = function (b, n, d) {
+    baseDrop(b);
+    n = n || 5;
+    const w = 96;
+    const g = 88;
+    const x0 = b.ground(200);
+    const gy = b.gy;
+    const gx = b.x;
+    const span = g + n * (w + g);
+    b.spikes.push({ x: gx, y: WORLD_H - 26, w: span, h: 26, dir: 'up', pit: true });
+    b.phantoms = b.phantoms || [];
+    for (let i = 0; i < n; i++) {
+      const px = gx + g + i * (w + g);
+      const py = gy - (i % 2) * 35;
+      const si = b.solids.length;
+      const phSolid = [px, py, w, 18];
+      phSolid.isVehicle = true;
+      b.solids.push(phSolid);
+      b.phantoms.push({ si, x: px, y: py, w, spd: 3.1 + d * 1.1, phase: i * 0.9, solid: true, alpha: 1 });
+    }
+    b.x = gx + span;
+    b.ground(240);
+    return x0;
+  };
+
+  seg.conveyorPendulum = function (b, len, d) {
+    len = len || 840;
+    const x0 = b.ground(len);
+    const gy = b.gy;
+    b.conveyors = b.conveyors || [];
+    b.pendulums = b.pendulums || [];
+    b.conveyors.push({ x: x0 + 90, y: gy, w: len - 180, spd: (x0 % 2 === 0 ? -1 : 1) * (2.1 + d * 1.0) });
+    for (let i = 0; i < 3; i++) {
+      b.pendulums.push({ x: x0 + 210 + i * 210, y: gy - 260, len: 215, r: 28, spd: 2.7 + d * 0.85, off: i * 1.3 });
+    }
+    b.coin(x0 + len * 0.5, gy - 95);
+    return x0;
+  };
+
+  seg.sniperBastion = function (b, len, d, mode) {
+    len = len || 800;
+    const x0 = b.ground(len);
+    const gy = b.gy;
+    b.turrets = b.turrets || [];
+    b.turrets.push({
+      x: x0 + len * 0.55,
+      y: gy - 245,
+      period: Math.max(1.45, 2.3 - d * 0.55),
+      charge: 0,
+      fireT: 0,
+      ang: 0,
+    });
+    b.solids.push([x0 + 210, gy - 85, 105, 18], [x0 + 490, gy - 95, 105, 18]);
+    if (mode !== 'solo') {
+      b.traps.push({ k: 'swap_pad', x: x0 + 260, y: gy - 115, used: false });
+    }
+    return x0;
+  };
+
+  seg.gravityPillars = function (b, len) {
+    len = len || 920;
+    const x0 = b.x;
+    const gy = b.gy;
+    const ceilY = gy - 280;
+    b.spikes.push({ x: x0, y: WORLD_H - 26, w: len, h: 26, dir: 'up', pit: true });
+    b.solids.push([x0, ceilY - 36, len, 36], [x0 + 280, gy, 320, WORLD_H - gy + 80]);
+    b.gravZones = b.gravZones || [];
+    b.gravZones.push(
+      { x0: x0 + 20, x1: x0 + 290, y0: ceilY, y1: gy },
+      { x0: x0 + 580, x1: x0 + len - 30, y0: ceilY, y1: gy }
+    );
+    b.x = x0 + len;
+    b.ground(280);
+    return x0;
+  };
+
+  // Sửa triệt để lỗi Cửa Chạy (trollDoor & leapDoor): Không đặt nút khóa cửa ở bệ nhảy đầu tiên!
+  seg.trollDoor = function (b, o) {
+    o = o || {};
+    const mode = o.mode === 'sink' ? 'sink' : 'run';
+    const x0 = b.ground(820);
+    const gy = b.gy;
+    b.key = { x: x0 + 280, y: gy - 56 };
+    b.flag(x0 + 45);
+    b.solids.push([x0 + 70, gy - 88, 104, 18]);
+    b.coin(x0 + 122, gy - 88 - 52);
+
+    const btn = { x: x0 + 760, y: gy - 260, w: 44, h: 10 };
+    const decoy = { x: x0 + 670, y: gy - 74, w: 54, h: 74, lock: true };
+    const GAP = 115;
+    const hops = [
+      [-30, 175],
+      [-70, 150],
+      [-25, 150],
+      [-68, 165],
+      [-35, 340],
+    ];
+    let cx = b.x;
+    b.spikes.push({
+      x: cx,
+      y: WORLD_H - 26,
+      w: hops.reduce((s, h) => s + h[1] + GAP, 0),
+      h: 26,
+      dir: 'up',
+      pit: true,
+    });
+    let lastTop = gy;
+    let lastX = cx;
+    hops.forEach(([dy, w], i) => {
+      cx += GAP;
+      b.solids.push([cx, gy + dy, w, 22]);
+      if (i === 0) b.flags.push({ x: cx + 85, y: gy + dy });
+      if (i === 1 || i === 3) b.coin(cx + w / 2, gy + dy - 56);
+      lastTop = gy + dy;
+      lastX = cx;
+      cx += w;
+    });
+    const dest = { x: lastX + 220, y: lastTop - 74 };
+    b.x = cx + 80;
+    b.exitOv = decoy;
+    b.traps.push({
+      k: 'door',
+      mode,
+      btn,
+      ex0: decoy.x,
+      ey0: decoy.y,
+      dx: dest.x,
+      dy: dest.y,
+      st: 0,
+      t: 0,
+      dur: mode === 'sink' ? 1.35 : 1.15,
+    });
+    return x0;
+  };
+
+  seg.leapDoor = function (b) {
+    const x0 = b.ground(1640);
+    const gy = b.gy;
+    b.key = { x: x0 + 240, y: gy - 56 };
+    b.flag(x0 + 45);
+    const e0 = { x: x0 + 620, y: gy - 74, w: 54, h: 74, lock: true };
+    b.exitOv = e0;
+    b.traps.push({
+      k: 'door2',
+      mode: 'leap',
+      ex0: e0.x,
+      ey0: e0.y,
+      hop: 275,
+      hops: 3,
+      n: 0,
+      st: 0,
+      t: 0,
+      dur: 0.72,
+      from: e0.x,
+    });
+    return x0;
+  };
+
+  v11Inject = function (b, kb, ku) {
+    if (b._v11 || b.h !== WORLD_H || b.wj || b.exitOv) return;
+    b._v11 = 1;
+    if (!b.key) b.key = { x: b.x - (kb || 520), y: b.gy - (ku || 56) };
+    baseDrop(b);
+    seg.passCollapse(b, 340);
+    baseDrop(b);
+    seg.run(b, 360, { flag: true, coins: [[180, -60]] });
+  };
+
+  LB.prototype.finish = function (keyBack, keyUp) {
+    v11Inject(this, keyBack, keyUp);
+    const cleanFlags = [];
+    for (let i = 0; i < this.flags.length; i++) {
+      const f = this.flags[i];
+      if (!cleanFlags.some((cf) => Math.hypot(cf.x - f.x, cf.y - f.y) < 750)) {
+        cleanFlags.push({ x: f.x, y: f.y, on: false });
+      }
+    }
+    const off = { solo: 0, coop: 4, party: 8 }[G.mode] || 0;
+    const key = G.lvIdx >= 0 ? G.lvIdx : 1;
+    const lv = {
+      name: this.name,
+      hint: this.hint,
+      hue: (this.hue + key * 37 + off * 53) % 360,
+      coop: this.coop,
+      traps: this.traps,
+      skyTheme: SKY_THEMES[(key * 3 + off) % SKY_THEMES.length],
+      w: this.x,
+      h: this.h,
+      wj: this.wj,
+      stalactites: this.stalactites,
+      meteors: this.meteors,
+      risers: this.risers,
+      spawn: this.spawn,
+      solids: this.solids,
+      spikes: this.spikes,
+      crumbles: this.crumbles,
+      springs: this.springs,
+      crushers: this.crushers,
+      boulders: this.boulders,
+      sweepers: this.sweepers,
+      plates: this.plates,
+      gates: this.gates,
+      ropes: this.ropes,
+      slopes: this.slopes || [],
+      bonks: this.bonks || [],
+      rocks: this.rocks || [],
+      lasers: this.lasers || [],
+      blackHoles: this.blackHoles || [],
+      mimics: this.mimics || [],
+      conveyors: this.conveyors || [],
+      pendulums: this.pendulums || [],
+      turrets: this.turrets || [],
+      phantoms: this.phantoms || [],
+      gravZones: this.gravZones || [],
+      coins: this.coins.map((c, i) => ({ x: c.x, y: c.y, id: i })),
+      flags: cleanFlags,
+      key: this.key || { x: this.x - (keyBack || 520), y: this.gy - (keyUp || 56) },
+      exit: this.exitOv ? Object.assign({}, this.exitOv) : { x: this.x - 150, y: this.gy - 74, w: 54, h: 74 },
+    };
+    return v15SanitizeLevel(lv);
+  };
+
+  function buildDescentStage(title, hue, seed, mode) {
+    const W = 980;
+    const H = 2750;
+    const b = new LB(
+      title + ' [DESCENT ↓]',
+      'Đi từ ĐỈNH xuống ĐÁY vực sâu! Cẩn thận đá lăn & tia laser mỗi tầng!',
+      hue,
+      mode === 'coop'
+    );
+    b.h = H;
+    b.wj = true;
+    b.x = W;
+    b.solids.push([0, 0, 40, H + 200], [W - 40, 0, 40, H + 200], [60, 190, 260, 24]);
+    b.spawn = [120, 190 - PH];
+    let curY = 310;
+    let fIdx = 0;
+    b.lasers = [];
+    while (curY < H - 280) {
+      const gapX = 110 + Math.floor(hash1(seed * 13 + fIdx * 7.1) * (W - 380));
+      const gapW = 145 + (fIdx % 3) * 20;
+      if (gapX > 50) b.solids.push([40, curY, gapX - 40, 22]);
+      if (gapX + gapW < W - 50) b.solids.push([gapX + gapW, curY, W - 40 - (gapX + gapW), 22]);
+      if (fIdx % 3 === 0) {
+        b.boulders.push({ x0: 70, x1: W - 70, y: curY, r: 24, speed: 3.6, off: fIdx, cx: 120, rot: 0 });
+      }
+      if (fIdx % 4 === 1) {
+        b.lasers.push({ x: W / 2, y: curY - 75, len: 95, spd: 2.1, off: fIdx, blades: 2 });
+      }
+      if (fIdx % 4 === 2) {
+        b.flags.push({ x: gapX > W / 2 ? 140 : W - 140, y: curY });
+      }
+      b.coin(gapX + gapW / 2, curY - 35);
+      curY += 165;
+      fIdx++;
+    }
+    const botY = H - 90;
+    b.solids.push([40, botY, W - 80, 160]);
+    b.key = { x: 180, y: botY - 140, run: { x0: 90, x1: W - 90, gy: botY } };
+    b.exitOv = { x: W - 150, y: botY - 74, w: 54, h: 74 };
+    return v15SanitizeLevel(b.finish(0, 0));
+  }
 
   function reverseLevelHorizontally(lv) {
     const W = lv.w;
     lv.name += ' [ĐẢO CHIỀU ←]';
-    lv.hint = '🔄 MÀN ĐẢO CHIỀU: Xuất phát bên PHẢI, chạy ngược về bên TRÁI để lấy Chìa khóa & vào Cửa!';
+    lv.hint = '🔄 MÀN ĐẢO CHIỀU: Xuất phát bên PHẢI, chạy ngược về bên TRÁI!';
     for (const s of lv.solids) s[0] = W - s[0] - s[2];
-    // Xây 2 thềm đất liền cố định vững chắc ở đầu Phải (Spawn) và đầu Trái (Exit + Key) để không bao giờ bị rơi hay lơ lửng!
-    lv.solids.push([W - 460, GY, 460, WORLD_H - GY + 80]);
-    lv.solids.push([0, GY, 540, WORLD_H - GY + 80]);
+    // Gia cố 2 thềm đất liền cố định vững chắc ở đầu Phải (Spawn) và đầu Trái (Exit + Key):
+    lv.solids.push([W - 480, GY, 480, WORLD_H - GY + 80]);
+    lv.solids.push([0, GY, 560, WORLD_H - GY + 80]);
     lv.spawn = [W - 140, GY - PH];
 
     lv.spikes = (lv.spikes || []).filter((sp) => sp.bt === undefined);
@@ -4149,21 +6276,198 @@ function respawn() {
     return v15SanitizeLevel(lv);
   }
 
-  // Áp dụng bộ sửa lỗi Đảo Chiều & Cửa Chạy cho toàn bộ 300 màn chơi:
-  ['solo', 'coop', 'party'].forEach((mode) => {
-    const origArr = LEVELS[mode].slice();
-    LEVELS[mode].length = 0;
-    for (let i = 0; i < origArr.length; i++) {
-      LEVELS[mode].push(() => {
-        const lv = origArr[i]();
-        if (lv && lv.name && lv.name.indexOf('ĐẢO CHIỀU') >= 0) {
-          lv.solids.push([lv.w - 460, GY, 460, WORLD_H - GY + 80]);
-          lv.solids.push([0, GY, 540, WORLD_H - GY + 80]);
+  const POOL_ALL = [
+    (b, d) => seg.laserCorridor(b, 840, d),
+    (b, d) => seg.blackHoleVortex(b, 660, d),
+    (b, d) => seg.phantomBridge(b, 5, d),
+    (b, d) => seg.conveyorPendulum(b, 840, d),
+    (b, d, m) => seg.sniperBastion(b, 800, d, m),
+    (b) => seg.gravityPillars(b, 920),
+    (b, d, m) => seg.glacierSled(b, 1450, m),
+    (b, d, m) => seg.judgmentCorridor(b, 840, m),
+    (b) => seg.antiGravChamber(b, 740),
+    (b, d) => seg.passCollapse(b, Math.round(330 + d * 110)),
+    (b) => seg.delayedAmbush(b, 680),
+    (b, d) => seg.movingGap(b, Math.round(130 + d * 35)),
+    (b) => {
+      seg.trollSpringTrap(b);
+      baseDrop(b);
+    },
+    (b) => seg.antiBaitSpikes(b, 720, { flag: true, coins: [[340, -95]] }),
+    (b, d) => seg.fakePlates(b, Math.min(6, 4 + Math.floor(d * 2.5)), { flag: true }),
+    (b, d) => seg.sawArena(b, Math.round(13 + d * 2), d > 0.45 ? 4 : 3),
+    (b, d) => seg.compactor(b, 1300, { speed: +(2.0 + d * 0.75).toFixed(2) }),
+    (b, d) => seg.ferry(b, 1600, { speed: +(1.55 + d * 0.55).toFixed(2) }),
+    (b) => seg.bonkGap(b, 150),
+  ];
+
+  const SEASONS = [
+    { name: '☣️ Đầm Lầy Độc Dược', sky: 'toxic', hue: 135, biome: 'toxic' },
+    { name: '🌊 Đại Dương Cá Mập', sky: 'ocean', hue: 195, biome: 'water' },
+    { name: '☁️ Thiên Đường Trên Mây', sky: 'heaven', hue: 48, biome: 'heaven' },
+    { name: '🔥 Địa Ngục Tối Thượng', sky: 'hell', hue: 8, biome: 'hell' },
+    { name: '🧊 Kỷ Băng Hà Tuyệt Đối', sky: 'frost', hue: 200, biome: 'ice' },
+    { name: '🚀 Vũ Trụ Không Trọng Lực', sky: 'cosmic', hue: 265, biome: 'space' },
+    { name: '👻 Nghĩa Địa Quỷ Dị', sky: 'storm', hue: 275, biome: 'normal' },
+    { name: '🌃 Đêm Neon Đảo Chiều', sky: 'neon', hue: 290, biome: 'normal' },
+  ];
+
+  function makeV195Stage(mode, idx) {
+    try {
+      const d = clamp(idx / 99, 0.25, 1.0);
+      const season = SEASONS[(idx + (mode === 'coop' ? 2 : mode === 'party' ? 4 : 0)) % SEASONS.length];
+      const stageTitle = season.name + ' #' + (idx + 1);
+
+      if (idx % 9 === 4) return buildDescentStage(stageTitle, season.hue, idx + 1, mode);
+      if (mode !== 'coop' && idx % 9 === 8) {
+        const nFloors = 4 + Math.min(4, Math.floor(d * 4));
+        const tw = buildTower({
+          name: stageTitle + ' [TOWER ↑]',
+          hint: 'Leo từ ĐÁY lên ĐỈNH! Dung nham & Quái vật dâng tốc độ cao.',
+          hue: season.hue,
+          rooms: [
+            ['L', nFloors, { crumble: 1, drip: 1, ice: true }],
+            ['C', 3 + (idx % 2)],
+            ['S', 2 + (idx % 2)],
+            ['L', nFloors, { crumble: 1, drip: 1 }],
+          ],
+          riser: { speed: Math.round(19 + d * 16), delay: 4.5, kind: idx % 2 ? 'lava' : 'maw' },
+          seed: idx + 300,
+        });
+        tw.skyTheme = season.sky;
+        tw.biome = season.biome;
+        return v15SanitizeLevel(tw);
+      }
+
+      const b = new LB(
+        stageTitle,
+        season.biome === 'toxic'
+          ? '☣️ ĐẦM LẦY ĐỘC & HỒ AXIT: Cẩn thận cây phun axit, mặt đất há miệng & Kẻ Giả Dạng ở Checkpoint!'
+          : season.biome === 'water'
+          ? '🌊 BƠI LẶN ĐẠI DƯƠNG: Bơi ngang đạp nước — Coi chừng hàm răng Cá Mập Megalodon!'
+          : season.biome === 'heaven'
+          ? '☁️ THIÊN ĐƯỜNG TRÊN MÂY: Hố nước thiên giới có thể bơi qua — Nhấn F để Thức Tỉnh Anime!'
+          : season.biome === 'hell'
+          ? '🔥 ĐỊA NGỤC TỐI THƯỢNG: Sông dung nham sôi sục dưới vực & Mưa thiên thạch hủy diệt!'
+          : season.biome === 'space'
+          ? '🚀 VŨ TRỤ KHÔNG TRỌNG LỰC: Bay Jetpack & Lộn ngược bước đi trên trần nhà!'
+          : '👻 CẢNH BÁO QUỶ DỊ: Hố nước có thể bơi qua — Nhấn F / 🔥 để Biến Hình Thức Tỉnh Anime!',
+        season.hue,
+        mode === 'coop'
+      );
+
+      if (idx % 5 === 3 && idx % 9 !== 6) seg.chaser(b, Math.round(124 + d * 34), 3.8);
+      seg.run(b, 420, { flag: true, spikes: [[180, 64]], coins: [[210, -110]] });
+
+      const modCount = 5 + (idx >= 40 ? 1 : 0);
+      const used = new Set();
+      for (let step = 0; step < modCount; step++) {
+        baseDrop(b);
+        if (season.biome === 'ice' && step === 1) {
+          seg.glacierSled(b, 1450, mode);
+          continue;
         }
-        return v15SanitizeLevel(lv);
-      });
+        if (season.biome === 'space' && step === 1) {
+          seg.gravityPillars(b, 920);
+          continue;
+        }
+        if (mode === 'party' && step === 2) {
+          seg.partyStackCliff(b, Math.round(205 + d * 60));
+          continue;
+        }
+        if (mode === 'coop' && step === 2) {
+          seg.coopDualHold(b, 480, { flag: true });
+          continue;
+        }
+        let si =
+          Math.floor(
+            hash1((idx + 1) * 31.7 + step * 19.3 + (mode === 'coop' ? 7 : mode === 'party' ? 13 : 0)) *
+              POOL_ALL.length
+          ) % POOL_ALL.length;
+        while (used.has(si)) si = (si + 1) % POOL_ALL.length;
+        used.add(si);
+        POOL_ALL[si](b, d, mode);
+      }
+
+      baseDrop(b);
+      let lv;
+      if (idx % 3 === 0) {
+        seg.trollDoor(b, { mode: 'run' });
+        lv = b.finish(0, 0);
+      } else if (idx % 3 === 1) {
+        seg.leapDoor(b, {});
+        lv = b.finish(0, 0);
+      } else {
+        seg.runKeyZone(b, { len: 1050 });
+        seg.run(b, 500, { coins: [[250, -60]] });
+        lv = b.finish(460, 56);
+      }
+
+      lv.skyTheme = season.sky;
+      lv.biome = season.biome;
+      if (season.biome === 'ice') {
+        for (const s of lv.solids) s.ice = true;
+      }
+      if (season.biome === 'water') {
+        lv.sharks = [];
+        for (let sx = 580; sx < lv.w - 600; sx += 980) {
+          lv.sharks.push({
+            x0: sx,
+            x1: Math.min(lv.w - 280, sx + 880),
+            baseY: GY - 135,
+            minY: GY - 340,
+            maxY: GY - 55,
+            cx: sx,
+            cy: GY - 135,
+            speed: 3.6 + d * 1.5,
+            off: sx * 0.01,
+            dir: 1,
+          });
+        }
+      }
+      if (lv.w > 2400 && (season.biome === 'heaven' || season.biome === 'hell' || idx % 3 === 0)) {
+        lv.portals = [{ x0: 940, y0: GY - 55, x1: 1520, y1: GY - 180 }];
+      }
+      if (idx % 9 === 6) return reverseLevelHorizontally(lv);
+      return v15SanitizeLevel(lv);
+    } catch (err) {
+      const fb = new LB('Chaos Stage #' + (idx + 1), 'Vượt chướng ngại vật', (idx * 47) % 360, mode === 'coop');
+      seg.run(fb, 800, { flag: true });
+      seg.fakes(fb, 4, {});
+      seg.run(fb, 800, {});
+      return v15SanitizeLevel(fb.finish(450, 56));
     }
-  });
+  }
+
+  LEVELS.solo.length = 0;
+  LEVELS.coop.length = 0;
+  LEVELS.party.length = 0;
+  for (let i = 0; i < 100; i++) {
+    LEVELS.solo.push(() => {
+      V11.ctx = { mode: 'solo', i };
+      try {
+        return makeV195Stage('solo', i);
+      } finally {
+        V11.ctx = null;
+      }
+    });
+    LEVELS.coop.push(() => {
+      V11.ctx = { mode: 'coop', i };
+      try {
+        return makeV195Stage('coop', i);
+      } finally {
+        V11.ctx = null;
+      }
+    });
+    LEVELS.party.push(() => {
+      V11.ctx = { mode: 'party', i };
+      try {
+        return makeV195Stage('party', i);
+      } finally {
+        V11.ctx = null;
+      }
+    });
+  }
   delete LV_META.solo;
   delete LV_META.coop;
   delete LV_META.party;
@@ -4177,9 +6481,9 @@ function respawn() {
 // ============================================================================
 `;
 
-code = code.slice(0, lastClose) + v19MasterPayload + '\n})();\n';
+code = code.slice(0, lastClose) + v195MasterPayload + '\n})();\n';
 fs.writeFileSync(gamePath, code, 'utf8');
-console.log('✅ [V19.0 ANIME AWAKENING MASTER] Đã nâng cấp hoàn chỉnh 3 Phần vào public/game.js!');
+console.log('✅ [V19.5 FULL MASTER] Đã tích hợp hoàn chỉnh 300 màn chơi, 7 Skin Anime Thức Tỉnh & Sửa sạch lỗi mất nhân vật!');
 
 if (fs.existsSync(cssPath)) {
   let css = fs.readFileSync(cssPath, 'utf8');
@@ -4223,7 +6527,7 @@ body.force-landscape #hud, body.force-landscape #touch {
 
 if (fs.existsSync(htmlPath)) {
   let html = fs.readFileSync(htmlPath, 'utf8');
-  html = html.replace(/game\.js(\?v=[^"']*)?/, 'game.js?v=19.0');
+  html = html.replace(/game\.js(\?v=[^"']*)?/, 'game.js?v=19.5');
   fs.writeFileSync(htmlPath, html, 'utf8');
-  console.log('✅ [V19.0] Đã tự động cập nhật game.js?v=19.0 trong index.html');
+  console.log('✅ [V19.5] Đã tự động cập nhật game.js?v=19.5 trong index.html');
 }
