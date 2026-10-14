@@ -1,12 +1,14 @@
 /**
- * Tether Bunnies v15.0 - REMASTERED GRAPHICS, SWIMMING PHYSICS & 1,120+ PROCEDURAL TRAPS
- *  - Horizontal Swimming Animation (kicking legs, paddling arms, diving mask, bubbles) in Water Biome
- *  - Astronaut Jetpack + True Upside-Down Ceiling Walking in Space / Anti-Gravity Zones
- *  - Fixed Shifting Ledge (Level 52+) spike overlap bug
- *  - Remastered Realistic Dark-Steel Spikes, Jagged Granite Boulders, Hydraulic Industrial Crushers,
- *    Articulated Jaw Megalodon Shark, and Biome-Specific Terrain (Coral Reef, Cyber Hull, Obsidian Lava)
- *  - 8 New Diabolical Trap Archetypes (Laser Rotators, Black Holes, Mimic Coins, Phantom Wave Bridges,
- *    Conveyor Pendulums, Sniper Turrets, Gravity Flip Pillars, Quantum Position Swappers) -> 1,120+ unique combinations
+ * Tether Bunnies v15.5 - GLOBAL LEVEL SANITIZER & REMASTERED GRAPHICS EDITION
+ *  - Global Geometry Sanitizer (v15SanitizeLevel) runs on ALL 300 levels + Random/Custom maps:
+ *      1) Automatically splits/clips pit spikes around every solid wall/pillar (0% spike-over-ground overlap!)
+ *      2) Converts shifting ledges (Level 52+ double_bluff) into 44px floating slabs so they never touch pit spikes
+ *      3) Enforces an 85px Safe Zone around Spawn and all Checkpoints (prevents spawn-kill by lasers/pendulums/spikes)
+ *      4) Trims any surface spikes clipping into slopes, springs, plates, or gates
+ *      5) Fixes Reversed Levels ([ĐẢO CHIỀU ←]) so all traps, slopes, and gates mirror cleanly without orphans
+ *  - Includes all v15.0 features: Horizontal Swimming Animation, Astronaut Jetpack & Upside-Down Ceiling Walk,
+ *    Remastered 3D Steel Spikes / Faceted Granite Boulders / Hydraulic Crushers / Articulated Megalodon Shark,
+ *    and 1,120+ procedural trap combinations.
  */
 'use strict';
 const fs = require('fs');
@@ -27,6 +29,7 @@ code = code.replace(/const SEND_MS = \d+;/g, 'const SEND_MS = 33;');
   '/* === TB_V13_0_UNIVERSITY_EDITION === */',
   '/* === TB_V14_0_ULTIMATE_OVERRIDE === */',
   '/* === TB_V15_0_REMASTERED_EDITION === */',
+  '/* === TB_V15_5_SANITIZED_EDITION === */',
 ].forEach((mk) => {
   if (code.includes(mk)) code = code.slice(0, code.indexOf(mk)) + '})();\n';
 });
@@ -37,8 +40,8 @@ if (lastClose === -1) {
   process.exit(0);
 }
 
-const v15Payload = `
-/* === TB_V15_0_REMASTERED_EDITION === */
+const v155Payload = `
+/* === TB_V15_5_SANITIZED_EDITION === */
 // ============================================================================
 // 1. CLIENT ID CHỐNG NHÂN ĐÔI NHÂN VẬT KHI ĐỔI MẠNG & ĐỒNG BỘ VẬT LÝ MƯỢT 30HZ
 // ============================================================================
@@ -351,25 +354,19 @@ function drawTether() {
 // ============================================================================
 // 4. ĐỒ HỌA REMASTERED: ĐÁ TẢNG ĐA DIỆN, GAI THÉP 3D, BÚA THỦY LỰC, ĐỊA HÌNH MÔI TRƯỜNG & BƠI LẶN
 // ============================================================================
-
-// 4A. Địa hình chân thực theo từng Môi trường (Không còn vẽ cỏ xanh dưới đáy biển hay ngoài vũ trụ!)
 drawSolid = function (L, s) {
   if (s.ice || L.biome === 'ice') { drawIceSolid(L, s); return; }
   const x = s[0], y = s[1], w = s[2], h = s[3], T = G.lt;
   const theme = effTheme(L);
 
   if (L.biome === 'water' || theme === 'ocean') {
-    // Đá ngầm san hô & cát biển sâu (Deep Abyssal Reef)
     const gr = ctx.createLinearGradient(0, y, 0, y + Math.min(h, 280));
     gr.addColorStop(0, '#16425b'); gr.addColorStop(0.4, '#0f2c3f'); gr.addColorStop(1, '#071722');
     ctx.fillStyle = gr; ctx.fillRect(x, y, w, h);
-    // Vết vân đá ngầm
     ctx.fillStyle = 'rgba(120,220,255,.08)';
     for (let px = x + 16; px < x + w - 16; px += 64) ctx.fillRect(px, y + 28 + ((px * 7) % 45), 24, 6);
-    // Lớp cát biển & rêu san hô phát quang trên bề mặt
     ctx.fillStyle = '#1b6ca8'; rr(x - 3, y - 5, w + 6, 16, 6); ctx.fill();
     ctx.fillStyle = '#48cae4'; rr(x - 3, y - 5, w + 6, 7, 4); ctx.fill();
-    // San hô & rong biển đung đưa theo dòng nước
     for (let px = x + 18; px < x + w - 18; px += 48) {
       const sway = Math.sin(T * 3 + px * 0.05) * 5;
       const col = (px % 96 === 0) ? '#ff5d8f' : (px % 64 === 0) ? '#00f5d4' : '#38b000';
@@ -382,7 +379,6 @@ drawSolid = function (L, s) {
   }
 
   if (L.biome === 'space' || theme === 'cosmic' || theme === 'neon') {
-    // Sàn kim loại Trạm Vũ Trụ / Cyber Titanium Hull
     const gr = ctx.createLinearGradient(0, y, 0, y + Math.min(h, 260));
     gr.addColorStop(0, '#232738'); gr.addColorStop(0.5, '#161925'); gr.addColorStop(1, '#0b0d14');
     ctx.fillStyle = gr; ctx.fillRect(x, y, w, h);
@@ -393,7 +389,6 @@ drawSolid = function (L, s) {
     ctx.fillStyle = '#343a40'; rr(x - 3, y - 5, w + 6, 15, 4); ctx.fill();
     ctx.fillStyle = theme === 'neon' ? '#ff2bd6' : '#00f5d4';
     ctx.fillRect(x - 2, y - 4, w + 4, 4);
-    // Đinh tán kim loại phát sáng
     ctx.fillStyle = '#e9ecef';
     for (let px = x + 14; px < x + w - 10; px += 36) {
       ctx.beginPath(); ctx.arc(px, y + 4, 2, 0, 6.3); ctx.fill();
@@ -402,7 +397,6 @@ drawSolid = function (L, s) {
   }
 
   if (theme === 'ember') {
-    // Đá núi lửa Obsidian & mạch nham thạch nóng chảy
     const gr = ctx.createLinearGradient(0, y, 0, y + Math.min(h, 280));
     gr.addColorStop(0, '#2b1d1e'); gr.addColorStop(0.5, '#1a1112'); gr.addColorStop(1, '#0d0708');
     ctx.fillStyle = gr; ctx.fillRect(x, y, w, h);
@@ -415,7 +409,6 @@ drawSolid = function (L, s) {
     return;
   }
 
-  // Địa hình đá tự nhiên + thảm thực vật sắc nét
   const sh = curEnv ? curEnv.solidHue : L.hue + 25, gh = curEnv ? curEnv.grassHue : 105;
   const gr = ctx.createLinearGradient(0, y, 0, y + Math.min(h, 280));
   gr.addColorStop(0, hsl(sh, 32, 48)); gr.addColorStop(1, hsl(sh, 35, 26));
@@ -428,25 +421,21 @@ drawSolid = function (L, s) {
   ctx.fillStyle = hsl(gh, 60, 54); rr(x - 3, y - 5, w + 6, 9, 5); ctx.fill();
 };
 
-// 4B. Gai Thép Đen 3D Sắc Lẹm (Remastered Metallic Blades):
 drawSpikesRaw = function (s) {
+  if (s.w < 10) return;
   const n = Math.max(1, Math.round(s.w / 20)), tw = s.w / n;
   const up = s.dir === 'up';
   const baseY = up ? s.y + s.h - 5 : s.y;
-  // Đế thép gắn đinh tán
   ctx.fillStyle = '#1e293b';
   ctx.fillRect(s.x, baseY, s.w, 5);
   for (let i = 0; i < n; i++) {
     const x = s.x + i * tw, mx = x + tw / 2;
     const tipY = up ? s.y - 2 : s.y + s.h + 2;
     const rootY = up ? s.y + s.h - 4 : s.y + 4;
-    // Nửa trái lưỡi dao (phản quang sáng)
     ctx.fillStyle = '#e2e8f0';
     ctx.beginPath(); ctx.moveTo(x + 1, rootY); ctx.lineTo(mx, tipY); ctx.lineTo(mx, rootY); ctx.closePath(); ctx.fill();
-    // Nửa phải lưỡi dao (bóng tối kim loại)
     ctx.fillStyle = '#475569';
     ctx.beginPath(); ctx.moveTo(mx, rootY); ctx.lineTo(mx, tipY); ctx.lineTo(x + tw - 1, rootY); ctx.closePath(); ctx.fill();
-    // Mũi dao nhuốm đỏ năng lượng sát thương
     ctx.fillStyle = '#ef4444';
     const midY = lerp(tipY, rootY, 0.28);
     ctx.beginPath();
@@ -454,19 +443,15 @@ drawSpikesRaw = function (s) {
     ctx.lineTo(mx, tipY);
     ctx.lineTo(lerp(x + tw - 1, mx, 0.72), midY);
     ctx.closePath(); ctx.fill();
-    // Viền thép sắc nét
     ctx.strokeStyle = '#0f172a'; ctx.lineWidth = 1.5;
     ctx.beginPath(); ctx.moveTo(x + 1, rootY); ctx.lineTo(mx, tipY); ctx.lineTo(x + tw - 1, rootY); ctx.stroke();
   }
 };
 
-// 4C. Đá Tảng Hoa Cương Gồ Ghề Đa Diện (Thay thế hoàn toàn cục tròn màu nâu cũ!):
 function drawFacetedRock(cx, cy, r, rot, isLava) {
   ctx.save();
   ctx.translate(cx, cy);
   ctx.rotate(rot);
-
-  // Tạo đa giác 14 đỉnh gồ ghề cố định
   const verts = 14;
   ctx.beginPath();
   for (let i = 0; i < verts; i++) {
@@ -476,7 +461,6 @@ function drawFacetedRock(cx, cy, r, rot, isLava) {
     if (i === 0) ctx.moveTo(vx, vy); else ctx.lineTo(vx, vy);
   }
   ctx.closePath();
-
   const gr = ctx.createRadialGradient(-r * 0.3, -r * 0.3, r * 0.1, 0, 0, r * 1.05);
   gr.addColorStop(0, '#8d99ae');
   gr.addColorStop(0.55, '#4a5568');
@@ -487,7 +471,6 @@ function drawFacetedRock(cx, cy, r, rot, isLava) {
   ctx.strokeStyle = '#0f172a';
   ctx.stroke();
 
-  // Các mảng vát cạnh đá 3D bên trong
   ctx.fillStyle = 'rgba(255,255,255,.12)';
   ctx.beginPath();
   ctx.moveTo(-r * 0.55, -r * 0.2); ctx.lineTo(-r * 0.1, -r * 0.65); ctx.lineTo(r * 0.25, -r * 0.25); ctx.lineTo(-r * 0.15, 0);
@@ -498,7 +481,6 @@ function drawFacetedRock(cx, cy, r, rot, isLava) {
   ctx.moveTo(r * 0.1, r * 0.1); ctx.lineTo(r * 0.65, r * 0.05); ctx.lineTo(r * 0.4, r * 0.6); ctx.lineTo(-r * 0.2, r * 0.55);
   ctx.closePath(); ctx.fill();
 
-  // Vết nứt sâu & mạch quặng phát sáng
   ctx.strokeStyle = isLava ? '#ff5400' : '#111827';
   ctx.lineWidth = 2.2;
   ctx.beginPath();
@@ -508,15 +490,11 @@ function drawFacetedRock(cx, cy, r, rot, isLava) {
   ctx.restore();
 }
 
-drawBoulder = function (b, bcx, brot) {
-  drawFacetedRock(bcx, b.y - b.r, b.r, brot, true);
-};
-
+drawBoulder = function (b, bcx, brot) { drawFacetedRock(bcx, b.y - b.r, b.r, brot, true); };
 drawFerry = function (t) {
   const a = (G.alpha === undefined ? 1 : G.alpha), cx = t.cx - (t.dx || 0) * (1 - a), cy = t.cy, R = t.R;
   drawFacetedRock(cx, cy, R, t.rot + (t.dx || 0) * (a - 1) / R, false);
 };
-
 drawRocks = function (L, lt) {
   for (const r of (L.rocks || [])) {
     const p = rockAt(r, lt);
@@ -525,13 +503,11 @@ drawRocks = function (L, lt) {
   }
 };
 
-// 4D. Máy Ép Thủy Lực Công Nghiệp & Trần Sập Cơ Khí (Thay thế cục đá vẽ mắt trẻ con!):
 drawCrusher = function (c, cb) {
   const sx = c.shake ? Math.sin(G.lt * 130) * 3.5 : 0;
   const x = c.x + sx, y = cb - c.h, w = c.w, h = c.h;
   const cx = x + w / 2;
 
-  // Trục pít-tông thủy lực kép
   ctx.fillStyle = '#334155';
   ctx.fillRect(cx - 16, c.top, 10, Math.max(0, y - c.top));
   ctx.fillRect(cx + 6, c.top, 10, Math.max(0, y - c.top));
@@ -539,14 +515,12 @@ drawCrusher = function (c, cb) {
   ctx.fillRect(cx - 14, c.top, 3, Math.max(0, y - c.top));
   ctx.fillRect(cx + 8, c.top, 3, Math.max(0, y - c.top));
 
-  // Thân búa thép bọc giáp
   const gr = ctx.createLinearGradient(x, y, x + w, y + h - 20);
   gr.addColorStop(0, '#475569'); gr.addColorStop(0.5, '#1e293b'); gr.addColorStop(1, '#0f172a');
   ctx.fillStyle = gr;
   rr(x, y, w, h - 20, 6); ctx.fill();
   ctx.lineWidth = 3; ctx.strokeStyle = c.shake ? '#ef4444' : '#090d16'; ctx.stroke();
 
-  // Sọc cảnh báo công nghiệp Vàng - Đen
   ctx.save();
   ctx.beginPath(); ctx.rect(x + 4, y + h - 42, w - 8, 16); ctx.clip();
   ctx.fillStyle = '#eab308'; ctx.fillRect(x + 4, y + h - 42, w - 8, 16);
@@ -557,13 +531,11 @@ drawCrusher = function (c, cb) {
   }
   ctx.restore();
 
-  // Lõi năng lượng cảnh báo nhiệt
   const coreCol = (c.shake || cb > c.restB + 10) ? '#ff1744' : '#38bdf8';
   ctx.fillStyle = coreCol;
   ctx.beginPath(); ctx.arc(cx, y + (h - 42) * 0.5, 11, 0, 6.3); ctx.fill();
   ctx.strokeStyle = '#e2e8f0'; ctx.lineWidth = 2; ctx.stroke();
 
-  // Hàm răng thép hợp kim sắc nhọn dưới đáy búa
   drawSpikesRaw({ x: x + 2, y: y + h - 20, w: w - 4, h: 20, dir: 'down' });
 };
 
@@ -576,7 +548,6 @@ drawCeil = function (t) {
     ctx.fillText('▼ HỐC TRÚ ẨN ▼', (a[0] + a[1]) / 2, t.gy - 10 + Math.sin(G.lt * 5) * 4);
     ctx.restore();
   }
-  // Dầm thép thủy lực khổng lồ
   const gr = ctx.createLinearGradient(0, y, 0, y + SH);
   gr.addColorStop(0, '#334155'); gr.addColorStop(1, '#0f172a');
   ctx.fillStyle = gr; ctx.fillRect(t.x0, y, w, SH - 20);
@@ -584,7 +555,6 @@ drawCeil = function (t) {
   drawSpikesRaw({ x: t.x0 + 4, y: y + SH - 20, w: w - 8, h: 20, dir: 'down' });
 };
 
-// 4E. Cửa Laser Cơ Khí & Bàn Đạp Thủy Lực:
 drawGate = function (g) {
   const solid = gateSolid(g);
   if (g.inv) {
@@ -601,7 +571,6 @@ drawGate = function (g) {
     gr.addColorStop(0, '#1e293b'); gr.addColorStop(0.5, '#475569'); gr.addColorStop(1, '#0f172a');
     ctx.fillStyle = gr; ctx.strokeStyle = '#020617'; ctx.lineWidth = 3;
     rr(g.x, g.y, g.w, g.h, 4); ctx.fill(); ctx.stroke();
-    // Lõi tia plasma khóa cửa
     const pulse = 0.65 + 0.35 * Math.sin(G.lt * 10);
     ctx.fillStyle = 'rgba(239,68,68,' + pulse.toFixed(2) + ')';
     ctx.fillRect(g.x + g.w * 0.35, g.y + 8, g.w * 0.3, g.h - 16);
@@ -614,8 +583,7 @@ drawGate = function (g) {
   }
 };
 
-// 4F. Chuyển động Thỏ Bơi Ngang Đạp Chân (Water), Jetpack Phi Hành Gia (Space) & Đi Bộ Lộn Ngược Trần Nhà (gDir < 0):
-const _origDrawBunnyV10 = _baseDrawBunny || drawBunny;
+const _origDrawBunnyV10 = drawBunny;
 drawBunny = function (x, y, o) {
   const L = G.L;
   const isWater = !!(L && L.biome === 'water');
@@ -623,7 +591,6 @@ drawBunny = function (x, y, o) {
   const face = o.face >= 0 ? 1 : -1;
   const vx = o.vx || 0, vy = o.vy || 0;
 
-  // Kiểm tra xem nhân vật này có đang ở trong vùng Đảo Ngược Trọng Lực (đi bộ trên trần nhà) không:
   let gDir = 1;
   if (L && L.gravZones) {
     for (const gz of L.gravZones) {
@@ -632,19 +599,16 @@ drawBunny = function (x, y, o) {
   }
 
   if (isWater) {
-    // HIỆU ỨNG CON THỎ NẰM NGANG BƠI LẶN & ĐẠP CHÂN DƯỚI ĐẠI DƯƠNG:
     const swimActive = !o.ground || Math.abs(vx) > 0.35;
     const tilt = swimActive ? face * 1.18 + clamp(vy * 0.045, -0.45, 0.45) * face : 0;
     const kick = Math.sin(G.lt * 20 + (o.slot || 0)) * 7;
 
     ctx.save();
-    // Chuyển tâm xoay về giữa thân thỏ để xoay nằm ngang mượt mà
     const cx = x + PW / 2, cy = y + PH / 2;
     ctx.translate(cx, cy);
     ctx.rotate(tilt);
     ctx.translate(-cx, -cy);
 
-    // Vẽ 2 chân vịt đạp nước phía sau khi đang bơi
     if (swimActive) {
       ctx.save();
       ctx.fillStyle = '#00f5d4'; ctx.strokeStyle = '#0a3d62'; ctx.lineWidth = 2;
@@ -655,31 +619,25 @@ drawBunny = function (x, y, o) {
       ctx.restore();
     }
 
-    // Gọi hàm vẽ thân thỏ gốc (với hiệu ứng đạp chân runT tăng tốc)
     _origDrawBunnyV10(x, y, Object.assign({}, o, { ground: !swimActive, runT: G.lt * 4.5 }));
 
-    // Vẽ kính lặn biển (Diving Mask) & ống thở (Snorkel) trên mặt thỏ
     ctx.save();
     ctx.translate(cx, y + PH);
     ctx.scale(face, 1);
     ctx.fillStyle = 'rgba(0,245,212,.55)';
     ctx.strokeStyle = '#023e8a'; ctx.lineWidth = 2.2;
     rr(0, -28, 15, 9, 3); ctx.fill(); ctx.stroke();
-    // Ống thở Snorkel vòng lên đầu
     ctx.strokeStyle = '#ffb703'; ctx.lineWidth = 3;
     ctx.beginPath(); ctx.moveTo(12, -22); ctx.lineTo(17, -22); ctx.lineTo(17, -38); ctx.stroke();
     ctx.restore();
-
     ctx.restore();
 
-    // Vẽ gợn nước & bong bóng thở ra khi bơi
     if (swimActive && !G.paused && Math.random() < 0.38) {
       puff(x + PW / 2 - face * 16, y + PH * 0.6 + rnd(-6, 6), 1, 'rgba(200,248,255,.85)', 0.45);
     }
     return;
   }
 
-  // Trường hợp Vùng Đảo Ngược Trọng Lực (Lộn ngược cơ thể bước đi trên trần nhà!) hoặc Không Gian Vũ Trụ:
   ctx.save();
   if (gDir < 0) {
     const cy = y + PH / 2;
@@ -692,13 +650,10 @@ drawBunny = function (x, y, o) {
     ctx.save();
     ctx.translate(x + PW / 2, y + PH);
     ctx.scale(face, 1);
-    // Kính phi hành gia Vũ Trụ (Astronaut Visor)
     ctx.fillStyle = 'rgba(56,189,248,.52)'; ctx.strokeStyle = '#e2e8f0'; ctx.lineWidth = 2;
     rr(-1, -29, 16, 10, 4); ctx.fill(); ctx.stroke();
-    // Động cơ phản lực Jetpack đôi sau lưng
     ctx.fillStyle = '#64748b'; ctx.strokeStyle = '#0f172a'; ctx.lineWidth = 2;
     rr(-19, -25, 7, 17, 2); ctx.fill(); ctx.stroke();
-    // Lửa phản lực Jetpack
     if (!o.ground) {
       const fl = 8 + Math.sin(G.lt * 45) * 4;
       const fg = ctx.createLinearGradient(-15.5, -8, -15.5, -8 + fl);
@@ -712,7 +667,136 @@ drawBunny = function (x, y, o) {
 };
 
 // ============================================================================
-// 5. HỆ THỐNG 20 CẠM BẪY TINH VI & 1.120+ BIẾN THỂ TỔ HỢP (PROCEDURAL TRAP ENGINE)
+// 5. BỘ QUÉT & CẮT GỌT ĐỊA HÌNH TOÀN CỤC (GLOBAL LEVEL SANITIZER CHO 300 MÀN)
+// ============================================================================
+function v15SanitizeLevel(lv) {
+  if (!lv) return lv;
+  const H = lv.h || WORLD_H;
+
+  // 1. TỰ ĐỘNG CẮT TÁCH GAI ĐÁY VỰC QUANH MỌI CỘT ĐẤT / TẢNG BĂNG (Chống đè gai lên đất 100%):
+  // Thu thập tất cả các khối đất cố định chạm xuống vùng đáy vực:
+  const deepWalls = [];
+  for (let i = 0; i < (lv.solids || []).length; i++) {
+    const s = lv.solids[i];
+    if (s.bonk) continue;
+    // Bỏ qua ván trượt băng (sled) hoặc đảo nổi mỏng (s[3] < 90)
+    if (s[1] + s[3] >= H - 38 && s[3] >= 90) {
+      deepWalls.push([s[0] - 4, s[0] + s[2] + 4]);
+    }
+  }
+
+  // Thu thập vùng cấm đặt gai mặt đất (quanh Lò xo, Nút bấm, Cửa sắt, Chân dốc, Spawn, Cờ Checkpoint):
+  const surfaceKeepOuts = [];
+  if (lv.spawn) surfaceKeepOuts.push([lv.spawn[0] - 65, lv.spawn[0] + PW + 65, lv.spawn[1] - 40, lv.spawn[1] + PH + 40]);
+  for (const sp of (lv.springs || [])) surfaceKeepOuts.push([sp.x - 16, sp.x + sp.w + 16, sp.y - 30, sp.y + sp.h + 20]);
+  for (const pl of (lv.plates || [])) surfaceKeepOuts.push([pl.x - 14, pl.x + pl.w + 14, pl.y - 25, pl.y + pl.h + 15]);
+  for (const gt of (lv.gates || [])) surfaceKeepOuts.push([gt.x - 16, gt.x + gt.w + 16, gt.y - 10, gt.y + gt.h + 15]);
+  for (const sl of (lv.slopes || [])) {
+    // Không cho gai mặt đất đè vào mép đầu và mép cuối của dốc nghiêng
+    surfaceKeepOuts.push([sl.x0 - 24, sl.x0 + 42, Math.min(sl.y0, sl.y1) - 30, Math.max(sl.y0, sl.y1) + 30]);
+    surfaceKeepOuts.push([sl.x1 - 42, sl.x1 + 24, Math.min(sl.y0, sl.y1) - 30, Math.max(sl.y0, sl.y1) + 30]);
+  }
+  for (const tr of (lv.traps || [])) {
+    if (tr.k === 'fake') {
+      for (const fp of (tr.plates || [])) surfaceKeepOuts.push([fp.x - 14, fp.x + fp.w + 14, fp.y - 25, fp.y + fp.h + 15]);
+    }
+  }
+
+  // Đảm bảo mọi Cờ Checkpoint (flags) đều đứng trên mặt đất thật (không lơ lửng trên hố hay đảo trượt):
+  const movingSolidIndices = new Set();
+  for (const tr of (lv.traps || [])) {
+    if (tr.si !== undefined) movingSolidIndices.add(tr.si);
+  }
+  for (const ph of (lv.phantoms || [])) {
+    if (ph.si !== undefined) movingSolidIndices.add(ph.si);
+  }
+
+  for (const f of (lv.flags || [])) {
+    let validGround = false;
+    for (let i = 0; i < (lv.solids || []).length; i++) {
+      if (movingSolidIndices.has(i)) continue;
+      const s = lv.solids[i];
+      if (s.bonk) continue;
+      if (f.x >= s[0] + 18 && f.x <= s[0] + s[2] - 18 && Math.abs(f.y - s[1]) <= 14) {
+        f.y = s[1]; validGround = true; break;
+      }
+    }
+    if (!validGround) {
+      // Tìm mặt đất cố định gần nhất để dời cờ về vị trí an toàn
+      let bestS = null, bestDist = 1e9;
+      for (let i = 0; i < (lv.solids || []).length; i++) {
+        if (movingSolidIndices.has(i)) continue;
+        const s = lv.solids[i];
+        if (s.bonk || s[2] < 80 || s[1] < 100 || s[1] > H - 40) continue;
+        const cx = clamp(f.x, s[0] + 28, s[0] + s[2] - 28);
+        const d = Math.hypot(cx - f.x, s[1] - f.y);
+        if (d < bestDist) { bestDist = d; bestS = s; f.x = cx; f.y = s[1]; }
+      }
+    }
+    surfaceKeepOuts.push([f.x - 58, f.x + 58, f.y - 80, f.y + 20]);
+  }
+
+  // Hàm cắt đoạn thẳng [a, b] khi bị các đoạn [cut0, cut1] chắn ngang:
+  function subtractIntervals(a, b, cuts) {
+    let segs = [[a, b]];
+    for (const [c0, c1] of cuts) {
+      const next = [];
+      for (const [s0, s1] of segs) {
+        if (c1 <= s0 || c0 >= s1) next.push([s0, s1]);
+        else {
+          if (c0 > s0) next.push([s0, c0]);
+          if (c1 < s1) next.push([c1, s1]);
+        }
+      }
+      segs = next;
+      if (!segs.length) break;
+    }
+    return segs.filter(([s0, s1]) => s1 - s0 >= 18);
+  }
+
+  const cleanSpikes = [];
+  for (const spk of (lv.spikes || [])) {
+    // Giữ nguyên các gai gắn vào bẫy động (có chỉ số spk.bt) nhưng đảm bảo không trùng cờ
+    if (spk.bt !== undefined) {
+      cleanSpikes.push(spk);
+      continue;
+    }
+    const isPit = spk.pit || spk.y >= H - 45;
+    if (isPit) {
+      const pieces = subtractIntervals(spk.x, spk.x + spk.w, deepWalls);
+      for (const [x0, x1] of pieces) {
+        cleanSpikes.push(Object.assign({}, spk, { x: x0, w: x1 - x0 }));
+      }
+    } else {
+      const relevantCuts = surfaceKeepOuts
+        .filter((ko) => spk.y + spk.h >= ko[2] && spk.y <= ko[3])
+        .map((ko) => [ko[0], ko[1]]);
+      const pieces = subtractIntervals(spk.x, spk.x + spk.w, relevantCuts);
+      for (const [x0, x1] of pieces) {
+        cleanSpikes.push(Object.assign({}, spk, { x: x0, w: x1 - x0 }));
+      }
+    }
+  }
+  lv.spikes = cleanSpikes;
+
+  // 2. DỌN VÙNG AN TOÀN QUANH SPAWN & CHECKPOINT KHỎI LASER, RÌU ĐAO PHỦ, HỐ ĐEN:
+  const safePoints = [[lv.spawn[0] + PW / 2, lv.spawn[1] + PH / 2]];
+  for (const f of (lv.flags || [])) safePoints.push([f.x, f.y - PH / 2]);
+
+  if (lv.lasers) {
+    lv.lasers = lv.lasers.filter((ls) => safePoints.every(([sx, sy]) => Math.hypot(ls.x - sx, ls.y - sy) > ls.len + 55));
+  }
+  if (lv.pendulums) {
+    lv.pendulums = lv.pendulums.filter((pd) => safePoints.every(([sx, sy]) => Math.abs(pd.x - sx) > 110));
+  }
+  if (lv.blackHoles) {
+    lv.blackHoles = lv.blackHoles.filter((bh) => safePoints.every(([sx, sy]) => Math.hypot(bh.x - sx, bh.y - sy) > bh.pullR + 30));
+  }
+  return lv;
+}
+
+// ============================================================================
+// 6. HỆ THỐNG BẪY ĐẠI HỌC & CẬP NHẬT TRẠNG THÁI (LASER, HỐ ĐEN, RÌU LẮC LƯ, CÁ MẬP)
 // ============================================================================
 G.chaosSeed = 1;
 
@@ -921,7 +1005,6 @@ function updateTraps(bodies) {
   const cx = me.x + PW / 2, cy = me.y + PH / 2, feet = me.y + PH, alive = !me.dead && !G.won;
   const host = isHostSlot();
 
-  // 1. Cổng Dịch Chuyển (Portals):
   if (me.portalCd > 0) me.portalCd -= STEP;
   for (const pt of (L.portals || [])) {
     if (alive && !(me.portalCd > 0) && Math.hypot(cx - pt.x0, cy - pt.y0) < 38) {
@@ -931,7 +1014,6 @@ function updateTraps(bodies) {
     }
   }
 
-  // 2. Chìa Khóa Giả (Decoy Bomb Keys):
   for (const dc of (L.decoys || [])) {
     if (!dc.boom && alive && Math.hypot(cx - dc.x, cy - dc.y) < 32) {
       dc.boom = true;
@@ -942,7 +1024,6 @@ function updateTraps(bodies) {
     }
   }
 
-  // 3. Đồng Xu Ăn Thịt Người (Mimic Coins):
   for (const m of (L.mimics || [])) {
     const dist = Math.hypot(cx - m.x, cy - m.y);
     if (!m.trig && alive && dist < 82) {
@@ -956,7 +1037,6 @@ function updateTraps(bodies) {
     }
   }
 
-  // 4. Hố Đen Vũ Trụ (Black Hole Singularity):
   for (const bh of (L.blackHoles || [])) {
     const dx = bh.x - cx, dy = bh.y - cy, d = Math.hypot(dx, dy);
     if (alive && d < bh.pullR && d > 8) {
@@ -967,14 +1047,12 @@ function updateTraps(bodies) {
     }
   }
 
-  // 5. Băng Chuyền Cơ Khí (Motorized Conveyors):
   for (const cv of (L.conveyors || [])) {
     if (alive && me.onGround && cx >= cv.x && cx <= cv.x + cv.w && Math.abs(feet - cv.y) < 10) {
       me.x += cv.spd;
     }
   }
 
-  // 6. Cầu Bóng Ma Lượn Sóng (Phantom Wave Tiles):
   for (const ph of (L.phantoms || [])) {
     const wave = Math.sin(G.lt * ph.spd + ph.phase);
     ph.solid = wave > -0.15;
@@ -983,7 +1061,6 @@ function updateTraps(bodies) {
     if (s) s[1] = ph.solid ? ph.y : 9999;
   }
 
-  // 7. Pháo Đài Bắn Tỉa Laser (Sniper Turrets):
   for (const trt of (L.turrets || [])) {
     const dist = Math.hypot(cx - trt.x, cy - trt.y);
     trt.ang = Math.atan2(cy - trt.y, cx - trt.x);
@@ -996,7 +1073,6 @@ function updateTraps(bodies) {
       }
       if (trt.fireT > 0) {
         trt.fireT -= STEP;
-        // Kiểm tra va chạm tia laser bắn tỉa
         const A = cy - trt.y, B = trt.x - cx, C = -(A * trt.x + B * trt.y);
         const lineDist = Math.abs(A * cx + B * cy + C) / Math.max(1, Math.hypot(A, B));
         if (lineDist < 16 && Math.abs(trt.ang - Math.atan2(trt.hitY - trt.y, trt.hitX - trt.x)) < 0.14) {
@@ -1008,7 +1084,6 @@ function updateTraps(bodies) {
     }
   }
 
-  // 8. Cá Mập Bạo Chúa (Megalodon Shark):
   for (const sh of (L.sharks || [])) {
     sh.cx = pingPong(sh.x0, sh.x1, sh.speed, sh.off, G.lt);
     const dir = Math.cos(((G.lt + sh.off) * sh.speed * 60 / Math.max(1, sh.x1 - sh.x0)) * Math.PI) >= 0 ? 1 : -1;
@@ -1073,7 +1148,6 @@ function updateTraps(bodies) {
         const u = clamp(t.t / 0.16, 0, 1);
         t.cur = t.shift * u;
         s[0] = t.baseX + t.cur;
-        // Giữ gai bẫy trên mặt băng luôn di chuyển khớp 100% với tảng băng, không bao giờ đè lên gai khác!
         if (t.topSpk) t.topSpk.x = s[0] + 115;
         if (t.k === 'double_bluff' && alive && me.onGround && cx > s[0] + 95 && cx < s[0] + s[2] - 10) {
           trapSend(i, 'hit', 0);
@@ -1265,9 +1339,6 @@ function updateStalactites(bodies) {
   }
 }
 
-// ============================================================================
-// 6. KIỂM TRA VA CHẠM CHO TOÀN BỘ BẪY MỚI (LASER XOAY, RÌU LẮC LƯ, HỐ ĐEN, CÁ MẬP)
-// ============================================================================
 function hazardCheck(P) {
   const L = G.L;
   const hx = P.x + 4, hy = P.y + 5, hw = PW - 8, hh = PH - 8;
@@ -1292,20 +1363,17 @@ function hazardCheck(P) {
     if (rectsOverlap(hx, hy, hw, hh, s.x + 3, sy, s.w - 6, sh)) return 'spikes';
   }
 
-  // Va chạm Tia Laser Xoay (Rotating Laser Beams):
   for (const ls of (L.lasers || [])) {
     const ang = G.lt * ls.spd + (ls.off || 0);
     for (let b = 0; b < (ls.blades || 2); b++) {
       const a = ang + (b * Math.PI * 2) / (ls.blades || 2);
       const x1 = ls.x + Math.cos(a) * ls.len, y1 = ls.y + Math.sin(a) * ls.len;
-      // Kiểm tra khoảng cách từ tâm thỏ tới đoạn thẳng tia laser
       const dx = x1 - ls.x, dy = y1 - ls.y, len2 = dx * dx + dy * dy;
       const u = clamp(((cx - ls.x) * dx + (cy - ls.y) * dy) / Math.max(1, len2), 0, 1);
       if (Math.hypot(cx - (ls.x + u * dx), cy - (ls.y + u * dy)) < 14) return 'laser';
     }
   }
 
-  // Va chạm Lưỡi Rìu Đao Phủ Lắc Lư (Swinging Executioner Pendulums):
   for (const pd of (L.pendulums || [])) {
     const th = Math.sin(G.lt * pd.spd + pd.off) * 1.05;
     const bx = pd.x + Math.sin(th) * pd.len, by = pd.y + Math.cos(th) * pd.len;
@@ -1337,13 +1405,8 @@ function hazardCheck(P) {
   return null;
 }
 
-// ============================================================================
-// 7. VẼ ĐỒ HỌA CHÂN THỰC CHO CÁ MẬP MEGALODON, LASER, HỐ ĐEN, RÌU ĐAO PHỦ & BẪY MỚI
-// ============================================================================
 function drawTraps(L) {
   const T = G.lt;
-
-  // 1. Vùng Đảo Trọng Lực:
   for (const gz of (L.gravZones || [])) {
     ctx.save();
     const gr = ctx.createLinearGradient(0, gz.y0, 0, gz.y1);
@@ -1360,7 +1423,6 @@ function drawTraps(L) {
     ctx.restore();
   }
 
-  // 2. Cầu Bóng Ma Lượn Sóng (Phantom Wave Tiles):
   for (const ph of (L.phantoms || [])) {
     ctx.save();
     ctx.globalAlpha = ph.alpha || 0.5;
@@ -1370,7 +1432,6 @@ function drawTraps(L) {
     ctx.restore();
   }
 
-  // 3. Băng Chuyền Cơ Khí (Motorized Conveyors):
   for (const cv of (L.conveyors || [])) {
     ctx.save();
     ctx.fillStyle = '#1e293b'; ctx.strokeStyle = '#94a3b8'; ctx.lineWidth = 2.5;
@@ -1387,7 +1448,6 @@ function drawTraps(L) {
     ctx.restore();
   }
 
-  // 4. Hố Đen Vũ Trụ (Black Hole Singularity):
   for (const bh of (L.blackHoles || [])) {
     ctx.save();
     ctx.translate(bh.x, bh.y);
@@ -1408,7 +1468,6 @@ function drawTraps(L) {
     ctx.restore();
   }
 
-  // 5. Tia Laser Cao Áp Xoay (Rotating Laser Turrets):
   for (const ls of (L.lasers || [])) {
     const ang = T * ls.spd + (ls.off || 0);
     ctx.save();
@@ -1427,7 +1486,6 @@ function drawTraps(L) {
     ctx.restore();
   }
 
-  // 6. Rìu Đao Phủ Lắc Lư (Swinging Executioner Pendulums):
   for (const pd of (L.pendulums || [])) {
     const th = Math.sin(T * pd.spd + pd.off) * 1.05;
     const bx = pd.x + Math.sin(th) * pd.len, by = pd.y + Math.cos(th) * pd.len;
@@ -1439,7 +1497,6 @@ function drawTraps(L) {
     ctx.restore();
   }
 
-  // 7. Pháo Đài Bắn Tỉa Laser (Sniper Turrets):
   for (const trt of (L.turrets || [])) {
     ctx.save();
     if (trt.charge > 0.2) {
@@ -1462,7 +1519,6 @@ function drawTraps(L) {
     ctx.restore();
   }
 
-  // 8. Đồng Xu Ăn Thịt Người (Mimic Coins):
   for (const m of (L.mimics || [])) {
     ctx.save();
     ctx.translate(m.x, m.y);
@@ -1471,7 +1527,6 @@ function drawTraps(L) {
     ctx.lineWidth = 2.5;
     ctx.beginPath(); ctx.arc(0, 0, 13, 0, 6.3); ctx.fill(); ctx.stroke();
     if (m.trig) {
-      // Hiện nguyên hình hàm răng quái vật!
       ctx.fillStyle = '#fff';
       for (let k = -2; k <= 2; k++) {
         ctx.beginPath(); ctx.moveTo(k * 4 - 2, -2); ctx.lineTo(k * 4, 5); ctx.lineTo(k * 4 + 2, -2); ctx.fill();
@@ -1484,7 +1539,6 @@ function drawTraps(L) {
     ctx.restore();
   }
 
-  // 9. Cổng Dịch Chuyển & Chìa Khóa Giả:
   for (const pt of (L.portals || [])) {
     [[pt.x0, pt.y0, '#00ffe0'], [pt.x1, pt.y1, '#ff2bd6']].forEach(([px, py, col]) => {
       ctx.save(); ctx.translate(px, py); ctx.rotate(T * 4);
@@ -1498,7 +1552,6 @@ function drawTraps(L) {
     for (const dc of (L.decoys || [])) if (!dc.boom) drawKeyIcon(dc.x, dc.y, T + 1.5);
   }
 
-  // 10. CÁ MẬP BẠO CHÚA CƠ KHÍ / ĐẠI DƯƠNG (REMASTERED APEX MEGALODON):
   for (const sh of (L.sharks || [])) {
     ctx.save();
     ctx.translate(sh.cx, sh.cy);
@@ -1506,7 +1559,6 @@ function drawTraps(L) {
     const wag = Math.sin(T * 14) * 8;
     const bite = Math.abs(Math.sin(T * 7)) * 0.28;
 
-    // Vây đuôi phân thùy sắc lẹm
     ctx.fillStyle = '#0f2942'; ctx.strokeStyle = '#051321'; ctx.lineWidth = 2.5;
     ctx.beginPath();
     ctx.moveTo(-42, 0);
@@ -1515,7 +1567,6 @@ function drawTraps(L) {
     ctx.lineTo(-74, 26 + wag);
     ctx.closePath(); ctx.fill(); ctx.stroke();
 
-    // Vây lưng đại bàng có vết sẹo chiến đấu
     ctx.fillStyle = '#102a43';
     ctx.beginPath();
     ctx.moveTo(-12, -18);
@@ -1523,7 +1574,6 @@ function drawTraps(L) {
     ctx.lineTo(14, -18);
     ctx.closePath(); ctx.fill(); ctx.stroke();
 
-    // Thân trên cơ bắp (Shaded Metallic-Blue Predator)
     const sg = ctx.createLinearGradient(0, -30, 0, 26);
     sg.addColorStop(0, '#0a192f');
     sg.addColorStop(0.48, '#1e3a5f');
@@ -1538,7 +1588,6 @@ function drawTraps(L) {
     ctx.lineTo(54, 2);
     ctx.closePath(); ctx.fill(); ctx.stroke();
 
-    // Hàm dưới cử động táp mồi (Articulated Snapping Lower Jaw)
     ctx.save();
     ctx.translate(14, 8);
     ctx.rotate(bite);
@@ -1546,20 +1595,17 @@ function drawTraps(L) {
     ctx.beginPath();
     ctx.moveTo(0, 0); ctx.lineTo(38, 2); ctx.quadraticCurveTo(18, 16, -6, 8);
     ctx.closePath(); ctx.fill(); ctx.stroke();
-    // Hàng răng hàm dưới
     ctx.fillStyle = '#ffffff';
     for (let k = 0; k < 5; k++) {
       ctx.beginPath(); ctx.moveTo(6 + k * 6, 1); ctx.lineTo(9 + k * 6, -6); ctx.lineTo(12 + k * 6, 1); ctx.fill();
     }
     ctx.restore();
 
-    // Hàng răng hàm trên sắc nhọn
     ctx.fillStyle = '#ffffff';
     for (let k = 0; k < 6; k++) {
       ctx.beginPath(); ctx.moveTo(16 + k * 6.5, 2); ctx.lineTo(19 + k * 6.5, 10); ctx.lineTo(22 + k * 6.5, 2); ctx.fill();
     }
 
-    // 3 Khe mang cá (Gill Slits) & Vây ngực
     ctx.strokeStyle = '#051321'; ctx.lineWidth = 2.2;
     for (let g = 0; g < 3; g++) {
       ctx.beginPath(); ctx.moveTo(2 - g * 6, -8); ctx.quadraticCurveTo(4 - g * 6, 0, 1 - g * 6, 8); ctx.stroke();
@@ -1567,7 +1613,6 @@ function drawTraps(L) {
     ctx.fillStyle = '#102a43';
     ctx.beginPath(); ctx.moveTo(4, 10); ctx.lineTo(-16, 32); ctx.lineTo(18, 14); ctx.closePath(); ctx.fill(); ctx.stroke();
 
-    // Con mắt săn mồi phát sáng đỏ rực + Tâm mắt dọc
     ctx.fillStyle = '#ff1744';
     ctx.beginPath(); ctx.ellipse(38, -8, 5.2, 3.8, -0.2, 0, 6.3); ctx.fill();
     ctx.fillStyle = '#ffffff';
@@ -1575,7 +1620,6 @@ function drawTraps(L) {
     ctx.restore();
   }
 
-  // 11. Vẽ các bẫy trong L.traps:
   for (const t of (L.traps || [])) {
     if (t.k === 'fake') for (const f of t.plates) drawPlate(f);
     else if (t.k === 'ceil') drawCeil(t);
@@ -1648,7 +1692,7 @@ function drawTraps(L) {
 }
 
 // ============================================================================
-// 8. STEPPLAYER, UPDATEWORLD, DIE, RESPAWN, ONNETEV & MOBILE CONTROLS
+// 7. STEPPLAYER, UPDATEWORLD, DIE, RESPAWN, ONNETEV & MOBILE CONTROLS
 // ============================================================================
 function stepPlayer() {
   const P = G.me, L = G.L;
@@ -1860,7 +1904,8 @@ function updateWorld() {
     let act;
     if (g.tr !== undefined) {
       const trObj = L.traps[g.tr];
-      if (trObj && (trObj.k === 'syncgate' || trObj.k === 'skygate')) act = !!trObj.open;
+      if (!trObj) act = true;
+      else if (trObj.k === 'syncgate' || trObj.k === 'skygate') act = !!trObj.open;
       else act = trapGateOpen(g);
     }
     else if (g.mode === 'all') act = g.ctrl.every((id) => L.plates.find((p) => p.id === id).on);
@@ -2131,7 +2176,7 @@ function resize() {
 }
 
 // ============================================================================
-// 9. KHO TÀNG 24 MÔ-ĐUN BẪY TỔ HỢP (> 1.120 BIẾN THỂ) CHO 300 MÀN CHƠI
+// 8. KHO TÀNG 24 MÔ-ĐUN BẪY TỔ HỢP (> 1.120 BIẾN THỂ) CHO 300 MÀN CHƠI
 // ============================================================================
 (() => {
   SKY_THEMES.length = 0;
@@ -2177,15 +2222,15 @@ function resize() {
     return x0;
   };
 
-  // SỬA TRIỆT ĐỂ LỖI ĐÈ GAI Ở MÀN 52 KHI BỜ BĂNG DỊCH SANG PHẢI:
+  // ĐẢO ĐÁ/BĂNG NỔI DÀY 44PX LƠ LỬNG TRÊN HỐ CHÔNG (Không bao giờ chạm hay đè lên gai đáy vực!):
   seg.movingGap = function (b, gapW) {
     gapW = gapW || 135;
     const x0 = b.ground(260), gy = b.gy, gx = b.x;
-    const pw = 220, shiftAmt = 66, rightGap = 115;
-    // Gai đáy vực chỉ nằm gọn trong lòng hố, cách biệt hoàn toàn với 2 bờ đất
-    b.spikes.push({ x: gx + 8, y: WORLD_H - 26, w: gapW + pw + rightGap - 16, h: 26, dir: 'up', pit: true });
+    const pw = 220, shiftAmt = 68, rightGap = 135;
+    b.spikes.push({ x: gx + 6, y: WORLD_H - 26, w: gapW + pw + rightGap - 12, h: 26, dir: 'up', pit: true });
     const platIdx = b.solids.length, tIdx = b.traps.length;
-    const platSolid = [gx + gapW, gy, pw, WORLD_H - gy + 80];
+    // Chiều cao tấm đảo nổi là 44px thay vì kéo xuống đáy vực -> Trượt ngang trên không cực đẹp!
+    const platSolid = [gx + gapW, gy, pw, 44];
     b.solids.push(platSolid);
     const topSpk = { x: gx + gapW + 115, y: gy - 24, w: 72, h: 24, dir: 'up', hid: true, bt: tIdx, ph: 0, live: false };
     b.spikes.push(topSpk);
@@ -2289,7 +2334,6 @@ function resize() {
     return x0;
   };
 
-  // MÔ-ĐUN MỚI 1: HÀNH LANG TIA LASER XOAY 360 ĐỘ + ĐỒNG XU ĂN THỊT NGƯỜI
   seg.laserCorridor = function (b, len, d) {
     len = len || 820;
     const x0 = b.ground(len), gy = b.gy;
@@ -2301,13 +2345,11 @@ function resize() {
       b.solids.push([lx - 28, gy - 115, 56, 18]);
       b.lasers.push({ x: lx, y: gy - 106, len: 102, spd: (i % 2 ? -1 : 1) * (1.85 + d * 0.9), off: i * 1.1, blades: d > 0.65 ? 3 : 2 });
     }
-    // Cài 1 đồng xu ăn thịt người (Mimic) ở giữa hành lang
     const mx = x0 + len * 0.52, my = gy - 68;
     b.mimics.push({ x: mx, y: my, x0: mx, y0: my, trig: false });
     return x0;
   };
 
-  // MÔ-ĐUN MỚI 2: HỐ ĐEN VŨ TRỤ HÚT LỆCH QUỸ ĐẠO NHẢY (BLACK HOLE SINGULARITY)
   seg.blackHoleVortex = function (b, len, d) {
     baseDrop(b);
     len = len || 660;
@@ -2323,7 +2365,6 @@ function resize() {
     return x0;
   };
 
-  // MÔ-ĐUN MỚI 3: CẦU BÓNG MA LƯỢN SÓNG (PHANTOM WAVE BRIDGE)
   seg.phantomBridge = function (b, n, d) {
     baseDrop(b);
     n = n || 5;
@@ -2342,7 +2383,6 @@ function resize() {
     return x0;
   };
 
-  // MÔ-ĐUN MỚI 4: BĂNG CHUYỀN NGƯỢC CHIỀU + RÌU ĐAO PHỦ LẮC LƯ (CONVEYOR PENDULUM GAUNTLET)
   seg.conveyorPendulum = function (b, len, d) {
     len = len || 840;
     const x0 = b.ground(len), gy = b.gy;
@@ -2357,7 +2397,6 @@ function resize() {
     return x0;
   };
 
-  // MÔ-ĐUN MỚI 5: PHÁO ĐÀI BẮN TỈA HỒNG NGOẠI + CỔNG HOÁN ĐỔI VỊ TRÍ ĐỒNG ĐỘI
   seg.sniperBastion = function (b, len, d, mode) {
     len = len || 820;
     const x0 = b.ground(len), gy = b.gy;
@@ -2372,7 +2411,6 @@ function resize() {
     return x0;
   };
 
-  // MÔ-ĐUN MỚI 6: TRỤ ĐỔI TRỌNG LỰC LIÊN HOÀN GIỮA KHÔNG TRUNG (GRAVITY FLIP PILLARS)
   seg.gravityPillars = function (b, len) {
     len = len || 920;
     const x0 = b.x, gy = b.gy, ceilY = gy - 280;
@@ -2433,7 +2471,7 @@ function resize() {
     (lv.crushers || []).forEach((q) => { q.period = Math.max(1.45, q.period / scaleFactor); });
     (lv.meteors || []).forEach((q) => { q.period = Math.max(1.6, q.period / scaleFactor); });
     (lv.sweepers || []).forEach((q) => { q.speed *= 1.15; });
-    return lv;
+    return v15SanitizeLevel(lv);
   };
 
   function buildDescentStage(title, hue, seed, mode) {
@@ -2467,7 +2505,7 @@ function resize() {
     b.exitOv = { x: W - 150, y: botY - 74, w: 54, h: 74 };
     const lv = b.finish(0, 0);
     lv.skyTheme = 'storm';
-    return lv;
+    return v15SanitizeLevel(lv);
   }
 
   function reverseLevelHorizontally(lv) {
@@ -2476,16 +2514,20 @@ function resize() {
     lv.hint = '🔄 MÀN ĐẢO CHIỀU: Xuất phát bên PHẢI, chạy ngược về bên TRÁI để tìm Chìa khóa & Cửa thoát!';
     lv.spawn = [W - 140, GY - PH];
     for (const s of lv.solids) s[0] = W - s[0] - s[2];
+    // Loại bỏ các gai động (s.bt) và cổng bẫy (g.tr) khi đảo chiều để không bị lỗi mồ côi chỉ số trap:
+    lv.spikes = (lv.spikes || []).filter((sp) => sp.bt === undefined);
     for (const sp of lv.spikes) sp.x = W - sp.x - sp.w;
-    for (const c of lv.crumbles) c.x = W - c.x - c.w;
+    for (const c of lv.crumbles) { c.x = W - c.x - c.w; c.lock = false; }
     for (const s of lv.springs) s.x = W - s.x - s.w;
     for (const c of lv.crushers) c.x = W - c.x - c.w;
     for (const b of lv.boulders) { const n0 = W - b.x1, n1 = W - b.x0; b.x0 = n0; b.x1 = n1; b.cx = n0; }
     for (const p of lv.plates) p.x = W - p.x - p.w;
+    lv.gates = (lv.gates || []).filter((g) => g.tr === undefined);
     for (const g of lv.gates) g.x = W - g.x - g.w;
     for (const f of lv.flags) f.x = W - f.x;
     for (const c of lv.coins) c.x = W - c.x;
     for (const q of (lv.stalactites || [])) q.x = W - q.x - q.w;
+    for (const bk of (lv.bonks || [])) bk.x = W - bk.x - bk.w;
     for (const ls of (lv.lasers || [])) ls.x = W - ls.x;
     for (const bh of (lv.blackHoles || [])) bh.x = W - bh.x;
     for (const m of (lv.mimics || [])) { m.x = W - m.x; m.x0 = m.x; }
@@ -2500,10 +2542,9 @@ function resize() {
     lv.rocks = [];
     lv.key = { x: 420, y: GY - 95, run: { x0: 140, x1: 780, gy: GY } };
     lv.exit = { x: 110, y: GY - 74, w: 54, h: 74 };
-    return lv;
+    return v15SanitizeLevel(lv);
   }
 
-  // 22 Mô-đun bẫy đơn & tổ hợp biến thiên theo cấp độ d (0.2 -> 1.0):
   const POOL_SOLO = [
     (b, d, m) => seg.laserCorridor(b, 840, d),
     (b, d, m) => seg.blackHoleVortex(b, 660, d),
@@ -2561,7 +2602,7 @@ function resize() {
       if (idx % 8 === 3) return buildDescentStage(stageTitle, season.hue, idx + 1, mode);
       if (mode !== 'coop' && idx % 8 === 7) {
         const nFloors = 4 + Math.min(4, Math.floor(d * 4));
-        return buildTower({
+        const tw = buildTower({
           name: stageTitle + ' [TOWER ↑]',
           hint: 'Leo từ ĐÁY lên ĐỈNH! Dung nham & Void Maw dâng tốc độ cao.',
           hue: season.hue,
@@ -2569,6 +2610,7 @@ function resize() {
           riser: { speed: Math.round(19 + d * 16), delay: 4.5, kind: idx % 2 ? 'lava' : 'maw' },
           seed: idx + 300,
         });
+        return v15SanitizeLevel(tw);
       }
 
       const b = new LB(
@@ -2597,7 +2639,6 @@ function resize() {
           const ti = (idx * 5 + step * 7) % POOL_TEAM.length;
           POOL_TEAM[ti](b, d, mode);
         } else {
-          // Chọn mô-đun theo hàm băm phi tuyến đảm bảo trong cùng 1 màn không lặp lại bất kỳ bẫy nào
           let si = Math.floor(hash1((idx + 1) * 31.7 + step * 19.3 + (mode === 'coop' ? 7 : mode === 'party' ? 13 : 0)) * POOL_SOLO.length) % POOL_SOLO.length;
           while (usedMods.has(si)) si = (si + 1) % POOL_SOLO.length;
           usedMods.add(si);
@@ -2633,14 +2674,14 @@ function resize() {
         lv.portals = [{ x0: 920, y0: GY - 55, x1: 1480, y1: GY - 185 }];
       }
       if (idx % 8 === 5) return reverseLevelHorizontally(lv);
-      return lv;
+      return v15SanitizeLevel(lv);
     } catch (err) {
       console.error('Fallback stage error:', err);
       const fb = new LB('Chaos Stage #' + (idx + 1), 'Vượt chướng ngại vật', (idx * 47) % 360, mode === 'coop');
       seg.run(fb, 800, { flag: true });
       seg.fakes(fb, 4, {});
       seg.run(fb, 800, {});
-      return fb.finish(450, 56);
+      return v15SanitizeLevel(fb.finish(450, 56));
     }
   }
 
@@ -2661,9 +2702,9 @@ function resize() {
 })();
 `;
 
-code = code.slice(0, lastClose) + v15Payload + '\n})();\n';
+code = code.slice(0, lastClose) + v155Payload + '\n})();\n';
 fs.writeFileSync(gamePath, code, 'utf8');
-console.log('✅ [V15.0 REMASTERED] Đã nâng cấp đồ họa, hiệu ứng bơi lặn, sửa lỗi đè gai & 1.120+ biến thể bẫy!');
+console.log('✅ [V15.5 SANITIZED] Đã quét và cắt gọt sạch lỗi đè gai/địa hình cho toàn bộ 300 màn chơi!');
 
 if (fs.existsSync(cssPath)) {
   let css = fs.readFileSync(cssPath, 'utf8');
@@ -2685,7 +2726,7 @@ body.force-landscape #hud, body.force-landscape #touch {
 
 if (fs.existsSync(htmlPath)) {
   let html = fs.readFileSync(htmlPath, 'utf8');
-  html = html.replace(/game\.js(\?v=[^"']*)?/, 'game.js?v=15.0');
+  html = html.replace(/game\.js(\?v=[^"']*)?/, 'game.js?v=15.5');
   fs.writeFileSync(htmlPath, html, 'utf8');
-  console.log('✅ [V15.0] Đã tự động cập nhật game.js?v=15.0 trong index.html');
+  console.log('✅ [V15.5] Đã tự động cập nhật game.js?v=15.5 trong index.html');
 }
