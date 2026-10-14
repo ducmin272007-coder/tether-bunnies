@@ -1,11 +1,12 @@
 /**
- * Tether Bunnies v14.0 - ULTIMATE RAGE & UNIVERSITY CO-OP PATCHER
- * - Sửa triệt để lỗi trống màn hình / trống ô chọn màn (đầy đủ 100% các hàm tạo bẫy độc lập).
- * - Mở khóa mua Buff 999 lần + Thêm Buff #6: Cờ Triệu Hồi Checkpoint (phím 6 / nút 🚩).
- * - Dây Co-op ngắn (60px -> 96px max), tự động treo cao hơn chông đáy vực (76px max drop), kéo cả đội cực khỏe.
- * - Tháp Sống Hợp Nhất: Ở cả Co-op & Party, người dưới cùng chạy hoặc NHẢY sẽ cõng toàn bộ người đứng trên bay theo!
- * - 300 Màn chơi (100 Solo / 100 Co-op / 100 Party) phủ kín 15 loại cạm bẫy tâm lý đa tầng, 4 hướng đi,
- *   Tàu Ngầm Đại Dương (Cá Mập Megalodon + Thủy Lôi), Phi Thuyền Jetpack Vũ Trụ, Đảo Trọng Lực, Ván Trượt Băng Độc Nhất.
+ * Tether Bunnies v15.0 - REMASTERED GRAPHICS, SWIMMING PHYSICS & 1,120+ PROCEDURAL TRAPS
+ *  - Horizontal Swimming Animation (kicking legs, paddling arms, diving mask, bubbles) in Water Biome
+ *  - Astronaut Jetpack + True Upside-Down Ceiling Walking in Space / Anti-Gravity Zones
+ *  - Fixed Shifting Ledge (Level 52+) spike overlap bug
+ *  - Remastered Realistic Dark-Steel Spikes, Jagged Granite Boulders, Hydraulic Industrial Crushers,
+ *    Articulated Jaw Megalodon Shark, and Biome-Specific Terrain (Coral Reef, Cyber Hull, Obsidian Lava)
+ *  - 8 New Diabolical Trap Archetypes (Laser Rotators, Black Holes, Mimic Coins, Phantom Wave Bridges,
+ *    Conveyor Pendulums, Sniper Turrets, Gravity Flip Pillars, Quantum Position Swappers) -> 1,120+ unique combinations
  */
 'use strict';
 const fs = require('fs');
@@ -18,12 +19,15 @@ const htmlPath = path.join(pubDir, 'index.html');
 
 let code = fs.readFileSync(gamePath, 'utf8').replace(/\r\n/g, '\n');
 
-// Mở giới hạn mua Buff lên 999 và tốc độ gửi gói tin 30Hz (33ms)
 code = code.replace(/const BUFF_CAP = \d+;/g, 'const BUFF_CAP = 999;');
 code = code.replace(/const SEND_MS = \d+;/g, 'const SEND_MS = 33;');
 
-// Dọn sạch mọi bản patch cũ trước khi gắn bản v14.0 hoàn chỉnh
-['/* === TB_V12_5_MASTER_OVERRIDE === */', '/* === TB_V13_0_UNIVERSITY_EDITION === */', '/* === TB_V14_0_ULTIMATE_OVERRIDE === */'].forEach((mk) => {
+[
+  '/* === TB_V12_5_MASTER_OVERRIDE === */',
+  '/* === TB_V13_0_UNIVERSITY_EDITION === */',
+  '/* === TB_V14_0_ULTIMATE_OVERRIDE === */',
+  '/* === TB_V15_0_REMASTERED_EDITION === */',
+].forEach((mk) => {
   if (code.includes(mk)) code = code.slice(0, code.indexOf(mk)) + '})();\n';
 });
 
@@ -33,12 +37,12 @@ if (lastClose === -1) {
   process.exit(0);
 }
 
-const v14Payload = `
-/* === TB_V14_0_ULTIMATE_OVERRIDE === */
+const v15Payload = `
+/* === TB_V15_0_REMASTERED_EDITION === */
 // ============================================================================
-// 1. CLIENT ID CHỐNG NHÂN ĐÔI NHÂN VẬT KHI CHUYỂN MẠNG & ĐỒNG BỘ VẬT LÝ MƯỢT 30HZ
+// 1. CLIENT ID CHỐNG NHÂN ĐÔI NHÂN VẬT KHI ĐỔI MẠNG & ĐỒNG BỘ VẬT LÝ MƯỢT 30HZ
 // ============================================================================
-const V14_CID = (() => {
+const V15_CID = (() => {
   let id = '';
   try { id = sessionStorage.getItem('tb_cid') || localStorage.getItem('tb_cid') || ''; } catch (e) {}
   if (!id) {
@@ -58,7 +62,7 @@ function ensureSocket() {
   socket.on('disconnect', () => { if (G.inGame && isNet()) { netLost = true; toast('⚡ Mất kết nối — Đang tự nối lại…'); } });
   socket.on('connect', () => {
     if (!(netLost && G.inGame && isNet())) return;
-    socket.emit('join', { code: G.code, name: G.myName, skin: Save.equipped(), cid: V14_CID }, (res) => {
+    socket.emit('join', { code: G.code, name: G.myName, skin: Save.equipped(), cid: V15_CID }, (res) => {
       if (res && res.ok) {
         netLost = false;
         if (G.myslot !== res.slot) G.remotes.delete(res.slot);
@@ -75,7 +79,7 @@ function doCreate() {
   Snd.init();
   const s = ensureSocket(); if (!s) { setMsg('Cannot reach the game server.'); return; }
   setMsg('Creating room…');
-  s.emit('create', { name: myNameValue(), skin: Save.equipped(), mode: G.lobbyMode === 'party' ? 'party' : 'coop', cid: V14_CID }, (res) => {
+  s.emit('create', { name: myNameValue(), skin: Save.equipped(), mode: G.lobbyMode === 'party' ? 'party' : 'coop', cid: V15_CID }, (res) => {
     if (!res || !res.ok) { setMsg((res && res.error) || 'Could not create room.'); return; }
     enterCoop(res, true);
   });
@@ -87,7 +91,7 @@ function doJoin(codeArg) {
   if (code.length !== 4) { setMsg('Enter the 4-letter room code.'); return; }
   const s = ensureSocket(); if (!s) { setMsg('Cannot reach the game server.'); return; }
   setMsg('Joining…');
-  s.emit('join', { code, name: myNameValue(), skin: Save.equipped(), cid: V14_CID }, (res) => {
+  s.emit('join', { code, name: myNameValue(), skin: Save.equipped(), cid: V15_CID }, (res) => {
     if (!res || !res.ok) { setMsg((res && res.error) || 'Could not join.'); return; }
     enterCoop(res, false);
   });
@@ -196,12 +200,12 @@ function useBuff(which) {
 // ============================================================================
 // 3. VẬT LÝ DÂY NGẮN (60px -> 96px MAX) + KÉO CẢ ĐỘI + THÁP SỐNG CÕNG NHAU NHẢY
 // ============================================================================
-const V14_ROPE_REST = 60;
-const V14_ROPE_SPRING = 78;
-const V14_ROPE_MAX = 96;
-const V14_PIT_SAFE_DROP = 76; // Luôn treo cao hơn chông đáy vực 64px!
+const V15_ROPE_REST = 60;
+const V15_ROPE_SPRING = 78;
+const V15_ROPE_MAX = 96;
+const V15_PIT_SAFE_DROP = 76;
 
-function v14GetSquadLinks(P) {
+function v15GetSquadLinks(P) {
   if (G.mode !== 'coop' || P.rope || G.remotes.size === 0) return null;
   let groundedPower = P.onGround ? (input.d ? 3.2 : 1.4) : 0;
   let fallingCount = P.onGround ? 0 : 1;
@@ -224,7 +228,7 @@ function v14GetSquadLinks(P) {
 }
 
 function applyTether(P) {
-  const st = v14GetSquadLinks(P);
+  const st = v15GetSquadLinks(P);
   if (!st || !st.links.length) return;
   const { links, bestAnchor, rescueRatio } = st;
   const meGrounded = !!(P.onGround || input.d);
@@ -232,8 +236,8 @@ function applyTether(P) {
   for (const r of links) {
     const ax = P.x + PW / 2, ay = P.y + PH / 2, bx = r.x + PW / 2, by = r.y + PH / 2;
     const dx = bx - ax, dy = by - ay, d = Math.hypot(dx, dy);
-    if (d <= V14_ROPE_REST || d < 1) continue;
-    const nx = dx / d, ny = dy / d, stretch = d - V14_ROPE_REST;
+    if (d <= V15_ROPE_REST || d < 1) continue;
+    const nx = dx / d, ny = dy / d, stretch = d - V15_ROPE_REST;
     const partnerGrounded = !!(r.onGround || r.anch);
 
     let scale = 1.0;
@@ -245,7 +249,7 @@ function applyTether(P) {
       scale = clamp(2.1 * Math.sqrt(Math.max(0.6, rescueRatio)), 1.4, 3.6);
     } else scale = 0.85;
 
-    const kS = d > V14_ROPE_SPRING ? 0.085 : 0.048;
+    const kS = d > V15_ROPE_SPRING ? 0.085 : 0.048;
     const f = Math.min(stretch * kS, 5.5) * scale;
     P.vx += nx * f;
     P.vy += ny * f * (ny < 0 ? 1.85 : 0.25);
@@ -257,22 +261,21 @@ function applyTether(P) {
     const distA = Math.max(1, Math.hypot(dxA, dyA));
     const lift = clamp(rescueRatio, 0.85, 2.6);
     P.vy -= Math.min(GRAV * 1.7 * lift, 2.2);
-    if (Math.abs(bestAnchor.tvx || 0) > 0.45 || (bestAnchor.vy || 0) < -1.8 || bestAnchor.anch || distA > V14_ROPE_SPRING) {
+    if (Math.abs(bestAnchor.tvx || 0) > 0.45 || (bestAnchor.vy || 0) < -1.8 || bestAnchor.anch || distA > V15_ROPE_SPRING) {
       P.vy = Math.max(P.vy - 1.25 * lift, -12.2);
       P.vx += (dxA / distA) * 0.85 * lift;
     }
   }
 }
 
-function v14EnforceRopeAfterMove(P) {
-  const st = v14GetSquadLinks(P);
+function v15EnforceRopeAfterMove(P) {
+  const st = v15GetSquadLinks(P);
   if (!st || !st.links.length) return;
   const { links, bestAnchor, rescueRatio } = st;
   const meGrounded = !!(P.onGround || input.d);
 
-  // 1. Khóa cứng độ sâu rơi cho cả chuỗi 2v2 / 1v3 không vượt quá 76px dưới chân người trên bờ:
-  if (!P.onGround && bestAnchor && P.y > bestAnchor.y + V14_PIT_SAFE_DROP) {
-    const maxY = bestAnchor.y + V14_PIT_SAFE_DROP;
+  if (!P.onGround && bestAnchor && P.y > bestAnchor.y + V15_PIT_SAFE_DROP) {
+    const maxY = bestAnchor.y + V15_PIT_SAFE_DROP;
     if (nearSolids(P.x, maxY, PW, PH).length === 0) {
       P.y = maxY;
       if (P.vy > 0) P.vy = -P.vy * 0.55 - 3.4;
@@ -280,17 +283,16 @@ function v14EnforceRopeAfterMove(P) {
     P.vx += Math.sign(bestAnchor.x - P.x) * 0.7;
   }
 
-  // 2. Khóa cứng chiều dài mỗi đoạn dây ở 96px:
   for (const r of links) {
     const partnerGrounded = !!(r.onGround || r.anch);
     const ax = P.x + PW / 2, ay = P.y + PH / 2, bx = r.x + PW / 2, by = r.y + PH / 2;
     const dx = bx - ax, dy = by - ay, d = Math.hypot(dx, dy);
-    if (d > V14_ROPE_MAX && d > 1) {
+    if (d > V15_ROPE_MAX && d > 1) {
       if (meGrounded && partnerGrounded && Math.abs(r.tvy || 0) < 2) continue;
       if (meGrounded && !partnerGrounded && (input.d || rescueRatio >= 0.95)) continue;
       const nx = dx / d, ny = dy / d;
       const share = (!meGrounded && (partnerGrounded || bestAnchor)) ? 0.98 : (meGrounded ? 0.35 : 0.75);
-      const over = (d - V14_ROPE_MAX) * share;
+      const over = (d - V15_ROPE_MAX) * share;
       const cx = P.x + nx * over, cy = P.y + ny * over;
       if (nearSolids(cx, P.y, PW, PH).length === 0) P.x = cx;
       if (nearSolids(P.x, cy, PW, PH).length === 0) P.y = cy;
@@ -321,8 +323,8 @@ function drawTether() {
     const a = ents[i], b = ents[i + 1];
     if (a.dead || b.dead) continue;
     const ax = a.x + PW / 2, ay = a.y + PH * 0.55, bx = b.x + PW / 2, by = b.y + PH * 0.55;
-    const d = Math.hypot(bx - ax, by - ay), slack = Math.max(0, V14_ROPE_REST - d), sag = slack * 0.4;
-    const tension = clamp((d - V14_ROPE_REST) / 36, 0, 1);
+    const d = Math.hypot(bx - ax, by - ay), slack = Math.max(0, V15_ROPE_REST - d), sag = slack * 0.4;
+    const tension = clamp((d - V15_ROPE_REST) / 36, 0, 1);
     const grad = ctx.createLinearGradient(ax, ay, bx, by);
     grad.addColorStop(0, COLORS[a.slot % COLORS.length]); grad.addColorStop(1, COLORS[b.slot % COLORS.length]);
     ctx.save();
@@ -347,11 +349,374 @@ function drawTether() {
 }
 
 // ============================================================================
-// 4. HỆ THỐNG BẪY ĐẠI HỌC: RANDOM HÓA KHI CHẾT, CHÌA KHÓA BOM PHÂN THÂN, CÁ MẬP, TÀU NGẦM, ĐÈN ĐỎ
+// 4. ĐỒ HỌA REMASTERED: ĐÁ TẢNG ĐA DIỆN, GAI THÉP 3D, BÚA THỦY LỰC, ĐỊA HÌNH MÔI TRƯỜNG & BƠI LẶN
+// ============================================================================
+
+// 4A. Địa hình chân thực theo từng Môi trường (Không còn vẽ cỏ xanh dưới đáy biển hay ngoài vũ trụ!)
+drawSolid = function (L, s) {
+  if (s.ice || L.biome === 'ice') { drawIceSolid(L, s); return; }
+  const x = s[0], y = s[1], w = s[2], h = s[3], T = G.lt;
+  const theme = effTheme(L);
+
+  if (L.biome === 'water' || theme === 'ocean') {
+    // Đá ngầm san hô & cát biển sâu (Deep Abyssal Reef)
+    const gr = ctx.createLinearGradient(0, y, 0, y + Math.min(h, 280));
+    gr.addColorStop(0, '#16425b'); gr.addColorStop(0.4, '#0f2c3f'); gr.addColorStop(1, '#071722');
+    ctx.fillStyle = gr; ctx.fillRect(x, y, w, h);
+    // Vết vân đá ngầm
+    ctx.fillStyle = 'rgba(120,220,255,.08)';
+    for (let px = x + 16; px < x + w - 16; px += 64) ctx.fillRect(px, y + 28 + ((px * 7) % 45), 24, 6);
+    // Lớp cát biển & rêu san hô phát quang trên bề mặt
+    ctx.fillStyle = '#1b6ca8'; rr(x - 3, y - 5, w + 6, 16, 6); ctx.fill();
+    ctx.fillStyle = '#48cae4'; rr(x - 3, y - 5, w + 6, 7, 4); ctx.fill();
+    // San hô & rong biển đung đưa theo dòng nước
+    for (let px = x + 18; px < x + w - 18; px += 48) {
+      const sway = Math.sin(T * 3 + px * 0.05) * 5;
+      const col = (px % 96 === 0) ? '#ff5d8f' : (px % 64 === 0) ? '#00f5d4' : '#38b000';
+      ctx.strokeStyle = col; ctx.lineWidth = 3.2; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(px, y - 3);
+      ctx.quadraticCurveTo(px + sway, y - 14, px + sway * 1.4, y - 24 - (px % 9));
+      ctx.stroke();
+    }
+    return;
+  }
+
+  if (L.biome === 'space' || theme === 'cosmic' || theme === 'neon') {
+    // Sàn kim loại Trạm Vũ Trụ / Cyber Titanium Hull
+    const gr = ctx.createLinearGradient(0, y, 0, y + Math.min(h, 260));
+    gr.addColorStop(0, '#232738'); gr.addColorStop(0.5, '#161925'); gr.addColorStop(1, '#0b0d14');
+    ctx.fillStyle = gr; ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = 'rgba(0,255,230,.18)'; ctx.lineWidth = 1.5;
+    for (let px = x + 40; px < x + w - 10; px += 80) {
+      ctx.beginPath(); ctx.moveTo(px, y); ctx.lineTo(px, y + Math.min(h, 180)); ctx.stroke();
+    }
+    ctx.fillStyle = '#343a40'; rr(x - 3, y - 5, w + 6, 15, 4); ctx.fill();
+    ctx.fillStyle = theme === 'neon' ? '#ff2bd6' : '#00f5d4';
+    ctx.fillRect(x - 2, y - 4, w + 4, 4);
+    // Đinh tán kim loại phát sáng
+    ctx.fillStyle = '#e9ecef';
+    for (let px = x + 14; px < x + w - 10; px += 36) {
+      ctx.beginPath(); ctx.arc(px, y + 4, 2, 0, 6.3); ctx.fill();
+    }
+    return;
+  }
+
+  if (theme === 'ember') {
+    // Đá núi lửa Obsidian & mạch nham thạch nóng chảy
+    const gr = ctx.createLinearGradient(0, y, 0, y + Math.min(h, 280));
+    gr.addColorStop(0, '#2b1d1e'); gr.addColorStop(0.5, '#1a1112'); gr.addColorStop(1, '#0d0708');
+    ctx.fillStyle = gr; ctx.fillRect(x, y, w, h);
+    ctx.fillStyle = '#4a2520'; rr(x - 3, y - 5, w + 6, 16, 6); ctx.fill();
+    ctx.fillStyle = '#ff6b00'; rr(x - 3, y - 5, w + 6, 6, 4); ctx.fill();
+    ctx.strokeStyle = 'rgba(255,100,0,.45)'; ctx.lineWidth = 2;
+    for (let px = x + 28; px < x + w - 24; px += 76) {
+      ctx.beginPath(); ctx.moveTo(px, y + 6); ctx.lineTo(px + 12, y + 26); ctx.lineTo(px + 4, y + 48); ctx.stroke();
+    }
+    return;
+  }
+
+  // Địa hình đá tự nhiên + thảm thực vật sắc nét
+  const sh = curEnv ? curEnv.solidHue : L.hue + 25, gh = curEnv ? curEnv.grassHue : 105;
+  const gr = ctx.createLinearGradient(0, y, 0, y + Math.min(h, 280));
+  gr.addColorStop(0, hsl(sh, 32, 48)); gr.addColorStop(1, hsl(sh, 35, 26));
+  ctx.fillStyle = gr; ctx.fillRect(x, y, w, h);
+  ctx.fillStyle = 'rgba(255,255,255,.10)';
+  for (let px = x + 18; px < x + w - 10; px += 56) ctx.fillRect(px, y + 30 + ((px * 7) % 40), 16, 5);
+  ctx.fillStyle = 'rgba(0,0,0,.16)';
+  for (let px = x + 40; px < x + w - 20; px += 90) ctx.fillRect(px, y + 70 + ((px * 5) % 60), 24, 7);
+  ctx.fillStyle = hsl(gh, 52, 38); rr(x - 3, y - 5, w + 6, 19, 7); ctx.fill();
+  ctx.fillStyle = hsl(gh, 60, 54); rr(x - 3, y - 5, w + 6, 9, 5); ctx.fill();
+};
+
+// 4B. Gai Thép Đen 3D Sắc Lẹm (Remastered Metallic Blades):
+drawSpikesRaw = function (s) {
+  const n = Math.max(1, Math.round(s.w / 20)), tw = s.w / n;
+  const up = s.dir === 'up';
+  const baseY = up ? s.y + s.h - 5 : s.y;
+  // Đế thép gắn đinh tán
+  ctx.fillStyle = '#1e293b';
+  ctx.fillRect(s.x, baseY, s.w, 5);
+  for (let i = 0; i < n; i++) {
+    const x = s.x + i * tw, mx = x + tw / 2;
+    const tipY = up ? s.y - 2 : s.y + s.h + 2;
+    const rootY = up ? s.y + s.h - 4 : s.y + 4;
+    // Nửa trái lưỡi dao (phản quang sáng)
+    ctx.fillStyle = '#e2e8f0';
+    ctx.beginPath(); ctx.moveTo(x + 1, rootY); ctx.lineTo(mx, tipY); ctx.lineTo(mx, rootY); ctx.closePath(); ctx.fill();
+    // Nửa phải lưỡi dao (bóng tối kim loại)
+    ctx.fillStyle = '#475569';
+    ctx.beginPath(); ctx.moveTo(mx, rootY); ctx.lineTo(mx, tipY); ctx.lineTo(x + tw - 1, rootY); ctx.closePath(); ctx.fill();
+    // Mũi dao nhuốm đỏ năng lượng sát thương
+    ctx.fillStyle = '#ef4444';
+    const midY = lerp(tipY, rootY, 0.28);
+    ctx.beginPath();
+    ctx.moveTo(lerp(x + 1, mx, 0.72), midY);
+    ctx.lineTo(mx, tipY);
+    ctx.lineTo(lerp(x + tw - 1, mx, 0.72), midY);
+    ctx.closePath(); ctx.fill();
+    // Viền thép sắc nét
+    ctx.strokeStyle = '#0f172a'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(x + 1, rootY); ctx.lineTo(mx, tipY); ctx.lineTo(x + tw - 1, rootY); ctx.stroke();
+  }
+};
+
+// 4C. Đá Tảng Hoa Cương Gồ Ghề Đa Diện (Thay thế hoàn toàn cục tròn màu nâu cũ!):
+function drawFacetedRock(cx, cy, r, rot, isLava) {
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(rot);
+
+  // Tạo đa giác 14 đỉnh gồ ghề cố định
+  const verts = 14;
+  ctx.beginPath();
+  for (let i = 0; i < verts; i++) {
+    const a = (i / verts) * Math.PI * 2;
+    const jag = 0.86 + 0.16 * Math.sin(i * 4.7 + 1.3) + 0.06 * Math.cos(i * 7.1);
+    const vx = Math.cos(a) * r * jag, vy = Math.sin(a) * r * jag;
+    if (i === 0) ctx.moveTo(vx, vy); else ctx.lineTo(vx, vy);
+  }
+  ctx.closePath();
+
+  const gr = ctx.createRadialGradient(-r * 0.3, -r * 0.3, r * 0.1, 0, 0, r * 1.05);
+  gr.addColorStop(0, '#8d99ae');
+  gr.addColorStop(0.55, '#4a5568');
+  gr.addColorStop(1, '#1a202c');
+  ctx.fillStyle = gr;
+  ctx.fill();
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = '#0f172a';
+  ctx.stroke();
+
+  // Các mảng vát cạnh đá 3D bên trong
+  ctx.fillStyle = 'rgba(255,255,255,.12)';
+  ctx.beginPath();
+  ctx.moveTo(-r * 0.55, -r * 0.2); ctx.lineTo(-r * 0.1, -r * 0.65); ctx.lineTo(r * 0.25, -r * 0.25); ctx.lineTo(-r * 0.15, 0);
+  ctx.closePath(); ctx.fill();
+
+  ctx.fillStyle = 'rgba(0,0,0,.28)';
+  ctx.beginPath();
+  ctx.moveTo(r * 0.1, r * 0.1); ctx.lineTo(r * 0.65, r * 0.05); ctx.lineTo(r * 0.4, r * 0.6); ctx.lineTo(-r * 0.2, r * 0.55);
+  ctx.closePath(); ctx.fill();
+
+  // Vết nứt sâu & mạch quặng phát sáng
+  ctx.strokeStyle = isLava ? '#ff5400' : '#111827';
+  ctx.lineWidth = 2.2;
+  ctx.beginPath();
+  ctx.moveTo(-r * 0.6, r * 0.12); ctx.lineTo(-r * 0.12, -r * 0.08); ctx.lineTo(r * 0.18, r * 0.35);
+  ctx.moveTo(-r * 0.12, -r * 0.08); ctx.lineTo(r * 0.38, -r * 0.42);
+  ctx.stroke();
+  ctx.restore();
+}
+
+drawBoulder = function (b, bcx, brot) {
+  drawFacetedRock(bcx, b.y - b.r, b.r, brot, true);
+};
+
+drawFerry = function (t) {
+  const a = (G.alpha === undefined ? 1 : G.alpha), cx = t.cx - (t.dx || 0) * (1 - a), cy = t.cy, R = t.R;
+  drawFacetedRock(cx, cy, R, t.rot + (t.dx || 0) * (a - 1) / R, false);
+};
+
+drawRocks = function (L, lt) {
+  for (const r of (L.rocks || [])) {
+    const p = rockAt(r, lt);
+    if (!p) continue;
+    drawFacetedRock(p.x, p.y, r.r, p.rot, true);
+  }
+};
+
+// 4D. Máy Ép Thủy Lực Công Nghiệp & Trần Sập Cơ Khí (Thay thế cục đá vẽ mắt trẻ con!):
+drawCrusher = function (c, cb) {
+  const sx = c.shake ? Math.sin(G.lt * 130) * 3.5 : 0;
+  const x = c.x + sx, y = cb - c.h, w = c.w, h = c.h;
+  const cx = x + w / 2;
+
+  // Trục pít-tông thủy lực kép
+  ctx.fillStyle = '#334155';
+  ctx.fillRect(cx - 16, c.top, 10, Math.max(0, y - c.top));
+  ctx.fillRect(cx + 6, c.top, 10, Math.max(0, y - c.top));
+  ctx.fillStyle = '#94a3b8';
+  ctx.fillRect(cx - 14, c.top, 3, Math.max(0, y - c.top));
+  ctx.fillRect(cx + 8, c.top, 3, Math.max(0, y - c.top));
+
+  // Thân búa thép bọc giáp
+  const gr = ctx.createLinearGradient(x, y, x + w, y + h - 20);
+  gr.addColorStop(0, '#475569'); gr.addColorStop(0.5, '#1e293b'); gr.addColorStop(1, '#0f172a');
+  ctx.fillStyle = gr;
+  rr(x, y, w, h - 20, 6); ctx.fill();
+  ctx.lineWidth = 3; ctx.strokeStyle = c.shake ? '#ef4444' : '#090d16'; ctx.stroke();
+
+  // Sọc cảnh báo công nghiệp Vàng - Đen
+  ctx.save();
+  ctx.beginPath(); ctx.rect(x + 4, y + h - 42, w - 8, 16); ctx.clip();
+  ctx.fillStyle = '#eab308'; ctx.fillRect(x + 4, y + h - 42, w - 8, 16);
+  ctx.fillStyle = '#0f172a';
+  for (let k = -20; k < w + 20; k += 18) {
+    ctx.beginPath(); ctx.moveTo(x + k, y + h - 26); ctx.lineTo(x + k + 10, y + h - 42);
+    ctx.lineTo(x + k + 18, y + h - 42); ctx.lineTo(x + k + 8, y + h - 26); ctx.fill();
+  }
+  ctx.restore();
+
+  // Lõi năng lượng cảnh báo nhiệt
+  const coreCol = (c.shake || cb > c.restB + 10) ? '#ff1744' : '#38bdf8';
+  ctx.fillStyle = coreCol;
+  ctx.beginPath(); ctx.arc(cx, y + (h - 42) * 0.5, 11, 0, 6.3); ctx.fill();
+  ctx.strokeStyle = '#e2e8f0'; ctx.lineWidth = 2; ctx.stroke();
+
+  // Hàm răng thép hợp kim sắc nhọn dưới đáy búa
+  drawSpikesRaw({ x: x + 2, y: y + h - 20, w: w - 4, h: 20, dir: 'down' });
+};
+
+drawCeil = function (t) {
+  const cb = t.st === 1 ? t.cb : t.top;
+  const w = t.x1 - t.x0, SH = t.SH, y = cb - SH;
+  for (const a of t.alc) {
+    ctx.save(); ctx.fillStyle = 'rgba(56,189,248,.16)'; ctx.fillRect(a[0], t.gy, a[1] - a[0], 70);
+    ctx.fillStyle = '#38bdf8'; ctx.font = '800 16px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('▼ HỐC TRÚ ẨN ▼', (a[0] + a[1]) / 2, t.gy - 10 + Math.sin(G.lt * 5) * 4);
+    ctx.restore();
+  }
+  // Dầm thép thủy lực khổng lồ
+  const gr = ctx.createLinearGradient(0, y, 0, y + SH);
+  gr.addColorStop(0, '#334155'); gr.addColorStop(1, '#0f172a');
+  ctx.fillStyle = gr; ctx.fillRect(t.x0, y, w, SH - 20);
+  ctx.strokeStyle = '#020617'; ctx.lineWidth = 4; ctx.strokeRect(t.x0, y, w, SH - 20);
+  drawSpikesRaw({ x: t.x0 + 4, y: y + SH - 20, w: w - 8, h: 20, dir: 'down' });
+};
+
+// 4E. Cửa Laser Cơ Khí & Bàn Đạp Thủy Lực:
+drawGate = function (g) {
+  const solid = gateSolid(g);
+  if (g.inv) {
+    ctx.save(); ctx.globalAlpha = solid ? 1 : 0.25;
+    ctx.fillStyle = '#475569'; ctx.strokeStyle = '#1e293b'; ctx.lineWidth = 3;
+    rr(g.x, g.y, g.w, g.h, 5); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#38bdf8';
+    for (let i = 0; i < 4; i++) ctx.fillRect(g.x + 8 + i * 24, g.y + 5, 14, 4);
+    ctx.restore();
+    return;
+  }
+  if (solid) {
+    const gr = ctx.createLinearGradient(g.x, 0, g.x + g.w, 0);
+    gr.addColorStop(0, '#1e293b'); gr.addColorStop(0.5, '#475569'); gr.addColorStop(1, '#0f172a');
+    ctx.fillStyle = gr; ctx.strokeStyle = '#020617'; ctx.lineWidth = 3;
+    rr(g.x, g.y, g.w, g.h, 4); ctx.fill(); ctx.stroke();
+    // Lõi tia plasma khóa cửa
+    const pulse = 0.65 + 0.35 * Math.sin(G.lt * 10);
+    ctx.fillStyle = 'rgba(239,68,68,' + pulse.toFixed(2) + ')';
+    ctx.fillRect(g.x + g.w * 0.35, g.y + 8, g.w * 0.3, g.h - 16);
+    for (let y = g.y + 20; y < g.y + g.h - 16; y += 36) {
+      ctx.fillStyle = '#eab308'; ctx.fillRect(g.x + 3, y, g.w - 6, 4);
+    }
+  } else {
+    ctx.fillStyle = 'rgba(56,189,248,.16)'; ctx.fillRect(g.x + 4, g.y, g.w - 8, g.h);
+    ctx.fillStyle = '#334155'; rr(g.x - 2, g.y - 8, g.w + 4, 16, 4); ctx.fill();
+  }
+};
+
+// 4F. Chuyển động Thỏ Bơi Ngang Đạp Chân (Water), Jetpack Phi Hành Gia (Space) & Đi Bộ Lộn Ngược Trần Nhà (gDir < 0):
+const _origDrawBunnyV10 = _baseDrawBunny || drawBunny;
+drawBunny = function (x, y, o) {
+  const L = G.L;
+  const isWater = !!(L && L.biome === 'water');
+  const isSpace = !!(L && L.biome === 'space');
+  const face = o.face >= 0 ? 1 : -1;
+  const vx = o.vx || 0, vy = o.vy || 0;
+
+  // Kiểm tra xem nhân vật này có đang ở trong vùng Đảo Ngược Trọng Lực (đi bộ trên trần nhà) không:
+  let gDir = 1;
+  if (L && L.gravZones) {
+    for (const gz of L.gravZones) {
+      if (x + PW / 2 >= gz.x0 && x + PW / 2 <= gz.x1) { gDir = -1; break; }
+    }
+  }
+
+  if (isWater) {
+    // HIỆU ỨNG CON THỎ NẰM NGANG BƠI LẶN & ĐẠP CHÂN DƯỚI ĐẠI DƯƠNG:
+    const swimActive = !o.ground || Math.abs(vx) > 0.35;
+    const tilt = swimActive ? face * 1.18 + clamp(vy * 0.045, -0.45, 0.45) * face : 0;
+    const kick = Math.sin(G.lt * 20 + (o.slot || 0)) * 7;
+
+    ctx.save();
+    // Chuyển tâm xoay về giữa thân thỏ để xoay nằm ngang mượt mà
+    const cx = x + PW / 2, cy = y + PH / 2;
+    ctx.translate(cx, cy);
+    ctx.rotate(tilt);
+    ctx.translate(-cx, -cy);
+
+    // Vẽ 2 chân vịt đạp nước phía sau khi đang bơi
+    if (swimActive) {
+      ctx.save();
+      ctx.fillStyle = '#00f5d4'; ctx.strokeStyle = '#0a3d62'; ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.ellipse(cx - face * 10 + kick * 0.4, y + PH + 3, 8, 3.8, 0.3, 0, 6.3);
+      ctx.ellipse(cx + face * 4 - kick * 0.4, y + PH + 4, 8, 3.8, -0.3, 0, 6.3);
+      ctx.fill(); ctx.stroke();
+      ctx.restore();
+    }
+
+    // Gọi hàm vẽ thân thỏ gốc (với hiệu ứng đạp chân runT tăng tốc)
+    _origDrawBunnyV10(x, y, Object.assign({}, o, { ground: !swimActive, runT: G.lt * 4.5 }));
+
+    // Vẽ kính lặn biển (Diving Mask) & ống thở (Snorkel) trên mặt thỏ
+    ctx.save();
+    ctx.translate(cx, y + PH);
+    ctx.scale(face, 1);
+    ctx.fillStyle = 'rgba(0,245,212,.55)';
+    ctx.strokeStyle = '#023e8a'; ctx.lineWidth = 2.2;
+    rr(0, -28, 15, 9, 3); ctx.fill(); ctx.stroke();
+    // Ống thở Snorkel vòng lên đầu
+    ctx.strokeStyle = '#ffb703'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(12, -22); ctx.lineTo(17, -22); ctx.lineTo(17, -38); ctx.stroke();
+    ctx.restore();
+
+    ctx.restore();
+
+    // Vẽ gợn nước & bong bóng thở ra khi bơi
+    if (swimActive && !G.paused && Math.random() < 0.38) {
+      puff(x + PW / 2 - face * 16, y + PH * 0.6 + rnd(-6, 6), 1, 'rgba(200,248,255,.85)', 0.45);
+    }
+    return;
+  }
+
+  // Trường hợp Vùng Đảo Ngược Trọng Lực (Lộn ngược cơ thể bước đi trên trần nhà!) hoặc Không Gian Vũ Trụ:
+  ctx.save();
+  if (gDir < 0) {
+    const cy = y + PH / 2;
+    ctx.translate(0, cy * 2);
+    ctx.scale(1, -1);
+  }
+  _origDrawBunnyV10(x, y, o);
+
+  if (isSpace) {
+    ctx.save();
+    ctx.translate(x + PW / 2, y + PH);
+    ctx.scale(face, 1);
+    // Kính phi hành gia Vũ Trụ (Astronaut Visor)
+    ctx.fillStyle = 'rgba(56,189,248,.52)'; ctx.strokeStyle = '#e2e8f0'; ctx.lineWidth = 2;
+    rr(-1, -29, 16, 10, 4); ctx.fill(); ctx.stroke();
+    // Động cơ phản lực Jetpack đôi sau lưng
+    ctx.fillStyle = '#64748b'; ctx.strokeStyle = '#0f172a'; ctx.lineWidth = 2;
+    rr(-19, -25, 7, 17, 2); ctx.fill(); ctx.stroke();
+    // Lửa phản lực Jetpack
+    if (!o.ground) {
+      const fl = 8 + Math.sin(G.lt * 45) * 4;
+      const fg = ctx.createLinearGradient(-15.5, -8, -15.5, -8 + fl);
+      fg.addColorStop(0, '#38bdf8'); fg.addColorStop(0.5, '#f97316'); fg.addColorStop(1, 'rgba(239,68,68,0)');
+      ctx.fillStyle = fg;
+      ctx.beginPath(); ctx.moveTo(-19, -8); ctx.lineTo(-12, -8); ctx.lineTo(-15.5, -8 + fl); ctx.closePath(); ctx.fill();
+    }
+    ctx.restore();
+  }
+  ctx.restore();
+};
+
+// ============================================================================
+// 5. HỆ THỐNG 20 CẠM BẪY TINH VI & 1.120+ BIẾN THỂ TỔ HỢP (PROCEDURAL TRAP ENGINE)
 // ============================================================================
 G.chaosSeed = 1;
 
-function v14RandomizeTrapsOnDeath(L) {
+function v15RandomizeTrapsOnDeath(L) {
   G.chaosSeed = (G.chaosSeed * 1664525 + 1013904223) >>> 0;
   const rng = (k) => hash1(G.chaosSeed * 0.0001 + k * 13.37);
 
@@ -380,17 +745,23 @@ function v14RandomizeTrapsOnDeath(L) {
     } else if (t.k === 'syncgate' || t.k === 'skygate') {
       t.open = false;
       if (L.gates[t.gi]) L.gates[t.gi].act = false;
-    } else if (t.k === 'double_bluff') {
-      t.st = 0; t.t = 0;
+    } else if (t.k === 'double_bluff' || t.k === 'shift_ledge') {
+      t.st = 0; t.t = 0; t.cur = 0;
       if (L.solids[t.si]) L.solids[t.si][0] = t.baseX;
+      if (t.topSpk) { t.topSpk.x = t.baseX + 115; t.topSpk.hid = true; t.topSpk.live = false; t.topSpk.ph = 0; }
+    } else if (t.k === 'swap_pad') {
+      t.used = false;
     }
   }
+  for (const m of (L.mimics || [])) { m.trig = false; m.vx = 0; m.vy = 0; m.x = m.x0; m.y = m.y0; }
 }
 
 function initV11Level(L) {
   L.slopes = L.slopes || []; L.bonks = L.bonks || []; L.rocks = L.rocks || [];
   L.portals = L.portals || []; L.sharks = L.sharks || []; L.gravZones = L.gravZones || [];
-  L.decoys = L.decoys || []; L.mines = L.mines || [];
+  L.decoys = L.decoys || []; L.lasers = L.lasers || []; L.blackHoles = L.blackHoles || [];
+  L.mimics = L.mimics || []; L.conveyors = L.conveyors || []; L.pendulums = L.pendulums || [];
+  L.turrets = L.turrets || []; L.phantoms = L.phantoms || [];
   L.solids = L.solids.filter((s) => !s.bonk);
   L.bonks.forEach((bk, i) => {
     bk.i = i;
@@ -403,7 +774,6 @@ function initV11Level(L) {
   if (k && k.run) {
     if (k.hx === undefined) { k.hx = k.x; k.hy = k.y; }
     k.x = k.hx; k.y = k.hy; k.vx = 0; k.vy = 0; k.fl = 0; k.t = 0; k.tx = k.x; k.ty = k.y; k.arc = null; k.cool = 0;
-    // Tạo 2 Chìa Khóa Phân Thân Giả (Bom Ngụy Trang) đánh lừa người chơi:
     const R = k.run;
     L.decoys = [
       { x: R.x0 + 130, y: R.gy - 125, boom: false },
@@ -485,7 +855,7 @@ function v11TrapAct(t, i, a, v, who) {
     if (a === 'fire' && t.st === 0) { t.st = 1; t.t = 0; }
     else if (a === 'hit' && t.st === 1) {
       t.st = 2; t.t = 1.6;
-      for (const s of L.spikes) if (s.bt === i) { s.hid = false; s.live = true; s.ph = 1; }
+      if (t.topSpk) { t.topSpk.hid = false; t.topSpk.live = true; t.topSpk.ph = 1; }
       Snd.slam();
     }
   } else if (t.k === 'troll_spring') {
@@ -507,10 +877,14 @@ function v11ResetTrap(L, t) {
   if (t.k === 'ceil') { t.cb = t.top; }
   else if (t.k === 'ferry') { t.cx = t.cx0; t.px = t.cx0; t.dx = 0; t.dir = 0; t.rot = 0; }
   else if (t.k === 'door2') { const e = L.exit; e.x = t.ex0; e.y = t.ey0; e.lock = false; e.legs = false; e.hide = false; t.n = 0; t.from = t.ex0; }
-  else if (t.k === 'shift_ledge' || t.k === 'double_bluff') { t.cur = 0; const s = L.solids[t.si]; if (s) s[0] = t.baseX; }
+  else if (t.k === 'shift_ledge' || t.k === 'double_bluff') {
+    t.cur = 0; const s = L.solids[t.si]; if (s) s[0] = t.baseX;
+    if (t.topSpk) { t.topSpk.x = t.baseX + 115; t.topSpk.hid = true; t.topSpk.live = false; t.topSpk.ph = 0; }
+  }
   else if (t.k === 'troll_spring') { const sp = L.springs[t.sIdx]; if (sp) sp.power = 17.5; }
   else if (t.k === 'sled') { t.x = t.x0; t.vx = 0; t.st = 0; t.wait = 0; if (L.solids[t.si]) L.solids[t.si][0] = t.x0; }
   else if (t.k === 'syncgate' || t.k === 'skygate') { t.open = false; if (L.gates[t.gi]) L.gates[t.gi].act = false; }
+  else if (t.k === 'swap_pad') { t.used = false; }
 }
 
 function trapAct(i, a, v, who) {
@@ -544,11 +918,10 @@ function trapAct(i, a, v, who) {
 
 function updateTraps(bodies) {
   const L = G.L, me = G.me;
-  const tr = L.traps; if (!tr || !tr.length) return;
-  const host = isHostSlot();
   const cx = me.x + PW / 2, cy = me.y + PH / 2, feet = me.y + PH, alive = !me.dead && !G.won;
+  const host = isHostSlot();
 
-  // Kiểm tra Cổng Dịch Chuyển (Portals):
+  // 1. Cổng Dịch Chuyển (Portals):
   if (me.portalCd > 0) me.portalCd -= STEP;
   for (const pt of (L.portals || [])) {
     if (alive && !(me.portalCd > 0) && Math.hypot(cx - pt.x0, cy - pt.y0) < 38) {
@@ -558,7 +931,7 @@ function updateTraps(bodies) {
     }
   }
 
-  // Kiểm tra Chìa Khóa Giả (Decoy Bomb Keys):
+  // 2. Chìa Khóa Giả (Decoy Bomb Keys):
   for (const dc of (L.decoys || [])) {
     if (!dc.boom && alive && Math.hypot(cx - dc.x, cy - dc.y) < 32) {
       dc.boom = true;
@@ -569,19 +942,86 @@ function updateTraps(bodies) {
     }
   }
 
-  // Kiểm tra Cá Mập Megalodon & Thủy Lôi:
+  // 3. Đồng Xu Ăn Thịt Người (Mimic Coins):
+  for (const m of (L.mimics || [])) {
+    const dist = Math.hypot(cx - m.x, cy - m.y);
+    if (!m.trig && alive && dist < 82) {
+      m.trig = true; Snd.grab();
+    }
+    if (m.trig && alive) {
+      const dx = cx - m.x, dy = cy - m.y, d = Math.max(1, Math.hypot(dx, dy));
+      m.x += (dx / d) * 4.8;
+      m.y += (dy / d) * 4.8;
+      if (d < 22) die('mimic_coin');
+    }
+  }
+
+  // 4. Hố Đen Vũ Trụ (Black Hole Singularity):
+  for (const bh of (L.blackHoles || [])) {
+    const dx = bh.x - cx, dy = bh.y - cy, d = Math.hypot(dx, dy);
+    if (alive && d < bh.pullR && d > 8) {
+      const f = (1 - d / bh.pullR) * 0.58;
+      me.vx += (dx / d) * f;
+      me.vy += (dy / d) * f;
+      if (d < bh.killR) die('black_hole');
+    }
+  }
+
+  // 5. Băng Chuyền Cơ Khí (Motorized Conveyors):
+  for (const cv of (L.conveyors || [])) {
+    if (alive && me.onGround && cx >= cv.x && cx <= cv.x + cv.w && Math.abs(feet - cv.y) < 10) {
+      me.x += cv.spd;
+    }
+  }
+
+  // 6. Cầu Bóng Ma Lượn Sóng (Phantom Wave Tiles):
+  for (const ph of (L.phantoms || [])) {
+    const wave = Math.sin(G.lt * ph.spd + ph.phase);
+    ph.solid = wave > -0.15;
+    ph.alpha = clamp((wave + 0.35) / 0.8, 0.08, 1);
+    const s = L.solids[ph.si];
+    if (s) s[1] = ph.solid ? ph.y : 9999;
+  }
+
+  // 7. Pháo Đài Bắn Tỉa Laser (Sniper Turrets):
+  for (const trt of (L.turrets || [])) {
+    const dist = Math.hypot(cx - trt.x, cy - trt.y);
+    trt.ang = Math.atan2(cy - trt.y, cx - trt.x);
+    if (dist < 560 && alive) {
+      trt.charge = (trt.charge || 0) + STEP;
+      if (trt.charge >= trt.period) {
+        trt.charge = 0; trt.fireT = 0.22;
+        trt.hitX = cx; trt.hitY = cy;
+        Snd.slam();
+      }
+      if (trt.fireT > 0) {
+        trt.fireT -= STEP;
+        // Kiểm tra va chạm tia laser bắn tỉa
+        const A = cy - trt.y, B = trt.x - cx, C = -(A * trt.x + B * trt.y);
+        const lineDist = Math.abs(A * cx + B * cy + C) / Math.max(1, Math.hypot(A, B));
+        if (lineDist < 16 && Math.abs(trt.ang - Math.atan2(trt.hitY - trt.y, trt.hitX - trt.x)) < 0.14) {
+          die('sniper_laser');
+        }
+      }
+    } else {
+      trt.charge = Math.max(0, (trt.charge || 0) - STEP * 0.5);
+    }
+  }
+
+  // 8. Cá Mập Bạo Chúa (Megalodon Shark):
   for (const sh of (L.sharks || [])) {
     sh.cx = pingPong(sh.x0, sh.x1, sh.speed, sh.off, G.lt);
     const dir = Math.cos(((G.lt + sh.off) * sh.speed * 60 / Math.max(1, sh.x1 - sh.x0)) * Math.PI) >= 0 ? 1 : -1;
     sh.dir = dir;
     const tg = nearestBodyTo(sh.cx, sh.cy);
     const wantY = tg ? clamp(tg.y + PH / 2, sh.minY, sh.maxY) : sh.baseY;
-    sh.cy += (wantY - sh.cy) * 0.05;
-    if (alive && rectsOverlap(me.x + 4, me.y + 4, PW - 8, PH - 8, sh.cx - 46, sh.cy - 20, 92, 40)) {
+    sh.cy += (wantY - sh.cy) * 0.055;
+    if (alive && rectsOverlap(me.x + 4, me.y + 4, PW - 8, PH - 8, sh.cx - 48, sh.cy - 22, 96, 44)) {
       die('shark');
     }
   }
 
+  const tr = L.traps; if (!tr || !tr.length) return;
   for (let i = 0; i < tr.length; i++) {
     const t = tr[i];
     if (t.k === 'bait') {
@@ -633,16 +1073,17 @@ function updateTraps(bodies) {
         const u = clamp(t.t / 0.16, 0, 1);
         t.cur = t.shift * u;
         s[0] = t.baseX + t.cur;
-        // Bẫy tầng 2 của double_bluff: Ai nhảy xa đáp vào nửa sau của bờ đất sẽ bị chông ngầm phóng lên đâm!
-        if (t.k === 'double_bluff' && alive && me.onGround && cx > s[0] + 65 && cx < s[0] + s[2] - 10) {
+        // Giữ gai bẫy trên mặt băng luôn di chuyển khớp 100% với tảng băng, không bao giờ đè lên gai khác!
+        if (t.topSpk) t.topSpk.x = s[0] + 115;
+        if (t.k === 'double_bluff' && alive && me.onGround && cx > s[0] + 95 && cx < s[0] + s[2] - 10) {
           trapSend(i, 'hit', 0);
         }
-        if (t.t > 3.2) { t.st = 0; t.cur = 0; s[0] = t.baseX; }
+        if (t.t > 3.2) { t.st = 0; t.cur = 0; s[0] = t.baseX; if (t.topSpk) t.topSpk.x = t.baseX + 115; }
       } else if (t.st === 2) {
         t.t -= STEP;
         if (t.t <= 0) {
           t.st = 0; t.cur = 0; if (s) s[0] = t.baseX;
-          for (const spk of L.spikes) if (spk.bt === i) { spk.hid = true; spk.live = false; spk.ph = 0; }
+          if (t.topSpk) { t.topSpk.x = t.baseX + 115; t.topSpk.hid = true; t.topSpk.live = false; t.topSpk.ph = 0; }
         }
       }
     } else if (t.k === 'troll_spring') {
@@ -725,6 +1166,17 @@ function updateTraps(bodies) {
           break;
         }
       }
+    } else if (t.k === 'swap_pad' && !t.used && alive) {
+      if (Math.hypot(cx - t.x, cy - t.y) < 34 && G.remotes.size > 0) {
+        const others = [...G.remotes.values()].filter((r) => !r.dead);
+        if (others.length) {
+          t.used = true;
+          const target = others[G.chaosSeed % others.length];
+          const ox = me.x, oy = me.y;
+          me.x = target.x; me.y = target.y;
+          Snd.djump(); sparkle(ox, oy, 18, 1.5, '#ff2bd6'); sparkle(me.x, me.y, 18, 1.5, '#00f5d4');
+        }
+      }
     } else if (t.k === 'fake') {
       for (let j = 0; j < t.plates.length; j++) {
         const f = t.plates[j];
@@ -785,13 +1237,12 @@ function updateTraps(bodies) {
   for (let q = L.stalactites.length - 1; q >= 0; q--) if (L.stalactites[q].dyn && L.stalactites[q].gone) L.stalactites.splice(q, 1);
 }
 
-// Thạch nhũ bắn tỉa đón đầu theo vận tốc người chơi (Predictive Sniper Stalactites):
 function updateStalactites(bodies) {
   const L = G.L;
   for (const s of (L.stalactites || [])) {
     if (s.st === 0) {
       for (const b of bodies) {
-        const cx = b.x + PW / 2 + (b.vx || 0) * 14; // Tính trước vị trí người chơi sẽ chạy tới!
+        const cx = b.x + PW / 2 + (b.vx || 0) * 14;
         if (cx > s.x - 68 && cx < s.x + s.w + 68 && b.y > s.y + s.h * 0.4 && b.y < s.y + s.h + 540) {
           s.st = 1; s.t = 0.22; s.aimVx = clamp((b.vx || 0) * 0.45, -3.2, 3.2);
           break;
@@ -815,15 +1266,17 @@ function updateStalactites(bodies) {
 }
 
 // ============================================================================
-// 5. STEPPLAYER, UPDATEWORLD, HAZARDCHECK, DIE, RESPAWN & ONNETEV
+// 6. KIỂM TRA VA CHẠM CHO TOÀN BỘ BẪY MỚI (LASER XOAY, RÌU LẮC LƯ, HỐ ĐEN, CÁ MẬP)
 // ============================================================================
 function hazardCheck(P) {
   const L = G.L;
   const hx = P.x + 4, hy = P.y + 5, hw = PW - 8, hh = PH - 8;
+  const cx = P.x + PW / 2, cy = P.y + PH / 2;
+
   for (const s of L.spikes) {
     if (s.hid) continue;
     if (G.mode === 'coop' && (s.pit || s.y >= WORLD_H - 42) && !P.onGround) {
-      const st = v14GetSquadLinks(P);
+      const st = v15GetSquadLinks(P);
       if (st && st.bestAnchor && st.bestAnchor.y < P.y - 18) {
         P.y = Math.min(P.y, s.y - PH - 14);
         if (P.vy > 0) P.vy = -7.5;
@@ -838,6 +1291,27 @@ function hazardCheck(P) {
     }
     if (rectsOverlap(hx, hy, hw, hh, s.x + 3, sy, s.w - 6, sh)) return 'spikes';
   }
+
+  // Va chạm Tia Laser Xoay (Rotating Laser Beams):
+  for (const ls of (L.lasers || [])) {
+    const ang = G.lt * ls.spd + (ls.off || 0);
+    for (let b = 0; b < (ls.blades || 2); b++) {
+      const a = ang + (b * Math.PI * 2) / (ls.blades || 2);
+      const x1 = ls.x + Math.cos(a) * ls.len, y1 = ls.y + Math.sin(a) * ls.len;
+      // Kiểm tra khoảng cách từ tâm thỏ tới đoạn thẳng tia laser
+      const dx = x1 - ls.x, dy = y1 - ls.y, len2 = dx * dx + dy * dy;
+      const u = clamp(((cx - ls.x) * dx + (cy - ls.y) * dy) / Math.max(1, len2), 0, 1);
+      if (Math.hypot(cx - (ls.x + u * dx), cy - (ls.y + u * dy)) < 14) return 'laser';
+    }
+  }
+
+  // Va chạm Lưỡi Rìu Đao Phủ Lắc Lư (Swinging Executioner Pendulums):
+  for (const pd of (L.pendulums || [])) {
+    const th = Math.sin(G.lt * pd.spd + pd.off) * 1.05;
+    const bx = pd.x + Math.sin(th) * pd.len, by = pd.y + Math.cos(th) * pd.len;
+    if (circleHitsRect(bx, by, pd.r - 4, hx, hy, hw, hh)) return 'pendulum';
+  }
+
   for (const c of L.crushers) if (rectsOverlap(hx, hy, hw, hh, c.x + 2, c.cb - c.h, c.w - 4, c.h)) return 'crusher';
   for (const b of L.boulders) {
     const bx = b.cx, by = b.y - b.r;
@@ -859,10 +1333,323 @@ function hazardCheck(P) {
   }
   const vh = v11Hazard(hx, hy, hw, hh);
   if (vh) return vh;
-  if (P.y > (L.h || WORLD_H) + 90) return 'fall';
+  if (P.y > (L.h || WORLD_H) + 90 || (P.gDir < 0 && P.y < -120)) return 'fall';
   return null;
 }
 
+// ============================================================================
+// 7. VẼ ĐỒ HỌA CHÂN THỰC CHO CÁ MẬP MEGALODON, LASER, HỐ ĐEN, RÌU ĐAO PHỦ & BẪY MỚI
+// ============================================================================
+function drawTraps(L) {
+  const T = G.lt;
+
+  // 1. Vùng Đảo Trọng Lực:
+  for (const gz of (L.gravZones || [])) {
+    ctx.save();
+    const gr = ctx.createLinearGradient(0, gz.y0, 0, gz.y1);
+    gr.addColorStop(0, 'rgba(190,90,255,.30)');
+    gr.addColorStop(0.5, 'rgba(90,210,255,.12)');
+    gr.addColorStop(1, 'rgba(190,90,255,.30)');
+    ctx.fillStyle = gr;
+    ctx.fillRect(gz.x0, gz.y0, gz.x1 - gz.x0, gz.y1 - gz.y0);
+    ctx.fillStyle = 'rgba(235,200,255,.85)'; ctx.font = '800 13px sans-serif'; ctx.textAlign = 'center';
+    for (let x = gz.x0 + 70; x < gz.x1 - 40; x += 150) {
+      const yOff = ((T * 95 + x) % Math.max(60, gz.y1 - gz.y0));
+      ctx.fillText('▲ PHẢN TRỌNG LỰC ▲', x, gz.y1 - yOff);
+    }
+    ctx.restore();
+  }
+
+  // 2. Cầu Bóng Ma Lượn Sóng (Phantom Wave Tiles):
+  for (const ph of (L.phantoms || [])) {
+    ctx.save();
+    ctx.globalAlpha = ph.alpha || 0.5;
+    ctx.fillStyle = ph.solid ? '#38bdf8' : '#f43f5e';
+    ctx.strokeStyle = '#e0f2fe'; ctx.lineWidth = 2;
+    rr(ph.x, ph.y, ph.w, 18, 5); ctx.fill(); ctx.stroke();
+    ctx.restore();
+  }
+
+  // 3. Băng Chuyền Cơ Khí (Motorized Conveyors):
+  for (const cv of (L.conveyors || [])) {
+    ctx.save();
+    ctx.fillStyle = '#1e293b'; ctx.strokeStyle = '#94a3b8'; ctx.lineWidth = 2.5;
+    rr(cv.x, cv.y, cv.w, 18, 6); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = cv.spd > 0 ? '#38bdf8' : '#f97316';
+    const dir = cv.spd > 0 ? 1 : -1;
+    const stepOff = ((T * Math.abs(cv.spd) * 45) % 28) * dir;
+    for (let px = cv.x + 14; px < cv.x + cv.w - 14; px += 28) {
+      const ax = px + stepOff;
+      ctx.beginPath();
+      ctx.moveTo(ax - 5 * dir, cv.y + 4); ctx.lineTo(ax + 5 * dir, cv.y + 9); ctx.lineTo(ax - 5 * dir, cv.y + 14);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  // 4. Hố Đen Vũ Trụ (Black Hole Singularity):
+  for (const bh of (L.blackHoles || [])) {
+    ctx.save();
+    ctx.translate(bh.x, bh.y);
+    const rg = ctx.createRadialGradient(0, 0, bh.killR * 0.3, 0, 0, bh.pullR);
+    rg.addColorStop(0, 'rgba(0,0,0,1)');
+    rg.addColorStop(0.22, 'rgba(139,92,246,.85)');
+    rg.addColorStop(0.55, 'rgba(56,189,248,.25)');
+    rg.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = rg;
+    ctx.beginPath(); ctx.arc(0, 0, bh.pullR, 0, 6.3); ctx.fill();
+    ctx.rotate(-T * 4.5);
+    ctx.strokeStyle = '#f43f5e'; ctx.lineWidth = 3;
+    for (let k = 0; k < 4; k++) {
+      ctx.beginPath(); ctx.arc(0, 0, bh.killR + k * 6, k * 1.5, k * 1.5 + 1.8); ctx.stroke();
+    }
+    ctx.fillStyle = '#030712';
+    ctx.beginPath(); ctx.arc(0, 0, bh.killR * 0.85, 0, 6.3); ctx.fill();
+    ctx.restore();
+  }
+
+  // 5. Tia Laser Cao Áp Xoay (Rotating Laser Turrets):
+  for (const ls of (L.lasers || [])) {
+    const ang = T * ls.spd + (ls.off || 0);
+    ctx.save();
+    for (let b = 0; b < (ls.blades || 2); b++) {
+      const a = ang + (b * Math.PI * 2) / (ls.blades || 2);
+      const x1 = ls.x + Math.cos(a) * ls.len, y1 = ls.y + Math.sin(a) * ls.len;
+      ctx.strokeStyle = 'rgba(244,63,94,.35)'; ctx.lineWidth = 11; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(ls.x, ls.y); ctx.lineTo(x1, y1); ctx.stroke();
+      ctx.strokeStyle = '#ff1744'; ctx.lineWidth = 4.5;
+      ctx.beginPath(); ctx.moveTo(ls.x, ls.y); ctx.lineTo(x1, y1); ctx.stroke();
+      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 1.6;
+      ctx.beginPath(); ctx.moveTo(ls.x, ls.y); ctx.lineTo(x1, y1); ctx.stroke();
+    }
+    ctx.fillStyle = '#1e293b'; ctx.strokeStyle = '#f43f5e'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(ls.x, ls.y, 14, 0, 6.3); ctx.fill(); ctx.stroke();
+    ctx.restore();
+  }
+
+  // 6. Rìu Đao Phủ Lắc Lư (Swinging Executioner Pendulums):
+  for (const pd of (L.pendulums || [])) {
+    const th = Math.sin(T * pd.spd + pd.off) * 1.05;
+    const bx = pd.x + Math.sin(th) * pd.len, by = pd.y + Math.cos(th) * pd.len;
+    ctx.save();
+    ctx.strokeStyle = '#475569'; ctx.lineWidth = 5;
+    ctx.beginPath(); ctx.moveTo(pd.x, pd.y); ctx.lineTo(bx, by); ctx.stroke();
+    ctx.fillStyle = '#1e293b'; ctx.beginPath(); ctx.arc(pd.x, pd.y, 9, 0, 6.3); ctx.fill();
+    drawSaw(bx, by, pd.r, T * 1.5);
+    ctx.restore();
+  }
+
+  // 7. Pháo Đài Bắn Tỉa Laser (Sniper Turrets):
+  for (const trt of (L.turrets || [])) {
+    ctx.save();
+    if (trt.charge > 0.2) {
+      const ratio = clamp(trt.charge / trt.period, 0, 1);
+      ctx.strokeStyle = trt.fireT > 0 ? '#ffffff' : 'rgba(255,23,68,' + (0.2 + ratio * 0.75).toFixed(2) + ')';
+      ctx.lineWidth = trt.fireT > 0 ? 7 : (1.5 + ratio * 2.5);
+      ctx.setLineDash(trt.fireT > 0 ? [] : [8, 6]);
+      ctx.beginPath();
+      ctx.moveTo(trt.x, trt.y);
+      ctx.lineTo(trt.x + Math.cos(trt.ang || 0) * 600, trt.y + Math.sin(trt.ang || 0) * 600);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    ctx.translate(trt.x, trt.y);
+    ctx.rotate(trt.ang || 0);
+    ctx.fillStyle = '#1e293b'; ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = 2.5;
+    ctx.fillRect(0, -6, 26, 12); ctx.strokeRect(0, -6, 26, 12);
+    ctx.beginPath(); ctx.arc(0, 0, 15, 0, 6.3); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#ff1744'; ctx.beginPath(); ctx.arc(4, 0, 5, 0, 6.3); ctx.fill();
+    ctx.restore();
+  }
+
+  // 8. Đồng Xu Ăn Thịt Người (Mimic Coins):
+  for (const m of (L.mimics || [])) {
+    ctx.save();
+    ctx.translate(m.x, m.y);
+    ctx.fillStyle = m.trig ? '#ef4444' : '#ffca28';
+    ctx.strokeStyle = m.trig ? '#7f1d1d' : '#b8860b';
+    ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.arc(0, 0, 13, 0, 6.3); ctx.fill(); ctx.stroke();
+    if (m.trig) {
+      // Hiện nguyên hình hàm răng quái vật!
+      ctx.fillStyle = '#fff';
+      for (let k = -2; k <= 2; k++) {
+        ctx.beginPath(); ctx.moveTo(k * 4 - 2, -2); ctx.lineTo(k * 4, 5); ctx.lineTo(k * 4 + 2, -2); ctx.fill();
+      }
+      ctx.fillStyle = '#ffeb3b';
+      ctx.beginPath(); ctx.arc(-4, -5, 2.5, 0, 6.3); ctx.arc(4, -5, 2.5, 0, 6.3); ctx.fill();
+    } else {
+      ctx.fillStyle = '#fff3b0'; ctx.fillRect(-2, -6, 4, 12);
+    }
+    ctx.restore();
+  }
+
+  // 9. Cổng Dịch Chuyển & Chìa Khóa Giả:
+  for (const pt of (L.portals || [])) {
+    [[pt.x0, pt.y0, '#00ffe0'], [pt.x1, pt.y1, '#ff2bd6']].forEach(([px, py, col]) => {
+      ctx.save(); ctx.translate(px, py); ctx.rotate(T * 4);
+      ctx.strokeStyle = col; ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.ellipse(0, 0, 22, 32, 0, 0, 6.3); ctx.stroke();
+      ctx.fillStyle = 'rgba(20,10,45,.75)'; ctx.fill();
+      ctx.restore();
+    });
+  }
+  if (!G.keyGot) {
+    for (const dc of (L.decoys || [])) if (!dc.boom) drawKeyIcon(dc.x, dc.y, T + 1.5);
+  }
+
+  // 10. CÁ MẬP BẠO CHÚA CƠ KHÍ / ĐẠI DƯƠNG (REMASTERED APEX MEGALODON):
+  for (const sh of (L.sharks || [])) {
+    ctx.save();
+    ctx.translate(sh.cx, sh.cy);
+    ctx.scale(sh.dir || 1, 1);
+    const wag = Math.sin(T * 14) * 8;
+    const bite = Math.abs(Math.sin(T * 7)) * 0.28;
+
+    // Vây đuôi phân thùy sắc lẹm
+    ctx.fillStyle = '#0f2942'; ctx.strokeStyle = '#051321'; ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(-42, 0);
+    ctx.lineTo(-76, -30 + wag);
+    ctx.lineTo(-62, -2 + wag * 0.4);
+    ctx.lineTo(-74, 26 + wag);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+
+    // Vây lưng đại bàng có vết sẹo chiến đấu
+    ctx.fillStyle = '#102a43';
+    ctx.beginPath();
+    ctx.moveTo(-12, -18);
+    ctx.quadraticCurveTo(-22, -48, -28, -50);
+    ctx.lineTo(14, -18);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+
+    // Thân trên cơ bắp (Shaded Metallic-Blue Predator)
+    const sg = ctx.createLinearGradient(0, -30, 0, 26);
+    sg.addColorStop(0, '#0a192f');
+    sg.addColorStop(0.48, '#1e3a5f');
+    sg.addColorStop(0.72, '#64748b');
+    sg.addColorStop(1, '#e2e8f0');
+    ctx.fillStyle = sg;
+    ctx.beginPath();
+    ctx.moveTo(64, -2);
+    ctx.quadraticCurveTo(24, -32, -46, -10);
+    ctx.lineTo(-46, 10);
+    ctx.quadraticCurveTo(4, 24, 22, 6);
+    ctx.lineTo(54, 2);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+
+    // Hàm dưới cử động táp mồi (Articulated Snapping Lower Jaw)
+    ctx.save();
+    ctx.translate(14, 8);
+    ctx.rotate(bite);
+    ctx.fillStyle = '#cbd5e1'; ctx.strokeStyle = '#0f172a'; ctx.lineWidth = 2.2;
+    ctx.beginPath();
+    ctx.moveTo(0, 0); ctx.lineTo(38, 2); ctx.quadraticCurveTo(18, 16, -6, 8);
+    ctx.closePath(); ctx.fill(); ctx.stroke();
+    // Hàng răng hàm dưới
+    ctx.fillStyle = '#ffffff';
+    for (let k = 0; k < 5; k++) {
+      ctx.beginPath(); ctx.moveTo(6 + k * 6, 1); ctx.lineTo(9 + k * 6, -6); ctx.lineTo(12 + k * 6, 1); ctx.fill();
+    }
+    ctx.restore();
+
+    // Hàng răng hàm trên sắc nhọn
+    ctx.fillStyle = '#ffffff';
+    for (let k = 0; k < 6; k++) {
+      ctx.beginPath(); ctx.moveTo(16 + k * 6.5, 2); ctx.lineTo(19 + k * 6.5, 10); ctx.lineTo(22 + k * 6.5, 2); ctx.fill();
+    }
+
+    // 3 Khe mang cá (Gill Slits) & Vây ngực
+    ctx.strokeStyle = '#051321'; ctx.lineWidth = 2.2;
+    for (let g = 0; g < 3; g++) {
+      ctx.beginPath(); ctx.moveTo(2 - g * 6, -8); ctx.quadraticCurveTo(4 - g * 6, 0, 1 - g * 6, 8); ctx.stroke();
+    }
+    ctx.fillStyle = '#102a43';
+    ctx.beginPath(); ctx.moveTo(4, 10); ctx.lineTo(-16, 32); ctx.lineTo(18, 14); ctx.closePath(); ctx.fill(); ctx.stroke();
+
+    // Con mắt săn mồi phát sáng đỏ rực + Tâm mắt dọc
+    ctx.fillStyle = '#ff1744';
+    ctx.beginPath(); ctx.ellipse(38, -8, 5.2, 3.8, -0.2, 0, 6.3); ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath(); ctx.arc(39.5, -8.5, 1.5, 0, 6.3); ctx.fill();
+    ctx.restore();
+  }
+
+  // 11. Vẽ các bẫy trong L.traps:
+  for (const t of (L.traps || [])) {
+    if (t.k === 'fake') for (const f of t.plates) drawPlate(f);
+    else if (t.k === 'ceil') drawCeil(t);
+    else if (t.k === 'ferry') drawFerry(t);
+    else if (t.k === 'arena' && t.st === 1) {
+      const tt = G.lt - t.t0;
+      ctx.save(); ctx.fillStyle = 'rgba(255,60,60,' + (0.15 + 0.1 * Math.sin(G.lt * 8)) + ')';
+      ctx.fillRect(t.x0, t.ceilY, t.x1 - t.x0, t.gy - t.ceilY); ctx.restore();
+      for (let j = 0; j < t.saws.length; j++) { const p = sawPos(t, j, tt); drawSaw(p.x, p.y, t.saws[j].r, G.lt); }
+      ctx.save(); ctx.font = '800 15px sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#fff'; ctx.strokeStyle = 'rgba(0,0,0,.8)'; ctx.lineWidth = 3;
+      const left = Math.max(0, Math.ceil(t.dur - tt));
+      ctx.strokeText('⏱ ' + left + 's', (t.x0 + t.x1) / 2, t.ceilY + 28); ctx.fillText('⏱ ' + left + 's', (t.x0 + t.x1) / 2, t.ceilY + 28);
+      ctx.restore();
+    } else if (t.k === 'sled' && t.st !== 2) {
+      ctx.save();
+      const gr = ctx.createLinearGradient(t.x, t.y, t.x, t.y + 32);
+      gr.addColorStop(0, '#f0fbff'); gr.addColorStop(0.4, '#7fd8ff'); gr.addColorStop(1, '#1b6ca8');
+      ctx.fillStyle = gr; ctx.strokeStyle = '#0a3d62'; ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(t.x - 10, t.y); ctx.lineTo(t.x + t.w + 10, t.y);
+      ctx.lineTo(t.x + t.w - 12, t.y + 30); ctx.lineTo(t.x + 12, t.y + 30);
+      ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#fff'; ctx.font = '800 12px sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText(G.mode !== 'solo' ? '🧊 TẢNG BĂNG DUY NHẤT (Đợi đủ đội!)' : '🧊 VÁN TRƯỢT BĂNG', t.x + t.w / 2, t.y - 10);
+      ctx.restore();
+    } else if (t.k === 'redeye') {
+      const cx = G.cam.x + (G.cam.vw || 800) / 2, cy = G.cam.y + 92;
+      if (G.me && G.me.x + PW / 2 >= t.x0 && G.me.x + PW / 2 <= t.x1) {
+        ctx.save();
+        const col = t.state === 2 ? '#ff1744' : t.state === 1 ? '#ffd43b' : '#69db7c';
+        ctx.fillStyle = 'rgba(15,5,25,.9)'; ctx.strokeStyle = col; ctx.lineWidth = 4;
+        ctx.beginPath(); ctx.ellipse(cx, cy, 48, 27, 0, 0, 6.3); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = col;
+        ctx.beginPath(); ctx.arc(cx, cy, t.state === 0 ? 4 : 14, 0, 6.3); ctx.fill();
+        if (t.state === 2) {
+          ctx.fillStyle = 'rgba(255,20,60,.15)';
+          ctx.fillRect(G.cam.x, G.cam.y, G.cam.vw || 800, G.cam.vh || 720);
+        }
+        ctx.restore();
+      }
+    } else if (t.k === 'syncgate' && !t.open) {
+      const g = L.gates[t.gi];
+      if (g) {
+        ctx.save(); ctx.font = '800 13px sans-serif'; ctx.textAlign = 'center';
+        ctx.fillStyle = '#ffe066'; ctx.strokeStyle = '#000'; ctx.lineWidth = 3;
+        ctx.strokeText('⚡ CẢ ĐỘI NHẢY CÙNG LÚC!', g.x, g.y - 14);
+        ctx.fillText('⚡ CẢ ĐỘI NHẢY CÙNG LÚC!', g.x, g.y - 14);
+        ctx.restore();
+      }
+    } else if (t.k === 'skygate') {
+      ctx.save();
+      ctx.fillStyle = t.open ? '#69db7c' : '#ff4d6d';
+      ctx.strokeStyle = '#2b1442'; ctx.lineWidth = 3;
+      rr(t.bx, t.by, 54, 24, 6); ctx.fill(); ctx.stroke();
+      if (!t.open) {
+        ctx.font = '800 12px sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#ffe066';
+        ctx.fillText('🗼 XẾP THÁP ĐỤNG NÚT!', t.bx + 27, t.by - 8);
+      }
+      ctx.restore();
+    } else if (t.k === 'swap_pad' && !t.used) {
+      ctx.save();
+      ctx.translate(t.x, t.y);
+      ctx.strokeStyle = '#ff2bd6'; ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.arc(0, 0, 18 + Math.sin(T * 8) * 3, 0, 6.3); ctx.stroke();
+      ctx.fillStyle = '#00f5d4'; ctx.font = '800 12px sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText('🔀 SWAP', 0, -24);
+      ctx.restore();
+    }
+  }
+}
+
+// ============================================================================
+// 8. STEPPLAYER, UPDATEWORLD, DIE, RESPAWN, ONNETEV & MOBILE CONTROLS
+// ============================================================================
 function stepPlayer() {
   const P = G.me, L = G.L;
   P.px = P.x; P.py = P.y;
@@ -906,19 +1693,19 @@ function stepPlayer() {
   if (P.rope) { stepRope(P, ax); if (P.jbuf > 0) P.jbuf--; P.anch = false; const h = hazardCheck(P); if (h) die(h); return; }
 
   if (P.wlock > 0) { P.wlock--; } else if (ax !== 0) {
-    const acc = P.onGround ? (P.onIce ? 0.14 : slopeAcc(P)) : (isWater ? 0.45 : isSpace ? 0.55 : 0.65);
-    const tgt = ax * runMax(P) * (isWater ? 0.88 : 1);
+    const acc = P.onGround ? (P.onIce ? 0.14 : slopeAcc(P)) : (isWater ? 0.48 : isSpace ? 0.55 : 0.65);
+    const tgt = ax * runMax(P) * (isWater ? 0.92 : 1);
     P.vx += clamp(tgt - P.vx, -acc, acc);
     P.face = ax;
-  } else P.vx *= P.onGround ? (P.onIce ? 0.99 : slopeDamp(P)) : (isWater ? 0.92 : 0.95);
+  } else P.vx *= P.onGround ? (P.onIce ? 0.99 : slopeDamp(P)) : (isWater ? 0.93 : 0.95);
   slopePull(P);
   if (Math.abs(P.vx) < 0.04) P.vx = 0;
   applyTether(P);
 
   { const rm = runMax(P); P.vx = clamp(P.vx, -rm - 4, rm + 4); }
 
-  const gravStep = isWater ? GRAV * 0.34 : isSpace ? GRAV * 0.44 : GRAV;
-  const maxFallSpd = isWater ? 6.5 : isSpace ? 8.5 : (curPassive === 'featherfall' ? MAXFALL * 0.7 : MAXFALL);
+  const gravStep = isWater ? GRAV * 0.32 : isSpace ? GRAV * 0.44 : GRAV;
+  const maxFallSpd = isWater ? 6.2 : isSpace ? 8.5 : (curPassive === 'featherfall' ? MAXFALL * 0.7 : MAXFALL);
   if (gDir > 0) P.vy = Math.min(P.vy + gravStep, maxFallSpd);
   else P.vy = Math.max(P.vy - gravStep, -maxFallSpd);
 
@@ -937,11 +1724,12 @@ function stepPlayer() {
     if (hf) { P.jbuf = 0; doHoist(P, hf); }
   }
 
-  if (isWater && jumpPressedNow) {
-    P.vy = -7.6 * jumpMul(P); P.onGround = false; P.jbuf = 0; P.sq = -0.2;
-    Snd.jump(P.slot); puff(P.x + PW / 2, P.y + PH, 4, '#c8f7ff', 0.8);
-  } else if (isSpace && (jumpPressedNow || (input.j && P.vy > -3.2))) {
-    P.vy = Math.max(P.vy - 1.35 * gDir, -8.8) * gDir;
+  if (isWater && (jumpPressedNow || (input.j && P.vy > 1.2))) {
+    P.vy = -7.4 * jumpMul(P); P.onGround = false; P.jbuf = 0; P.sq = -0.2;
+    if (jumpPressedNow) Snd.jump(P.slot);
+    puff(P.x + PW / 2, P.y + PH, 3, '#c8f7ff', 0.7);
+  } else if (isSpace && (jumpPressedNow || (input.j && P.vy * gDir > -3.2))) {
+    P.vy = -7.8 * gDir * jumpMul(P);
     P.onGround = false;
     if (jumpPressedNow) { Snd.djump(); P.jbuf = 0; }
     if (Math.random() < 0.6) sparkle(P.x + PW / 2, P.y + (gDir > 0 ? PH : 0), 2, 0.5, '#ff922b');
@@ -1006,7 +1794,6 @@ function stepPlayer() {
     if (nearSolids(P.x, P.y, PW, PH).length) P.x -= fc;
   }
 
-  // THÁP SỐNG HỢP NHẤT (UNIFIED TOWER CARRY): Người dưới đi hoặc nhảy sẽ cõng toàn bộ người đứng trên!
   if ((G.mode === 'coop' || G.mode === 'party') && !P.onGround && P.vy >= -2.5) {
     for (const r of G.remotes.values()) {
       if (r.dead || r.ropeOn) continue;
@@ -1029,7 +1816,7 @@ function stepPlayer() {
     }
   }
 
-  if (G.mode === 'coop') v14EnforceRopeAfterMove(P);
+  if (G.mode === 'coop') v15EnforceRopeAfterMove(P);
 
   for (const s of L.springs) {
     const feet = P.y + PH;
@@ -1202,7 +1989,7 @@ function die(cause) {
   if (isNet()) {
     resetTraps(G.L);
     initV11Level(G.L);
-    v14RandomizeTrapsOnDeath(G.L);
+    v15RandomizeTrapsOnDeath(G.L);
     toast('💀 Bạn tử nạn — Cả đội quay về Checkpoint!');
   }
 }
@@ -1213,7 +2000,7 @@ function respawn() {
   rewindHunters(P);
   resetTraps(L);
   initV11Level(L);
-  v14RandomizeTrapsOnDeath(L);
+  v15RandomizeTrapsOnDeath(L);
   P.x = rx + (P.slot % 4) * 14; P.y = ry; P.vx = P.vy = 0; P.dead = false; P.rev = 0;
   P.inv = curPassive === 'rebirth' ? 3.5 : 1.5;
   if (curPassive === 'guard' && !P.shield) { P.shield = true; refreshBuffUI(); }
@@ -1300,199 +2087,6 @@ function onNetEv(e) {
   }
 }
 
-// ============================================================================
-// 6. ĐỒ HỌA CHÂN THỰC CHO QUÁI VẬT, CÁ MẬP, TÀU NGẦM / PHI THUYỀN, BẪY ĐÁ & MẮT ĐÈN ĐỎ
-// ============================================================================
-function drawCrumble(c) {
-  if (c.st === 2) {
-    ctx.save(); ctx.globalAlpha = clamp(1 - c.fy / 260, 0, 1); ctx.translate(c.x + c.w / 2, c.y + c.fy);
-    ctx.rotate(c.fy * 0.004); ctx.fillStyle = '#a1887f'; ctx.fillRect(-c.w / 2, 0, c.w, c.h); ctx.restore(); return;
-  }
-  const sh = c.st === 1 ? Math.sin(G.lt * 90) * 2.5 : 0;
-  const x = c.x + sh, y = c.y;
-  const L = G.L || { hue: 200 };
-  if (L.biome === 'ice') { drawIceSolid(L, [x, y, c.w, c.h]); return; }
-  const shue = curEnv ? curEnv.solidHue : L.hue + 25, ghue = curEnv ? curEnv.grassHue : 105;
-  ctx.fillStyle = hsl(shue, 38, 48); rr(x, y, c.w, c.h, 5); ctx.fill();
-  ctx.fillStyle = hsl(ghue, 54, 44); rr(x - 2, y - 4, c.w + 4, 12, 5); ctx.fill();
-  ctx.fillStyle = hsl(ghue, 60, 56); rr(x - 2, y - 4, c.w + 4, 6, 4); ctx.fill();
-}
-
-function drawStalactite(s) {
-  if (s.st === 3 && s.gnd !== undefined) {
-    ctx.save(); ctx.globalAlpha = clamp(s.t / 1.2, 0, 1); ctx.fillStyle = '#8d7b73';
-    for (let i = 0; i < 4; i++) { ctx.beginPath(); ctx.moveTo(s.x + i * 9 - 4, s.gnd); ctx.lineTo(s.x + i * 9 + 3, s.gnd - 8 - (i % 2) * 5); ctx.lineTo(s.x + i * 9 + 10, s.gnd); ctx.fill(); }
-    ctx.restore();
-  }
-  ctx.fillStyle = '#4e3d36'; rr(s.x - 12, s.y - 16, s.w + 24, 20, 8); ctx.fill();
-  if (s.st === 3) return;
-  const sh = s.st === 1 ? Math.sin(G.lt * 90) * 1.5 : 0, y0 = s.y + (s.st === 2 ? s.fy : 0);
-  const gr = ctx.createLinearGradient(s.x, y0, s.x + s.w, y0);
-  gr.addColorStop(0, '#5d4e47'); gr.addColorStop(0.5, '#cbb8b0'); gr.addColorStop(1, '#4e3f39');
-  ctx.fillStyle = gr; ctx.strokeStyle = '#2b201c'; ctx.lineWidth = 2.2;
-  ctx.beginPath(); ctx.moveTo(s.x + sh, y0); ctx.lineTo(s.x + s.w + sh, y0); ctx.lineTo(s.x + s.w / 2 + sh, y0 + s.h); ctx.closePath(); ctx.fill(); ctx.stroke();
-}
-
-function drawTraps(L) {
-  const T = G.lt;
-  // 1. Vùng Đảo Trọng Lực (Anti-Gravity):
-  for (const gz of (L.gravZones || [])) {
-    ctx.save();
-    const gr = ctx.createLinearGradient(0, gz.y0, 0, gz.y1);
-    gr.addColorStop(0, 'rgba(190,90,255,.30)');
-    gr.addColorStop(0.5, 'rgba(90,210,255,.12)');
-    gr.addColorStop(1, 'rgba(190,90,255,.30)');
-    ctx.fillStyle = gr;
-    ctx.fillRect(gz.x0, gz.y0, gz.x1 - gz.x0, gz.y1 - gz.y0);
-    ctx.fillStyle = 'rgba(235,200,255,.8)'; ctx.font = '800 13px sans-serif'; ctx.textAlign = 'center';
-    for (let x = gz.x0 + 70; x < gz.x1 - 40; x += 150) {
-      const yOff = ((T * 95 + x) % Math.max(60, gz.y1 - gz.y0));
-      ctx.fillText('▲ ĐẢO TRỌNG LỰC ▲', x, gz.y1 - yOff);
-    }
-    ctx.restore();
-  }
-
-  // 2. Cổng Dịch Chuyển (Wormhole Portals):
-  for (const pt of (L.portals || [])) {
-    [[pt.x0, pt.y0, '#00ffe0'], [pt.x1, pt.y1, '#ff2bd6']].forEach(([px, py, col]) => {
-      ctx.save(); ctx.translate(px, py); ctx.rotate(T * 4);
-      ctx.strokeStyle = col; ctx.lineWidth = 4;
-      ctx.beginPath(); ctx.ellipse(0, 0, 22, 32, 0, 0, 6.3); ctx.stroke();
-      ctx.fillStyle = 'rgba(20,10,45,.75)'; ctx.fill();
-      ctx.restore();
-    });
-  }
-
-  // 3. Chìa Khóa Phân Thân Giả (Mirage Bomb Keys):
-  if (!G.keyGot) {
-    for (const dc of (L.decoys || [])) {
-      if (!dc.boom) drawKeyIcon(dc.x, dc.y, T + 1.5);
-    }
-  }
-
-  // 4. Cá Mập Bạo Chúa (Megalodon Shark):
-  for (const sh of (L.sharks || [])) {
-    ctx.save();
-    ctx.translate(sh.cx, sh.cy);
-    ctx.scale(sh.dir || 1, 1);
-    const sg = ctx.createLinearGradient(0, -28, 0, 28);
-    sg.addColorStop(0, '#1f3a52'); sg.addColorStop(0.55, '#3d6b8f'); sg.addColorStop(1, '#e3f2fd');
-    ctx.fillStyle = sg; ctx.strokeStyle = '#0d1b2a'; ctx.lineWidth = 2.8;
-    ctx.beginPath();
-    ctx.moveTo(56, 2);
-    ctx.quadraticCurveTo(16, -28, -40, -9);
-    ctx.lineTo(-66, -26 + Math.sin(T * 15) * 7);
-    ctx.lineTo(-52, 0);
-    ctx.lineTo(-66, 24 + Math.sin(T * 15) * 7);
-    ctx.lineTo(-40, 11);
-    ctx.quadraticCurveTo(12, 28, 56, 2);
-    ctx.closePath(); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = '#162a3d';
-    ctx.beginPath(); ctx.moveTo(-4, -18); ctx.lineTo(-20, -45); ctx.lineTo(16, -15); ctx.closePath(); ctx.fill(); ctx.stroke();
-    ctx.fillStyle = '#fff';
-    for (let k = 0; k < 6; k++) {
-      ctx.beginPath(); ctx.moveTo(14 + k * 6, 5); ctx.lineTo(17 + k * 6, 14); ctx.lineTo(20 + k * 6, 5); ctx.fill();
-    }
-    ctx.fillStyle = '#ff1744'; ctx.beginPath(); ctx.arc(30, -6, 4.5, 0, 6.3); ctx.fill();
-    ctx.restore();
-  }
-
-  // 5. Vẽ các loại bẫy trong L.traps:
-  for (const t of (L.traps || [])) {
-    if (t.k === 'fake') for (const f of t.plates) drawPlate(f);
-    else if (t.k === 'ceil') drawCeil(t);
-    else if (t.k === 'ferry') drawFerry(t);
-    else if (t.k === 'arena' && t.st === 1) {
-      const tt = G.lt - t.t0;
-      ctx.save(); ctx.fillStyle = 'rgba(255,60,60,' + (0.15 + 0.1 * Math.sin(G.lt * 8)) + ')';
-      ctx.fillRect(t.x0, t.ceilY, t.x1 - t.x0, t.gy - t.ceilY); ctx.restore();
-      for (let j = 0; j < t.saws.length; j++) { const p = sawPos(t, j, tt); drawSaw(p.x, p.y, t.saws[j].r, G.lt); }
-      ctx.save(); ctx.font = '800 15px sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#fff'; ctx.strokeStyle = 'rgba(0,0,0,.8)'; ctx.lineWidth = 3;
-      const left = Math.max(0, Math.ceil(t.dur - tt));
-      ctx.strokeText('⏱ ' + left + 's', (t.x0 + t.x1) / 2, t.ceilY + 28); ctx.fillText('⏱ ' + left + 's', (t.x0 + t.x1) / 2, t.ceilY + 28);
-      ctx.restore();
-    } else if (t.k === 'sled' && t.st !== 2) {
-      ctx.save();
-      const gr = ctx.createLinearGradient(t.x, t.y, t.x, t.y + 32);
-      gr.addColorStop(0, '#f0fbff'); gr.addColorStop(0.4, '#7fd8ff'); gr.addColorStop(1, '#1b6ca8');
-      ctx.fillStyle = gr; ctx.strokeStyle = '#0a3d62'; ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.moveTo(t.x - 10, t.y); ctx.lineTo(t.x + t.w + 10, t.y);
-      ctx.lineTo(t.x + t.w - 12, t.y + 30); ctx.lineTo(t.x + 12, t.y + 30);
-      ctx.closePath(); ctx.fill(); ctx.stroke();
-      ctx.fillStyle = '#fff'; ctx.font = '800 12px sans-serif'; ctx.textAlign = 'center';
-      ctx.fillText(G.mode !== 'solo' ? '🧊 TẢNG BĂNG DUY NHẤT (Đợi đủ đội!)' : '🧊 VÁN TRƯỢT BĂNG', t.x + t.w / 2, t.y - 10);
-      ctx.restore();
-    } else if (t.k === 'redeye') {
-      const cx = G.cam.x + (G.cam.vw || 800) / 2, cy = G.cam.y + 92;
-      if (G.me && G.me.x + PW / 2 >= t.x0 && G.me.x + PW / 2 <= t.x1) {
-        ctx.save();
-        const col = t.state === 2 ? '#ff1744' : t.state === 1 ? '#ffd43b' : '#69db7c';
-        ctx.fillStyle = 'rgba(15,5,25,.9)'; ctx.strokeStyle = col; ctx.lineWidth = 4;
-        ctx.beginPath(); ctx.ellipse(cx, cy, 48, 27, 0, 0, 6.3); ctx.fill(); ctx.stroke();
-        ctx.fillStyle = col;
-        ctx.beginPath(); ctx.arc(cx, cy, t.state === 0 ? 4 : 14, 0, 6.3); ctx.fill();
-        if (t.state === 2) {
-          ctx.fillStyle = 'rgba(255,20,60,.15)';
-          ctx.fillRect(G.cam.x, G.cam.y, G.cam.vw || 800, G.cam.vh || 720);
-        }
-        ctx.restore();
-      }
-    } else if (t.k === 'syncgate' && !t.open) {
-      const g = L.gates[t.gi];
-      if (g) {
-        ctx.save(); ctx.font = '800 13px sans-serif'; ctx.textAlign = 'center';
-        ctx.fillStyle = '#ffe066'; ctx.strokeStyle = '#000'; ctx.lineWidth = 3;
-        ctx.strokeText('⚡ CẢ ĐỘI NHẢY CÙNG LÚC!', g.x, g.y - 14);
-        ctx.fillText('⚡ CẢ ĐỘI NHẢY CÙNG LÚC!', g.x, g.y - 14);
-        ctx.restore();
-      }
-    } else if (t.k === 'skygate') {
-      ctx.save();
-      ctx.fillStyle = t.open ? '#69db7c' : '#ff4d6d';
-      ctx.strokeStyle = '#2b1442'; ctx.lineWidth = 3;
-      rr(t.bx, t.by, 54, 24, 6); ctx.fill(); ctx.stroke();
-      if (!t.open) {
-        ctx.font = '800 12px sans-serif'; ctx.textAlign = 'center'; ctx.fillStyle = '#ffe066';
-        ctx.fillText('🗼 XẾP THÁP ĐỤNG NÚT!', t.bx + 27, t.by - 8);
-      }
-      ctx.restore();
-    }
-  }
-}
-
-// Trang bị Khoang Tàu Ngầm (khi ở màn Đại Dương) & Đĩa Bay / Jetpack (khi ở màn Vũ Trụ) lên nhân vật:
-const _baseDrawBunny = drawBunny;
-drawBunny = function (x, y, o) {
-  const L = G.L;
-  _baseDrawBunny(x, y, o);
-  if (!L) return;
-  if (L.biome === 'water') {
-    ctx.save();
-    ctx.strokeStyle = 'rgba(130,240,255,.9)';
-    ctx.fillStyle = 'rgba(160,235,255,.18)';
-    ctx.lineWidth = 2.6;
-    ctx.beginPath(); ctx.ellipse(x + PW / 2, y + PH / 2 - 2, 24, 26, 0, 0, 6.3); ctx.fill(); ctx.stroke();
-    // Chân vịt tàu ngầm mini quay phía sau
-    const face = o.face >= 0 ? 1 : -1;
-    ctx.fillStyle = '#ffd43b';
-    ctx.fillRect(x + PW / 2 - face * 26, y + PH / 2 - 4 + Math.sin(G.lt * 30) * 4, 5, 8);
-    ctx.restore();
-  } else if (L.biome === 'space') {
-    ctx.save();
-    const face = o.face >= 0 ? 1 : -1;
-    // Bình tên lửa Jetpack sau lưng + Đĩa năng lượng dưới chân
-    ctx.fillStyle = '#adb5bd'; ctx.strokeStyle = '#343a40'; ctx.lineWidth = 2;
-    ctx.fillRect(x + PW / 2 - face * 18, y + 10, 7, 18); ctx.strokeRect(x + PW / 2 - face * 18, y + 10, 7, 18);
-    ctx.fillStyle = '#ff922b';
-    ctx.beginPath(); ctx.arc(x + PW / 2 - face * 14.5, y + 32, 4 + Math.sin(G.lt * 40) * 2, 0, 6.3); ctx.fill();
-    ctx.restore();
-  }
-};
-
-// ============================================================================
-// 7. XOAY NGANG TỰ ĐỘNG CHO MỌI ĐIỆN THOẠI & NÚT CẮM NEO (⚓)
-// ============================================================================
 function ensureRadarBtn() {
   const host = document.querySelector('#touch .touch-actions') || $('touch');
   if (!host) return;
@@ -1537,7 +2131,7 @@ function resize() {
 }
 
 // ============================================================================
-// 8. ĐẦY ĐỦ 100% CÁC HÀM XÂY DỰNG BẪY & 300 MÀN CHƠI (SOLO 100 / CO-OP 100 / PARTY 100)
+// 9. KHO TÀNG 24 MÔ-ĐUN BẪY TỔ HỢP (> 1.120 BIẾN THỂ) CHO 300 MÀN CHƠI
 // ============================================================================
 (() => {
   SKY_THEMES.length = 0;
@@ -1548,7 +2142,6 @@ function resize() {
     this.x += len;
   };
 
-  // Xóa đồng xu trên nóc gạch tàng hình để không lộ vị trí bẫy:
   seg.bonkGap = function (b, gapW, o) {
     o = o || {}; gapW = gapW || 150;
     const x0 = (o.lead === 0) ? b.x : seg.run(b, o.lead || 320, {});
@@ -1559,7 +2152,6 @@ function resize() {
     return x0;
   };
 
-  // BẪY 1: QUA CẦU RÚT VÁN (Người đầu qua êm ru, sập ngay sau lưng hại người đi sau!)
   seg.passCollapse = function (b, len) {
     const span = len || 350, x0 = b.ground(220), gy = b.gy, bx = b.x;
     b.spikes.push({ x: bx, y: WORLD_H - 26, w: span, h: 26, dir: 'up', pit: true });
@@ -1573,7 +2165,6 @@ function resize() {
     return x0;
   };
 
-  // BẪY 2: PHỤC KÍCH ĐỒNG ĐỘI ĐI SAU + THẠCH NHŨ BẮN TỈA ĐÓN ĐẦU
   seg.delayedAmbush = function (b, len) {
     len = Math.max(620, len || 680);
     const x0 = b.ground(len), gy = b.gy, idx = b.traps.length;
@@ -1586,20 +2177,24 @@ function resize() {
     return x0;
   };
 
-  // BẪY 3: BẪY KÉP 2 TẦNG LEVEL DEVIL (Nhảy gần thì bờ lùi ra xa, nhảy xa thì chông ngầm phóng lên!)
+  // SỬA TRIỆT ĐỂ LỖI ĐÈ GAI Ở MÀN 52 KHI BỜ BĂNG DỊCH SANG PHẢI:
   seg.movingGap = function (b, gapW) {
     gapW = gapW || 135;
     const x0 = b.ground(260), gy = b.gy, gx = b.x;
-    b.spikes.push({ x: gx, y: WORLD_H - 26, w: gapW + 280, h: 26, dir: 'up', pit: true });
-    const platIdx = b.solids.length, pw = 220, tIdx = b.traps.length;
-    b.solids.push([gx + gapW, gy, pw, WORLD_H - gy + 80]);
-    b.spikes.push({ x: gx + gapW + 135, y: gy - 24, w: 72, h: 24, dir: 'up', hid: true, bt: tIdx, ph: 0, live: false });
-    b.traps.push({ k: 'double_bluff', gx, gy, si: platIdx, baseX: gx + gapW, shift: 66, cur: 0, st: 0, t: 0 });
-    b.x = gx + gapW + pw + 70; b.ground(280);
+    const pw = 220, shiftAmt = 66, rightGap = 115;
+    // Gai đáy vực chỉ nằm gọn trong lòng hố, cách biệt hoàn toàn với 2 bờ đất
+    b.spikes.push({ x: gx + 8, y: WORLD_H - 26, w: gapW + pw + rightGap - 16, h: 26, dir: 'up', pit: true });
+    const platIdx = b.solids.length, tIdx = b.traps.length;
+    const platSolid = [gx + gapW, gy, pw, WORLD_H - gy + 80];
+    b.solids.push(platSolid);
+    const topSpk = { x: gx + gapW + 115, y: gy - 24, w: 72, h: 24, dir: 'up', hid: true, bt: tIdx, ph: 0, live: false };
+    b.spikes.push(topSpk);
+    b.traps.push({ k: 'double_bluff', gx, gy, si: platIdx, baseX: gx + gapW, shift: shiftAmt, cur: 0, st: 0, t: 0, topSpk });
+    b.x = gx + gapW + pw + rightGap;
+    b.ground(280);
     return x0;
   };
 
-  // BẪY 4: LÒ XO PHẢN CHỦ 2 CHẾ ĐỘ
   seg.trollSpringTrap = function (b) {
     const x0 = b.ground(340), gy = b.gy, spx = x0 + 185, sIdx = b.springs.length;
     b.springs.push({ x: spx, y: gy - 14, w: 56, h: 14, power: 17.5, sq: 0, trollIdx: b.traps.length });
@@ -1610,7 +2205,6 @@ function resize() {
     return x0;
   };
 
-  // BẪY 5: DÃY CÔNG TẮC LỪA ĐẢO TỰ ĐỔI VỊ TRÍ MỖI LẦN CHẾT
   seg.fakePlates = function (b, n, o) {
     o = o || {};
     n = Math.max(4, Math.min(n || 5, 6));
@@ -1638,7 +2232,6 @@ function resize() {
     return x0;
   };
 
-  // BẪY 6: BIỂN BĂNG & TẢNG BĂNG TRƯỢT ĐỘC NHẤT (Đi lẻ bỏ đồng đội là nổ băng!)
   seg.glacierSled = function (b, len, mode) {
     baseDrop(b);
     len = len || 1600;
@@ -1664,7 +2257,6 @@ function resize() {
     return landX;
   };
 
-  // BẪY 7: HÀNH LANG MẮT ĐÈN ĐỎ PHÁN QUYẾT + CỔNG NHẢY ĐỒNG BỘ / XẾP THÁP ĐỤNG NÚT TRẦN
   seg.judgmentCorridor = function (b, len, mode) {
     len = len || 880;
     const x0 = b.ground(len), gy = b.gy;
@@ -1675,18 +2267,13 @@ function resize() {
       const gi = b.gates.length;
       const isSky = (x0 % 2 === 0);
       b.gates.push({ x: x0 + len - 90, y: gy - 340, w: 28, h: 340, ctrl: [], mode: 'any', open: false, inv: false, tr: b.traps.length });
-      if (isSky) {
-        // Bắt buộc xếp tháp 2-3 người rồi người dưới cùng nhảy cõng cả tháp lên để đụng nút trên không!
-        b.traps.push({ k: 'skygate', gi, bx: x0 + len - 240, by: gy - 195, open: false });
-      } else {
-        b.traps.push({ k: 'syncgate', gi, x: x0 + len - 210, open: false });
-      }
+      if (isSky) b.traps.push({ k: 'skygate', gi, bx: x0 + len - 240, by: gy - 195, open: false });
+      else b.traps.push({ k: 'syncgate', gi, x: x0 + len - 210, open: false });
     }
     b.coin(x0 + len * 0.5, gy - 75);
     return x0;
   };
 
-  // BẪY 8: BUỒNG PHẢN TRỌNG LỰC ĐI BỘ TRÊN TRẦN NHÀ
   seg.antiGravChamber = function (b, len) {
     len = len || 760;
     const x0 = b.x, gy = b.gy, ceilY = gy - 290;
@@ -1702,7 +2289,107 @@ function resize() {
     return x0;
   };
 
-  // Gắn v11Inject với bộ bẫy mới để không bao giờ bị lỗi thiếu hàm:
+  // MÔ-ĐUN MỚI 1: HÀNH LANG TIA LASER XOAY 360 ĐỘ + ĐỒNG XU ĂN THỊT NGƯỜI
+  seg.laserCorridor = function (b, len, d) {
+    len = len || 820;
+    const x0 = b.ground(len), gy = b.gy;
+    b.lasers = b.lasers || [];
+    b.mimics = b.mimics || [];
+    const nLasers = 2 + (d > 0.5 ? 1 : 0);
+    for (let i = 0; i < nLasers; i++) {
+      const lx = x0 + 220 + i * Math.floor((len - 340) / Math.max(1, nLasers - 1));
+      b.solids.push([lx - 28, gy - 115, 56, 18]);
+      b.lasers.push({ x: lx, y: gy - 106, len: 102, spd: (i % 2 ? -1 : 1) * (1.85 + d * 0.9), off: i * 1.1, blades: d > 0.65 ? 3 : 2 });
+    }
+    // Cài 1 đồng xu ăn thịt người (Mimic) ở giữa hành lang
+    const mx = x0 + len * 0.52, my = gy - 68;
+    b.mimics.push({ x: mx, y: my, x0: mx, y0: my, trig: false });
+    return x0;
+  };
+
+  // MÔ-ĐUN MỚI 2: HỐ ĐEN VŨ TRỤ HÚT LỆCH QUỸ ĐẠO NHẢY (BLACK HOLE SINGULARITY)
+  seg.blackHoleVortex = function (b, len, d) {
+    baseDrop(b);
+    len = len || 660;
+    const x0 = b.ground(220), gy = b.gy, gx = b.x;
+    b.spikes.push({ x: gx, y: WORLD_H - 26, w: len, h: 26, dir: 'up', pit: true });
+    for (let i = 0; i < 3; i++) {
+      b.solids.push([gx + 85 + i * 195, gy - (i % 2 ? 75 : 20), 95, 18]);
+    }
+    b.blackHoles = b.blackHoles || [];
+    b.blackHoles.push({ x: gx + len * 0.5, y: gy - 175, pullR: 250, killR: 28 + Math.round(d * 8) });
+    b.x = gx + len;
+    b.ground(240);
+    return x0;
+  };
+
+  // MÔ-ĐUN MỚI 3: CẦU BÓNG MA LƯỢN SÓNG (PHANTOM WAVE BRIDGE)
+  seg.phantomBridge = function (b, n, d) {
+    baseDrop(b);
+    n = n || 5;
+    const w = 96, g = 88, x0 = b.ground(200), gy = b.gy, gx = b.x;
+    const span = g + n * (w + g);
+    b.spikes.push({ x: gx, y: WORLD_H - 26, w: span, h: 26, dir: 'up', pit: true });
+    b.phantoms = b.phantoms || [];
+    for (let i = 0; i < n; i++) {
+      const px = gx + g + i * (w + g), py = gy - (i % 2) * 35;
+      const si = b.solids.length;
+      b.solids.push([px, py, w, 18]);
+      b.phantoms.push({ si, x: px, y: py, w, spd: 3.2 + d * 1.2, phase: i * 0.9, solid: true, alpha: 1 });
+    }
+    b.x = gx + span;
+    b.ground(240);
+    return x0;
+  };
+
+  // MÔ-ĐUN MỚI 4: BĂNG CHUYỀN NGƯỢC CHIỀU + RÌU ĐAO PHỦ LẮC LƯ (CONVEYOR PENDULUM GAUNTLET)
+  seg.conveyorPendulum = function (b, len, d) {
+    len = len || 840;
+    const x0 = b.ground(len), gy = b.gy;
+    b.conveyors = b.conveyors || [];
+    b.pendulums = b.pendulums || [];
+    b.conveyors.push({ x: x0 + 90, y: gy, w: len - 180, spd: (x0 % 2 === 0 ? -1 : 1) * (2.2 + d * 1.1) });
+    for (let i = 0; i < 3; i++) {
+      const px = x0 + 210 + i * 210;
+      b.pendulums.push({ x: px, y: gy - 260, len: 215, r: 28, spd: 2.8 + d * 0.9, off: i * 1.3 });
+    }
+    b.coin(x0 + len * 0.5, gy - 95);
+    return x0;
+  };
+
+  // MÔ-ĐUN MỚI 5: PHÁO ĐÀI BẮN TỈA HỒNG NGOẠI + CỔNG HOÁN ĐỔI VỊ TRÍ ĐỒNG ĐỘI
+  seg.sniperBastion = function (b, len, d, mode) {
+    len = len || 820;
+    const x0 = b.ground(len), gy = b.gy;
+    b.turrets = b.turrets || [];
+    b.turrets.push({ x: x0 + len * 0.55, y: gy - 245, period: Math.max(1.35, 2.2 - d * 0.6), charge: 0, fireT: 0, ang: 0 });
+    b.solids.push([x0 + 220, gy - 85, 95, 18]);
+    b.solids.push([x0 + 510, gy - 95, 95, 18]);
+    b.spikeUp(x0 + 360, 72);
+    if (mode !== 'solo') {
+      b.traps.push({ k: 'swap_pad', x: x0 + 265, y: gy - 115, used: false });
+    }
+    return x0;
+  };
+
+  // MÔ-ĐUN MỚI 6: TRỤ ĐỔI TRỌNG LỰC LIÊN HOÀN GIỮA KHÔNG TRUNG (GRAVITY FLIP PILLARS)
+  seg.gravityPillars = function (b, len) {
+    len = len || 920;
+    const x0 = b.x, gy = b.gy, ceilY = gy - 280;
+    b.spikes.push({ x: x0, y: WORLD_H - 26, w: len, h: 26, dir: 'up', pit: true });
+    b.solids.push([x0, ceilY - 36, len, 36]);
+    b.solids.push([x0 + 280, gy, 320, WORLD_H - gy + 80]);
+    b.spikes.push({ x: x0 + 130, y: ceilY, w: 60, h: 22, dir: 'down' });
+    b.spikes.push({ x: x0 + 410, y: gy - 22, w: 60, h: 22, dir: 'up' });
+    b.spikes.push({ x: x0 + 700, y: ceilY, w: 60, h: 22, dir: 'down' });
+    b.gravZones = b.gravZones || [];
+    b.gravZones.push({ x0: x0 + 20, x1: x0 + 290, y0: ceilY, y1: gy });
+    b.gravZones.push({ x0: x0 + 580, x1: x0 + len - 30, y0: ceilY, y1: gy });
+    b.x = x0 + len;
+    b.ground(280);
+    return x0;
+  };
+
   v11Inject = function (b, kb, ku) {
     const c = V11.ctx;
     if (!c || b._v11) return;
@@ -1715,15 +2402,50 @@ function resize() {
     seg.run(b, 360, { flag: true, coins: [[180, -60]] });
   };
 
+  LB.prototype.finish = function (keyBack, keyUp) {
+    v11Inject(this, keyBack, keyUp);
+    const cleanFlags = [];
+    for (let i = 0; i < this.flags.length; i++) {
+      const f = this.flags[i];
+      const tooClose = cleanFlags.some((cf) => Math.hypot(cf.x - f.x, cf.y - f.y) < 750);
+      if (!tooClose) cleanFlags.push({ x: f.x, y: f.y, on: false });
+    }
+    const off = { solo: 0, coop: 4, party: 8 }[G.mode] || 0;
+    const key = G.lvIdx >= 0 ? G.lvIdx : 1;
+    const lv = {
+      name: this.name, hint: this.hint, hue: (this.hue + key * 37 + off * 53) % 360, coop: this.coop, traps: this.traps,
+      skyTheme: SKY_THEMES[(key * 3 + off) % SKY_THEMES.length],
+      w: this.x, h: this.h, wj: this.wj, stalactites: this.stalactites, meteors: this.meteors, risers: this.risers, spawn: this.spawn,
+      solids: this.solids, spikes: this.spikes, crumbles: this.crumbles, springs: this.springs,
+      crushers: this.crushers, boulders: this.boulders, sweepers: this.sweepers,
+      plates: this.plates, gates: this.gates, ropes: this.ropes,
+      slopes: this.slopes || [], bonks: this.bonks || [], rocks: this.rocks || [],
+      lasers: this.lasers || [], blackHoles: this.blackHoles || [], mimics: this.mimics || [],
+      conveyors: this.conveyors || [], pendulums: this.pendulums || [], turrets: this.turrets || [],
+      phantoms: this.phantoms || [], gravZones: this.gravZones || [],
+      coins: this.coins.map((c, i) => ({ x: c.x, y: c.y, id: i })),
+      flags: cleanFlags,
+      key: this.key || { x: this.x - (keyBack || 520), y: this.gy - (keyUp || 56) },
+      exit: this.exitOv ? Object.assign({}, this.exitOv) : { x: this.x - 150, y: this.gy - 74, w: 54, h: 74 },
+    };
+    const scaleFactor = G.mode === 'party' ? hazardK(partyN()) * 1.22 : 1.25;
+    (lv.boulders || []).forEach((q) => { q.speed *= scaleFactor; });
+    (lv.crushers || []).forEach((q) => { q.period = Math.max(1.45, q.period / scaleFactor); });
+    (lv.meteors || []).forEach((q) => { q.period = Math.max(1.6, q.period / scaleFactor); });
+    (lv.sweepers || []).forEach((q) => { q.speed *= 1.15; });
+    return lv;
+  };
+
   function buildDescentStage(title, hue, seed, mode) {
     const W = 980, H = 2750;
-    const b = new LB(title + ' [DESCENT ↓]', 'Đi từ ĐỈNH xuống ĐÁY vực sâu! Cẩn thận đá lăn & bẫy ngầm mỗi tầng!', hue, mode === 'coop');
+    const b = new LB(title + ' [DESCENT ↓]', 'Đi từ ĐỈNH xuống ĐÁY vực sâu! Cẩn thận đá lăn, tia laser & bẫy ngầm mỗi tầng!', hue, mode === 'coop');
     b.h = H; b.wj = true; b.x = W;
     b.solids.push([0, 0, 40, H + 200]);
     b.solids.push([W - 40, 0, 40, H + 200]);
     b.solids.push([60, 190, 260, 24]);
     b.spawn = [120, 190 - PH];
     let curY = 310, fIdx = 0;
+    b.lasers = [];
     while (curY < H - 280) {
       const gapX = 110 + Math.floor(hash1(seed * 13 + fIdx * 7.1) * (W - 380));
       const gapW = 145 + (fIdx % 3) * 20;
@@ -1734,6 +2456,7 @@ function resize() {
         b.spikes.push({ x: spX, y: curY - 22, w: 72, h: 22, dir: 'up' });
       }
       if (fIdx % 3 === 0) b.boulders.push({ x0: 70, x1: W - 70, y: curY, r: 24, speed: 3.6 + (fIdx % 3) * 0.5, off: fIdx * 1.1, cx: 120, rot: 0 });
+      if (fIdx % 4 === 1) b.lasers.push({ x: W / 2, y: curY - 75, len: 95, spd: 2.1 * (fIdx % 2 ? 1 : -1), off: fIdx, blades: 2 });
       if (fIdx % 4 === 2) b.flags.push({ x: gapX > W / 2 ? 140 : W - 140, y: curY });
       b.coin(gapX + gapW / 2, curY - 35);
       curY += 165; fIdx++;
@@ -1763,6 +2486,14 @@ function resize() {
     for (const f of lv.flags) f.x = W - f.x;
     for (const c of lv.coins) c.x = W - c.x;
     for (const q of (lv.stalactites || [])) q.x = W - q.x - q.w;
+    for (const ls of (lv.lasers || [])) ls.x = W - ls.x;
+    for (const bh of (lv.blackHoles || [])) bh.x = W - bh.x;
+    for (const m of (lv.mimics || [])) { m.x = W - m.x; m.x0 = m.x; }
+    for (const cv of (lv.conveyors || [])) { cv.x = W - cv.x - cv.w; cv.spd = -cv.spd; }
+    for (const pd of (lv.pendulums || [])) pd.x = W - pd.x;
+    for (const trt of (lv.turrets || [])) trt.x = W - trt.x;
+    for (const ph of (lv.phantoms || [])) ph.x = W - ph.x - ph.w;
+    for (const gz of (lv.gravZones || [])) { const n0 = W - gz.x1, n1 = W - gz.x0; gz.x0 = n0; gz.x1 = n1; }
     lv.sweepers = [];
     lv.traps = [];
     lv.slopes = [];
@@ -1772,7 +2503,14 @@ function resize() {
     return lv;
   }
 
+  // 22 Mô-đun bẫy đơn & tổ hợp biến thiên theo cấp độ d (0.2 -> 1.0):
   const POOL_SOLO = [
+    (b, d, m) => seg.laserCorridor(b, 840, d),
+    (b, d, m) => seg.blackHoleVortex(b, 660, d),
+    (b, d, m) => seg.phantomBridge(b, 4 + (d > 0.5 ? 2 : 1), d),
+    (b, d, m) => seg.conveyorPendulum(b, 840, d),
+    (b, d, m) => seg.sniperBastion(b, 820, d, m),
+    (b) => seg.gravityPillars(b, 920),
     (b, d, m) => seg.glacierSled(b, Math.round(1500 + d * 350), m),
     (b, d, m) => seg.judgmentCorridor(b, 860, m),
     (b) => seg.antiGravChamber(b, 740),
@@ -1792,13 +2530,15 @@ function resize() {
   ];
 
   const POOL_TEAM = [
+    (b, d, m) => { seg.sniperBastion(b, 820, d, m); seg.coopDualHold(b, 480, { flag: true }); },
+    (b, d, m) => { seg.conveyorPendulum(b, 840, d); seg.partyStackCliff(b, Math.round(205 + d * 60)); baseDrop(b); },
     (b, d, m) => seg.glacierSled(b, Math.round(1550 + d * 350), m),
     (b, d, m) => seg.judgmentCorridor(b, 880, m),
-    (b) => seg.antiGravChamber(b, 740),
-    (b, d) => { seg.partyStackCliff(b, Math.round(205 + d * 65)); baseDrop(b); seg.passCollapse(b, 360); },
-    (b, d) => { seg.coopDualHold(b, Math.round(460 + d * 150), { flag: true }); seg.delayedAmbush(b, 680); },
-    (b) => { seg.betray(b, {}); seg.movingGap(b, 140); },
-    (b) => { seg.sawArena(b, 14, 4); seg.fakePlates(b, 5, { flag: true }); },
+    (b, d) => { seg.laserCorridor(b, 820, d); seg.passCollapse(b, 360); },
+    (b, d) => { seg.blackHoleVortex(b, 660, d); seg.delayedAmbush(b, 680); },
+    (b, d) => { seg.phantomBridge(b, 5, d); seg.movingGap(b, 140); },
+    (b) => { seg.gravityPillars(b, 920); seg.sawArena(b, 14, 4); },
+    (b) => { seg.betray(b, {}); seg.fakePlates(b, 5, { flag: true }); },
     (b, d) => { seg.compactor(b, 1320, { speed: +(2.05 + d * 0.7).toFixed(2) }); seg.antiBaitSpikes(b, 750, { flag: true }); },
   ];
 
@@ -1818,8 +2558,8 @@ function resize() {
       const season = SEASONS[(idx + (mode === 'coop' ? 2 : mode === 'party' ? 4 : 0)) % SEASONS.length];
       const stageTitle = season.name + ' #' + (idx + 1);
 
-      if (idx % 7 === 3) return buildDescentStage(stageTitle, season.hue, idx + 1, mode);
-      if (mode !== 'coop' && idx % 7 === 6) {
+      if (idx % 8 === 3) return buildDescentStage(stageTitle, season.hue, idx + 1, mode);
+      if (mode !== 'coop' && idx % 8 === 7) {
         const nFloors = 4 + Math.min(4, Math.floor(d * 4));
         return buildTower({
           name: stageTitle + ' [TOWER ↑]',
@@ -1834,31 +2574,33 @@ function resize() {
       const b = new LB(
         stageTitle,
         season.biome === 'water'
-          ? '🌊 TÀU NGẦM ĐẠI DƯƠNG: Nhấp Nhảy liên tục để bơi né Cá Mập Megalodon!'
+          ? '🌊 BƠI LẶN ĐẠI DƯƠNG: Thỏ bơi ngang đạp nước — Coi chừng hàm răng Cá Mập Megalodon!'
           : season.biome === 'space'
-          ? '🚀 VŨ TRỤ KHÔNG TRỌNG LỰC: Giữ Nhảy bay Jetpack & Đi bộ lộn ngược trên trần!'
+          ? '🚀 VŨ TRỤ KHÔNG TRỌNG LỰC: Bay Jetpack & Lộn ngược bước đi trên trần nhà!'
           : season.biome === 'ice'
-          ? '🧊 BĂNG HÀ VĨNH CỬU: Phải đi chung trên Tảng Băng Duy Nhất (đi lẻ băng sẽ nổ)!'
-          : 'Độ khó Sinh Viên · Bẫy tự động biến hóa sau mỗi lần chết!',
+          ? '🧊 BĂNG HÀ VĨNH CỬU: Đi chung trên Tảng Băng Duy Nhất (đi lẻ băng sẽ nổ)!'
+          : 'Độ khó Sinh Viên · Hơn 1.120 biến thể bẫy ngẫu nhiên!',
         season.hue,
         mode === 'coop'
       );
 
-      if (idx % 4 === 2 && idx % 7 !== 5) seg.chaser(b, Math.round(124 + d * 34), 3.8);
+      if (idx % 5 === 4 && idx % 8 !== 5) seg.chaser(b, Math.round(124 + d * 34), 3.8);
       seg.run(b, 420, { flag: true, spikes: [[180, 64]], coins: [[210, -110]] });
 
       const modCount = 5 + (idx >= 35 ? 1 : 0) + (idx >= 70 ? 1 : 0);
-      let lastSi = -1;
+      const usedMods = new Set();
       for (let step = 0; step < modCount; step++) {
         baseDrop(b);
         if (season.biome === 'ice' && step === 1) { seg.glacierSled(b, 1650, mode); continue; }
-        if (season.biome === 'space' && step === 1) { seg.antiGravChamber(b, 780); continue; }
+        if (season.biome === 'space' && step === 1) { seg.gravityPillars(b, 920); continue; }
         if (mode !== 'solo' && step % 2 === 0) {
-          POOL_TEAM[(idx * 3 + step * 5) % POOL_TEAM.length](b, d, mode);
+          const ti = (idx * 5 + step * 7) % POOL_TEAM.length;
+          POOL_TEAM[ti](b, d, mode);
         } else {
-          let si = (idx * 7 + step * 11 + (mode === 'coop' ? 3 : mode === 'party' ? 9 : 0)) % POOL_SOLO.length;
-          if (si === lastSi) si = (si + 1) % POOL_SOLO.length;
-          lastSi = si;
+          // Chọn mô-đun theo hàm băm phi tuyến đảm bảo trong cùng 1 màn không lặp lại bất kỳ bẫy nào
+          let si = Math.floor(hash1((idx + 1) * 31.7 + step * 19.3 + (mode === 'coop' ? 7 : mode === 'party' ? 13 : 0)) * POOL_SOLO.length) % POOL_SOLO.length;
+          while (usedMods.has(si)) si = (si + 1) % POOL_SOLO.length;
+          usedMods.add(si);
           POOL_SOLO[si](b, d, mode);
         }
       }
@@ -1879,18 +2621,18 @@ function resize() {
       }
       if (season.biome === 'water') {
         lv.sharks = [];
-        for (let sx = 600; sx < lv.w - 650; sx += 1050) {
+        for (let sx = 580; sx < lv.w - 600; sx += 980) {
           lv.sharks.push({
-            x0: sx, x1: Math.min(lv.w - 300, sx + 920),
-            baseY: GY - 110, minY: GY - 320, maxY: GY - 35,
-            cx: sx, cy: GY - 110, speed: 3.5 + d * 1.5, off: sx * 0.01, dir: 1,
+            x0: sx, x1: Math.min(lv.w - 280, sx + 880),
+            baseY: GY - 135, minY: GY - 340, maxY: GY - 55,
+            cx: sx, cy: GY - 135, speed: 3.6 + d * 1.5, off: sx * 0.01, dir: 1,
           });
         }
       }
       if (lv.w > 2400 && idx % 2 === 0) {
         lv.portals = [{ x0: 920, y0: GY - 55, x1: 1480, y1: GY - 185 }];
       }
-      if (idx % 7 === 5) return reverseLevelHorizontally(lv);
+      if (idx % 8 === 5) return reverseLevelHorizontally(lv);
       return lv;
     } catch (err) {
       console.error('Fallback stage error:', err);
@@ -1919,9 +2661,9 @@ function resize() {
 })();
 `;
 
-code = code.slice(0, lastClose) + v14Payload + '\n})();\n';
+code = code.slice(0, lastClose) + v15Payload + '\n})();\n';
 fs.writeFileSync(gamePath, code, 'utf8');
-console.log('✅ [V14.0 ULTIMATE] Đã nâng cấp thành công public/game.js (300 màn chơi + Không bao giờ lỗi màn hình trống)!');
+console.log('✅ [V15.0 REMASTERED] Đã nâng cấp đồ họa, hiệu ứng bơi lặn, sửa lỗi đè gai & 1.120+ biến thể bẫy!');
 
 if (fs.existsSync(cssPath)) {
   let css = fs.readFileSync(cssPath, 'utf8');
@@ -1943,7 +2685,7 @@ body.force-landscape #hud, body.force-landscape #touch {
 
 if (fs.existsSync(htmlPath)) {
   let html = fs.readFileSync(htmlPath, 'utf8');
-  html = html.replace(/game\.js(\?v=[^"']*)?/, 'game.js?v=14.0');
+  html = html.replace(/game\.js(\?v=[^"']*)?/, 'game.js?v=15.0');
   fs.writeFileSync(htmlPath, html, 'utf8');
-  console.log('✅ [V14.0] Đã tự động cập nhật game.js?v=14.0 trong index.html');
+  console.log('✅ [V15.0] Đã tự động cập nhật game.js?v=15.0 trong index.html');
 }
