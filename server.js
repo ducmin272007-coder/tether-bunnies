@@ -1,16 +1,8 @@
 /**
- * Tether Bunnies v8 - Game Server
- *  - Socket.IO rooms (up to 10 players) with 20Hz position batching
- *  - Express JSON API: 6-char cloud-sync saves (persistent JSON file), admin auth
- *  - In-memory rate limiting
- *
- * Environment variables:
- *   PORT        HTTP port (default 3000)
- *   ADMIN_KEY   admin password. If unset, a random one is generated and printed at startup.
- *   DATA_DIR    where saves.json lives (default ./data). On Render's free plan the disk is
- *               ephemeral, so mount a persistent disk and point DATA_DIR at it to keep saves.
+ * Tether Bunnies v13.0 - Game Server (30Hz Low-Latency + Anti-Duplicate Ghost + Auto-Patcher)
  */
 'use strict';
+
 try { require('./patch_game.js'); } catch (e) { console.error('[PATCH ERROR]', e); }
 
 const fs = require('fs');
@@ -21,7 +13,7 @@ const express = require('express');
 const { Server } = require('socket.io');
 
 const PORT = process.env.PORT || 3000;
-const BROADCAST_HZ = 20;
+const BROADCAST_HZ = 30; // Tăng từ 20Hz lên 30Hz để triệt tiêu delay và hiện tượng bay lơ lửng
 const MAX_PLAYERS = 10;
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
@@ -39,10 +31,16 @@ if (!ADMIN_KEY) { ADMIN_KEY = crypto.randomBytes(6).toString('hex'); adminKeyGen
 const app = express();
 app.set('trust proxy', 1);
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: '*' }, perMessageDeflate: false, pingInterval: 10000, pingTimeout: 30000, maxHttpBufferSize: 2e6 });
+const io = new Server(server, {
+  cors: { origin: '*' },
+  perMessageDeflate: false,
+  pingInterval: 5000,
+  pingTimeout: 12000,
+  maxHttpBufferSize: 2e6,
+});
 
 app.use(express.json({ limit: '2mb' }));
-app.use((err, req, res, next) => {            // malformed / oversized JSON
+app.use((err, req, res, next) => {
   if (err) return res.status(400).json({ ok: false, error: 'bad_request' });
   next();
 });
@@ -56,11 +54,10 @@ app.use(express.static(path.join(__dirname, 'public'), {
 }));
 
 const rooms = new Map();
-const saves = new Map();     // CODE -> { rev, data, updated }
+const saves = new Map();
 app.get('/health', (req, res) => res.json({ ok: true, rooms: rooms.size, saves: saves.size }));
 
-// ---------------------------------------------------------------- rate limiting
-const buckets = new Map();   // key -> { n, reset }
+const buckets = new Map();
 function hit(key, limit, windowMs) {
   const now = Date.now();
   let b = buckets.get(key);
@@ -81,7 +78,6 @@ function limiter(name, limit, windowMs) {
   };
 }
 
-// ---------------------------------------------------------------- persistent saves
 try {
   fs.mkdirSync(DATA_DIR, { recursive: true });
   if (fs.existsSync(SAVE_FILE)) {
@@ -102,10 +98,9 @@ function flush() {
   const obj = {}; saves.forEach((v, k) => { obj[k] = v; });
   const tmp = SAVE_FILE + '.tmp';
   fs.writeFile(tmp, JSON.stringify(obj), (err) => {
-    if (err) { saving = false; console.warn('  [saves] write failed: ' + err.message); return; }
-    fs.rename(tmp, SAVE_FILE, (err2) => {
+    if (err) { saving = false; return; }
+    fs.rename(tmp, SAVE_FILE, () => {
       saving = false;
-      if (err2) console.warn('  [saves] rename failed: ' + err2.message);
       if (saveAgain) { saveAgain = false; persist(); }
     });
   });
@@ -178,9 +173,8 @@ app.post('/api/sync/push', syncLimit, (req, res) => {
   res.json({ ok: true, rev: s.rev });
 });
 
-// ---------------------------------------------------------------- admin auth
 const ADMIN_FAIL_LIMIT = 5, ADMIN_WINDOW = 5 * 60 * 1000, TOKEN_TTL = 12 * 60 * 60 * 1000;
-const adminTokens = new Map();   // token -> expiry
+const adminTokens = new Map();
 
 function safeEqual(a, b) {
   const ha = crypto.createHash('sha256').update(String(a)).digest();
@@ -209,7 +203,6 @@ app.post('/api/admin/verify', limiter('verify', 30, 60000), (req, res) => {
 });
 setInterval(() => { const now = Date.now(); for (const [t, e] of adminTokens) if (now > e) adminTokens.delete(t); }, 600000).unref();
 
-// ---------------------------------------------------------------- rooms / sockets
 function genCode() {
   for (let attempt = 0; attempt < 1000; attempt++) {
     let c = '';
@@ -225,8 +218,9 @@ function cleanName(n, slot) {
   return s || defaults[slot % defaults.length] || 'Bunny';
 }
 
-function freeSlot(room) {
+function freeSlot(room, preferSlot) {
   const used = new Set([...room.players.values()].map((p) => p.slot));
+  if (Number.isInteger(preferSlot) && preferSlot >= 0 && preferSlot < MAX_PLAYERS && !used.has(preferSlot)) return preferSlot;
   for (let i = 0; i < MAX_PLAYERS; i++) if (!used.has(i)) return i;
   return -1;
 }
@@ -246,15 +240,40 @@ function rosterOf(room) {
 }
 
 function broadcastRoster(room) { io.to(room.code).emit('roster', rosterOf(room)); }
-
 function cleanSkin(s) { return String(s || 'classic').replace(/[^a-z0-9_]/gi, '').slice(0, 24) || 'classic'; }
 
-function attach(socket, room, name, skin) {
+// Dọn sạch nhân vật cũ bị treo khi người chơi chuyển mạng (Wi-Fi <-> 4G) để KHÔNG BAO GIỜ tạo ra 2 bản sao!
+function attach(socket, room, name, skin, cid) {
   if (room.reap) { clearTimeout(room.reap); room.reap = null; }
-  const slot = freeSlot(room);
+  const cleanCid = String(cid || '').slice(0, 36);
+  const trimmedName = String(name || '').replace(/[<>&"']/g, '').trim().slice(0, 12);
+  let reclaimedSlot = -1;
+  let wasHost = false;
+
+  for (const [oldId, p] of room.players.entries()) {
+    if (oldId === socket.id) continue;
+    const sameCid = cleanCid && p.cid && p.cid === cleanCid;
+    const staleSameName = trimmedName && p.name === trimmedName && (!p.socket.connected || Date.now() - (p.lastSeen || 0) > 2500);
+    if (sameCid || staleSameName) {
+      reclaimedSlot = p.slot;
+      if (room.hostId === oldId) wasHost = true;
+      room.positions.delete(p.slot);
+      room.players.delete(oldId);
+      try { p.socket.leave(room.code); p.socket.disconnect(true); } catch (e) {}
+    }
+  }
+
+  const slot = freeSlot(room, reclaimedSlot);
   if (slot < 0) return -1;
-  room.players.set(socket.id, { slot, name: cleanName(name, slot), skin: cleanSkin(skin), socket });
-  if (!room.hostId) room.hostId = socket.id;
+  room.players.set(socket.id, {
+    slot,
+    name: cleanName(name, slot),
+    skin: cleanSkin(skin),
+    cid: cleanCid,
+    lastSeen: Date.now(),
+    socket,
+  });
+  if (!room.hostId || wasHost || !room.players.has(room.hostId)) room.hostId = socket.id;
   socket.join(room.code);
   socket.data.code = room.code;
   return slot;
@@ -268,18 +287,17 @@ io.on('connection', (socket) => {
     const mode = (data && data.mode) === 'party' ? 'party' : 'coop';
     const room = { code, mode, players: new Map(), hostId: null, lv: 0, pn: 0, positions: new Map() };
     rooms.set(code, room);
-    const slot = attach(socket, room, data && data.name, data && data.skin);
+    const slot = attach(socket, room, data && data.name, data && data.skin, data && data.cid);
     cb({ ok: true, code, slot, host: slot, mode });
     broadcastRoster(room);
   });
 
   socket.on('join', (data, cb) => {
     if (typeof cb !== 'function') return;
-    if (socket.data.code) return cb({ ok: false, error: 'Already in a room.' });
     const code = String((data && data.code) || '').trim().toUpperCase();
     const room = rooms.get(code);
     if (!room) return cb({ ok: false, error: 'Room "' + code + '" was not found.' });
-    const slot = attach(socket, room, data && data.name, data && data.skin);
+    const slot = attach(socket, room, data && data.name, data && data.skin, data && data.cid);
     if (slot < 0) return cb({ ok: false, error: 'Room is full (max 10 bunnies).' });
     const host = room.players.get(room.hostId);
     cb({ ok: true, code, slot, host: host ? host.slot : 0, lv: room.lv, pn: room.pn || 0, mode: room.mode });
@@ -291,6 +309,7 @@ io.on('connection', (socket) => {
     if (!room) return;
     const p = room.players.get(socket.id);
     if (!p || !Array.isArray(pkt)) return;
+    p.lastSeen = Date.now();
     room.positions.set(p.slot, [p.slot, pkt[0], pkt[1], pkt[2], pkt[3], pkt[4] || 0]);
   });
 
@@ -301,12 +320,12 @@ io.on('connection', (socket) => {
     if (!room) return;
     const p = room.players.get(socket.id);
     if (!p) return;
+    p.lastSeen = Date.now();
     e.s = p.slot;
     if (e.t === 'lvl' || e.t === 'restart' || e.t === 'custom_lvl' || e.t === 'pcount') {
-      if (socket.id !== room.hostId) return;          // host only
+      if (socket.id !== room.hostId) return;
       if (e.t === 'lvl') room.lv = e.n | 0;
     }
-    // v11: the host fixes the party size N (1..10); late joiners receive it in the join reply / roster
     if (room.mode === 'party') {
       const pn = e.t === 'pcount' ? e.n : ((e.t === 'lvl' || e.t === 'restart') ? e.pn : 0);
       if (pn !== 0 && pn !== undefined) {
@@ -314,12 +333,11 @@ io.on('connection', (socket) => {
         e.pn = room.pn; if (e.t === 'pcount') e.n = room.pn;
       }
     }
-    // v11 troll traps: accept only well-formed trap events, relayed to everybody else
     if (e.t === 'trap') {
-      const okA = ['fire', 'hit', 'done', 'reset', 'flee', 'fix'];
-      if (!Number.isInteger(e.i) || e.i < 0 || e.i > 64 || okA.indexOf(e.a) < 0) return;
+      const okA = ['fire', 'hit', 'done', 'reset', 'flee', 'fix', 'sled', 'sync'];
+      if (!Number.isInteger(e.i) || e.i < 0 || e.i > 128 || okA.indexOf(e.a) < 0) return;
       if (typeof e.v !== 'number' || !isFinite(e.v)) e.v = 0;
-      if ((e.a === 'done' || e.a === 'reset') && socket.id !== room.hostId) return;   // only the host judges the saw arena
+      if ((e.a === 'done' || e.a === 'reset') && socket.id !== room.hostId) return;
     }
     socket.to(code).emit('ev', e);
   });
@@ -370,11 +388,7 @@ setInterval(() => {
 
 server.listen(PORT, () => {
   console.log('  ==================================================');
-  console.log('    Tether Bunnies v8: Co-op Chaos & Party Stacking');
+  console.log('    Tether Bunnies v13.0: University Chaos Edition');
   console.log('    Broadcast Rate: ' + BROADCAST_HZ + 'Hz   Max Players: ' + MAX_PLAYERS);
-  console.log('    Saves: ' + saves.size + ' loaded from ' + SAVE_FILE);
-  if (adminKeyGenerated) console.log('    ADMIN_KEY not set -> temporary admin password: ' + ADMIN_KEY);
-  else console.log('    Admin password: from ADMIN_KEY env var');
   console.log('  ==================================================');
-  console.log('  Local:   http://localhost:' + PORT);
 });
